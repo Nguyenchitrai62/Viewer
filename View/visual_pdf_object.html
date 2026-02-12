@@ -1,0 +1,2534 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Example Search</title>
+    <!-- Favicon (match portfolio index) -->
+    <link rel="icon" type="image/png" href="./images/LOGO.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./images/LOGO.png">
+    <style>
+        :root {
+            --background-main: #f4f6f9; /* Nền xám nhạt cho toàn bộ trang */
+            --background-panel: #ffffff; /* Nền trắng cho panel điều khiển */
+            --background-canvas: #ffffff; /* Nền trắng cho canvas vẽ */
+            --background-hover: #f0f5ff; /* Nền khi di chuột */
+            --background-button: #f8f9fa;
+            --background-button-hover: #e9ecef;
+            --border-color-light: #e9ecef;
+            --border-color-dark: #dee2e6;
+            --text-color-primary: #212529;
+            --text-color-secondary: #6c757d;
+            --accent-color: #007bff; /* Màu nhấn chính (xanh dương) */
+            --success-color: #28a745; /* Màu cho hành động thành công (xuất file) */
+            --danger-color: #dc3545; /* Màu cho hành động hủy/cảnh báo */
+            --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            --border-radius: 8px;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--background-main);
+            color: var(--text-color-primary);
+            font-size: 14px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        #main-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+        /* Bảng điều khiển bên trái */
+        #layer-controls {
+            width: 320px;
+            height: 100%;
+            background-color: var(--background-panel);
+            border-right: 1px solid var(--border-color-light);
+            padding: 20px;
+            overflow-y: auto;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            transition: width 0.3s ease;
+        }
+        #layer-controls h3 {
+            margin: 0 0 15px 0;
+            border-bottom: 1px solid var(--border-color-light);
+            padding-bottom: 15px;
+            color: var(--text-color-primary);
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+        /* Các nút hành động */
+        #layer-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        #layer-actions button, .crop-toolbar button, #btn-export-svg {
+            padding: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            border: 1px solid var(--border-color-dark);
+            background-color: var(--background-button);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+            text-align: center;
+        }
+        #layer-actions button:hover, .crop-toolbar button:hover {
+            background-color: var(--background-button-hover);
+            border-color: #b6bec6;
+        }
+        .crop-toolbar button.active {
+            background-color: #28a745;
+            border-color: #28a745;
+            color: white;
+        }
+        #btn-draw-rect {
+            background-color: white;
+            color: black;
+            border-color: var(--accent-color);
+        }
+        #btn-draw-rect:hover {
+             background-color: #f8f9fa;
+             border-color: #0062cc;
+        }
+        #btn-draw-rect.active {
+            background-color: #dc3545;
+            border-color: #dc3545;
+        }
+        #btn-export-svg {
+            width: 100%;
+            background-color: var(--success-color);
+            color: white;
+            border: none;
+        }
+        #btn-export-svg:hover {
+            background-color: #218838;
+        }
+        /* Danh sách Layer */
+        #layer-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin: 0 -10px; /* Bù trừ padding cho item */
+        }
+        .layer-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 2px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            transition: background-color 0.2s ease;
+            cursor: pointer;
+            user-select: none;
+        }
+        .layer-item:hover {
+            background-color: var(--background-hover);
+        }
+        .layer-item input[type="checkbox"] {
+           margin-right: 12px;
+           width: 16px;
+           height: 16px;
+           cursor: pointer;
+        }
+        .layer-item label {
+            flex-grow: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--text-color-primary);
+            cursor: pointer;
+        }
+        .color-swatch {
+            width: 18px;
+            height: 18px;
+            border: 1px solid var(--border-color-dark);
+            margin-right: 10px;
+            flex-shrink: 0;
+            border-radius: 4px;
+        }
+        .layer-icon {
+            margin-right: 10px;
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-color-secondary);
+        }
+        .layer-icon svg {
+            width: 18px;
+            height: 18px;
+        }
+        /* Vùng hiển thị Canvas */
+        #canvas-container {
+            flex-grow: 1;
+            position: relative;
+            background-color: var(--background-main); /* Nền xung quanh canvas */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #drawing-canvas {
+            background-color: var(--background-canvas); /* Nền trắng của canvas */
+            box-shadow: var(--shadow);
+        }
+        /* Vùng kéo thả file */
+        #drop-zone {
+            position: absolute;
+            inset: 20px;
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(5px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: var(--text-color-secondary);
+            font-size: 1.5em;
+            text-align: center;
+            border: 2px dashed var(--border-color-dark);
+            border-radius: var(--border-radius);
+            z-index: 10;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        #drop-zone.drag-over {
+            background-color: rgba(0, 123, 255, 0.1);
+            border-color: var(--accent-color);
+        }
+        #drop-zone.hidden {
+            display: none;
+        }
+        .info-panel {
+            padding: 20px;
+            color: var(--text-color-secondary);
+            text-align: center;
+            font-style: italic;
+        }
+        /* Modal dialog */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            animation: fadeIn 0.3s;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .modal-content {
+            background-color: var(--background-panel);
+            padding: 25px;
+            border: none;
+            width: 90%;
+            max-width: 900px;
+            border-radius: var(--border-radius);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation: slideIn 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        @keyframes slideIn { from { top: 40%; opacity: 0; } to { top: 50%; opacity: 1; } }
+        .close {
+            color: var(--text-color-secondary);
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .close:hover {
+            color: var(--text-color-primary);
+        }
+        #crop-canvas {
+            border: 1px solid var(--border-color-light);
+            margin: 15px 0;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+        #search-summary {
+            margin-top: auto; /* Đẩy xuống cuối */
+            padding-top: 15px;
+            border-top: 1px solid var(--border-color-light);
+            display: none;
+        }
+        #search-summary table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        #search-summary th, #search-summary td {
+            border: 1px solid var(--border-color-light);
+            padding: 6px 8px;
+            text-align: left;
+        }
+        #search-summary thead {
+             background-color: #f8f9fa;
+        }
+        #found-count {
+            margin-top: 15px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--accent-color);
+            display: none;
+        }
+        #btn-export-svg-container {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color-light);
+        }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <div id="layer-controls">
+            <h3>Bảng điều khiển Layer</h3>
+            <div id="layer-actions">
+                <button id="btn-draw-rect">Draw BBox to Find</button>
+                <button id="btn-reset-filter">Reset Filter</button>
+            </div>
+            <div id="search-info"
+                style="margin-bottom: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px; font-size: 12px; display: none;">
+                <div id="similar-count"></div>
+                <div style="font-style: italic; color: #666; margin-top: 4px;">Auto-search after crop</div>
+            </div>
+            <div id="layer-list">
+                <div class="info-panel">
+                    <p>Drag <code>layered_drawings.json</code> into the canvas area to start.</p>
+                </div>
+            </div>
+            <div id="search-summary" style="display: none;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <thead>
+                        <tr style="background-color: #f8f9fa;">
+                            <th style="border: 1px solid #ddd; padding: 4px; text-align: left;">Search Type</th>
+                            <th style="border: 1px solid #ddd; padding: 4px; text-align: center;">Count</th>
+                            <th style="border: 1px solid #ddd; padding: 4px; text-align: center;">Thời gian (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="search-summary-body">
+                    </tbody>
+                </table>
+            </div>
+            <div id="found-count" style="display: none;"></div>
+            <div id="btn-export-svg-container" style="margin-top: 15px;">
+                <button id="btn-export-svg">Export SVG</button>
+            </div>
+        </div>
+        <div id="canvas-container">
+            <canvas id="drawing-canvas"></canvas>
+            <div id="svg-text-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:5;"></div>
+            <div id="svg-graphic-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:4;"></div>
+            <div id="drop-zone">
+                <p>Drop JSON file here</p>
+            </div>
+
+            
+        </div>
+    </div>
+    <div id="crop-modal" class="modal">
+        <div class="modal-content" style="display: flex; gap: 20px;">
+             <span class="close">&times;</span>
+            <div class="crop-main" style="flex: 1; padding: 10px;">
+                <h3>Crop Region</h3>
+                <p id="rect-coords" style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 10px;"></p>
+                <canvas id="crop-canvas" width="500" height="400"></canvas>
+            </div>
+            <div class="crop-sidebar" style="width: 250px; padding: 10px; border-left: 1px solid var(--border-color-light); display: flex; flex-direction: column; gap: 10px;">
+                 <h4>Selection Options</h4>
+                 <div class="crop-toolbar" style="display: flex; flex-direction: column; gap: 10px;">
+                    <button id="btn-hide-mode">Hide on hover</button>
+                    <button id="btn-show-mode">Show on hover</button>
+                </div>
+                <h4 style="margin-top: 15px;">Command Stats</h4>
+                <ul id="command-count" style="list-style-type: none; font-size: 13px; color: var(--text-color-secondary); max-height: 250px; overflow-y: auto; "></ul>
+                <div style="display:flex; gap:8px; margin-top:8px;">
+                    <button id="btn-search-now" style="flex:1; background-color:var(--accent-color); color:white; border:none; padding:8px; border-radius:6px;">Search</button>
+                    <button id="btn-cancel-search" style="flex:1; background-color:var(--background-button); padding:8px; border:1px solid var(--border-color-dark); border-radius:6px;">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Blocking processing overlay -->
+    <div id="loading-popup" style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:2000; align-items:center; justify-content:center;">
+        <div style="background:white; padding:24px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.3); text-align:center;">
+            <div style="width:40px;height:40px;border:4px solid #f3f3f3;border-top-color:var(--accent-color);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px"></div>
+            <div style="font-weight:600;color:#333;">Processing...</div>
+        </div>
+    </div>
+    <style>@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style>
+
+    <script>
+        // Config
+        const CONFIG = {
+            SIMILARITY_TOLERANCE: 0.2, // Dung sai độ dài để so sánh tương tự (pixel)
+            MIN_MATCHING_ITEMS_RATIO: 0.5, // Ngưỡng số lượng lệnh tối thiểu (internal)
+            SIMILARITY_THRESHOLD_GREEN: 0.6, // Ngưỡng tương tự cho logic xanh
+            SIMILARITY_THRESHOLD_PURPLE: 0.05, // Ngưỡng tương tự cho logic tím
+            CONFIDENCE_DISPLAY_THRESHOLD: 0.01, // Ngưỡng confidence tối thiểu để hiển thị kết quả
+            MAX_COMMANDS_PER_TYPE: 50, // Số lệnh tối đa mỗi loại (l, c, qu) để lọc
+            MAX_ANCHOR_PATTERNS: 1, // Số pattern neo tối đa để tìm kiếm
+            TIGHT_BBOX_PADDING_RATIO: 0.5, // Tỷ lệ padding cho rect chặt (pixel)
+            CROP_HIT_TOLERANCE: 8, // Dung sai hit-test khi crop (pixel)
+            TIMEOUT_MS: 5000, // Thời gian timeout cho tìm kiếm (ms)
+            ZOOM_STEP: 1.2, // Bước zoom
+            INITIAL_ZOOM: 1.0, // Zoom ban đầu
+            ZOOM_FIT_MARGIN: 0.95, // Margin khi fit view
+            SIMILAR_BBOX_LINE_WIDTH: 5, // Độ dày nét vẽ rect tương tự (xanh lá & tím)
+            MIN_PATTERN_LENGTH: 20, // Số lệnh tối thiểu để bỏ qua kiểm tra độ dài lệnh
+            OVERLAP_THRESHOLD: 0.2, // Ngưỡng chồng lấn cho phép giữa các rect tương tự (20%)
+            MERGE_RESULTS: true, // Merge kết quả 2 logic xanh và tím
+        };
+
+        const canvas = document.getElementById('drawing-canvas');
+        const ctx = canvas.getContext('2d');
+        const dropZone = document.getElementById('drop-zone');
+        const layerList = document.getElementById('layer-list');
+        const canvasContainer = document.getElementById('canvas-container');
+        const btnDrawBbox = document.getElementById('btn-draw-rect');
+        const btnResetFilter = document.getElementById('btn-reset-filter');
+        const btnExportSvg = document.getElementById('btn-export-svg');
+        const searchInfo = document.getElementById('search-info');
+        const similarCount = document.getElementById('similar-count');
+        
+        let jsonData = null;
+        let jsonShapes = null;
+        let svgData = null;
+        let layerIndex = {};
+        let layerVisibility = {};
+        let sortedLayerKeys = [];
+        let totalCommands = {};
+        let zoom = CONFIG.INITIAL_ZOOM;
+        let offsetX = 0, offsetY = 0;
+        let isDragging = false;
+        let lastX = 0, lastY = 0;
+        let isDrawingBbox = false;
+        let bboxStart = null;
+        let currentBbox = null;
+        let mouseX = 0, mouseY = 0;
+        let cropLengths = null;
+        let cropLengthsFull = null;
+        let cropLengthsFiltered = null;
+        let mainLayers = null;
+        let anchorBbox = null;
+        let cropPreviewBbox = null;
+        let allShapesSorted = [];
+        let similarBboxes = [];
+        let sequenceMatches = []; // array of {rect, startSeqno, endSeqno, score}
+        let sequencePatternTokens = null;
+        let lastSequenceSearchMs = 0;
+        let searchBboxSize = null;
+        let expandedNodes = {};
+        let anchorPatterns = [];
+        let rawAnchorPatternCount = 0;
+        let lastSearchMs = 0;
+        let precomputedLengths = {};
+        let drawScheduled = false;
+        let cropItems = [];
+        let cropSelectedItemIds = new Set();
+        let cropPreviewTransform = null;
+        let selectionMode = 'hide';
+        let dragSelecting = false;
+
+        // FIXED: Tách biến seqnoToIds thành 2 biến riêng biệt để tránh xung đột
+        let globalSeqnoToIds = {}; // Dùng cho hover trên main canvas
+        let cropSeqnoToIds = {};   // Dùng cho logic selection trong crop modal
+
+        let seqnoToLayer = {};
+        let seqnoGroups = {}; // seqno -> group id
+        let groupToSeqnos = {}; // group id -> [seqnos]
+        let hoveredGroup = null;
+        const icons = {
+            text: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4h14v2H5V4zm7 3L8.5 17h2l1-3h1l1 3h2L12 7zm-1 5l1.5-4.5L14 12h-3z"></path></svg>',
+            shape: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>',
+            filled: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h18v18H3V3z"></path></svg>'
+        };
+
+        // Helpers
+        function toRgbString(color, alpha = 1) {
+            if (Array.isArray(color)) return `rgba(${Math.round(color[0] * 255)}, ${Math.round(color[1] * 255)}, ${Math.round(color[2] * 255)}, ${alpha})`;
+            if (typeof color === 'number') return `rgba(${(color >> 16) & 255}, ${(color >> 8) & 255}, ${color & 255}, ${alpha})`;
+            return `rgba(0, 0, 0, ${alpha})`;
+        }
+        function calculateLength(type, item) {
+            switch (type) {
+                case 'l': {
+                    const [x1, y1] = item[1], [x2, y2] = item[2];
+                    return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+                }
+                case 'c': {
+                    const [p0x, p0y] = item[1], [p1x, p1y] = item[2], [p2x, p2y] = item[3], [p3x, p3y] = item[4];
+                    const d1 = Math.sqrt((p1x - p0x) ** 2 + (p1y - p0y) ** 2);
+                    const d2 = Math.sqrt((p2x - p1x) ** 2 + (p2y - p1y) ** 2);
+                    const d3 = Math.sqrt((p3x - p2x) ** 2 + (p3y - p2y) ** 2);
+                    return d1 + d2 + d3;
+                }
+                case 'qu': {
+                    const points = item[1];
+                    if (points.length === 4) {
+                        const d1 = Math.sqrt((points[1][0] - points[0][0]) ** 2 + (points[1][1] - points[0][1]) ** 2);
+                        const d2 = Math.sqrt((points[3][0] - points[1][0]) ** 2 + (points[3][1] - points[1][1]) ** 2);
+                        const d3 = Math.sqrt((points[2][0] - points[3][0]) ** 2 + (points[2][1] - points[3][1]) ** 2);
+                        const d4 = Math.sqrt((points[0][0] - points[2][0]) ** 2 + (points[0][1] - points[2][1]) ** 2);
+                        return d1 + d2 + d3 + d4;
+                    }
+                    return 0;
+                }
+                default: return 0;
+            }
+        }
+        function getDisplayLengths(arr) {
+            if (arr.length <= 6) return arr.map(l => l.toFixed(2)).join(', ');
+            const first3 = arr.slice(0, 3).map(l => l.toFixed(2)).join(', ');
+            const last3 = arr.slice(-3).map(l => l.toFixed(2)).join(', ');
+            return `${first3} ... ${last3}`;
+        }
+        
+        // FIXED: Sử dụng globalSeqnoToIds
+        function getSeqnoStartEnd(seqno) {
+            const ids = globalSeqnoToIds[seqno];
+            if (!ids || !ids.length) return [null, null];
+            let start = null, end = null;
+            for (const id of ids) {
+                const [objIndex, itemIndex] = id.split('-').map(Number);
+                const obj = jsonShapes[objIndex];
+                const item = obj.items[itemIndex];
+                const type = item[0];
+                if (type === 'l') {
+                    if (!start) start = item[1];
+                    end = item[2];
+                } else if (type === 'c') {
+                    if (!start) start = item[1];
+                    end = item[4];
+                } else if (type === 'qu') {
+                    if (!start) start = item[1][0];
+                    end = item[1][2];
+                }
+            }
+            return [start, end];
+        }
+        
+        // FIXED: Sử dụng globalSeqnoToIds
+        function linkConsecutiveSeqnos() {
+            seqnoGroups = {};
+            groupToSeqnos = {};
+            const seqnos = Object.keys(globalSeqnoToIds).map(Number).sort((a, b) => a - b);
+            const groups = {}; // union-find
+            seqnos.forEach(seqno => groups[seqno] = seqno);
+
+            function find(x) {
+                if (groups[x] !== x) {
+                    groups[x] = find(groups[x]);
+                }
+                return groups[x];
+            }
+
+            function union(x, y) {
+                const px = find(x), py = find(y);
+                if (px !== py) {
+                    groups[px] = py;
+                }
+            }
+
+            for (let i = 0; i < seqnos.length - 1; i++) {
+                const seq1 = seqnos[i];
+                const seq2 = seqnos[i + 1];
+                if (Math.abs(seq1 - seq2) === 1) { // seqno liền nhau
+                    const [end1] = getSeqnoStartEnd(seq1);
+                    const [start2] = getSeqnoStartEnd(seq2);
+                    if (end1 && start2) {
+                        const dist = Math.sqrt((end1[0] - start2[0]) ** 2 + (end1[1] - start2[1]) ** 2);
+                        if (dist < 8 && seqnoToLayer[seq1] === seqnoToLayer[seq2]) {
+                            union(seq1, seq2);
+                        }
+                    }
+                }
+            }
+
+            const groupMap = {};
+            seqnos.forEach(seqno => {
+                const group = find(seqno);
+                if (!groupMap[group]) groupMap[group] = [];
+                groupMap[group].push(seqno);
+            });
+
+            let groupId = 0;
+            Object.values(groupMap).forEach(groupSeqnos => {
+                groupSeqnos.forEach(seqno => {
+                    seqnoGroups[seqno] = groupId;
+                });
+                groupToSeqnos[groupId] = groupSeqnos;
+                groupId++;
+            });
+        }
+        function bboxInside(innerBbox, outerBbox) {
+            return innerBbox[0] >= outerBbox[0] && innerBbox[1] >= outerBbox[1] &&
+                innerBbox[2] <= outerBbox[2] && innerBbox[3] <= outerBbox[3];
+        }
+        function bboxesOverlap(bbox1, bbox2) {
+            return !(bbox1.x + bbox1.width < bbox2.x ||
+                bbox2.x + bbox2.width < bbox1.x ||
+                bbox1.y + bbox1.height < bbox2.y ||
+                bbox2.y + bbox2.height < bbox1.y);
+        }
+        function bboxOverlapPercentage(bbox1, bbox2) {
+            if (bbox1.x + bbox1.width <= bbox2.x ||
+                bbox2.x + bbox2.width <= bbox1.x ||
+                bbox1.y + bbox1.height <= bbox2.y ||
+                bbox2.y + bbox2.height <= bbox1.y) {
+                return 0;
+            }
+            const xOverlap = Math.min(bbox1.x + bbox1.width, bbox2.x + bbox2.width) - Math.max(bbox1.x, bbox2.x);
+            const yOverlap = Math.min(bbox1.y + bbox1.height, bbox2.y + bbox2.height) - Math.max(bbox1.y, bbox2.y);
+            const overlapArea = xOverlap * yOverlap;
+            const area1 = bbox1.width * bbox1.height;
+            const area2 = bbox2.width * bbox2.height;
+            const smallerArea = Math.min(area1, area2);
+            return (overlapArea / smallerArea) * 100;
+        }
+
+        function calculateIoU(bbox1, bbox2) {
+            const x1 = Math.max(bbox1.x, bbox2.x);
+            const y1 = Math.max(bbox1.y, bbox2.y);
+            const x2 = Math.min(bbox1.x + bbox1.width, bbox2.x + bbox2.width);
+            const y2 = Math.min(bbox1.y + bbox1.height, bbox2.y + bbox2.height);
+            
+            if (x2 <= x1 || y2 <= y1) return 0;
+            
+            const intersection = (x2 - x1) * (y2 - y1);
+            const area1 = bbox1.width * bbox1.height;
+            const area2 = bbox2.width * bbox2.height;
+            const union = area1 + area2 - intersection;
+            
+            return intersection / union;
+        }
+        // Hit-test & Selection
+        function distancePointToSegment(px, py, x1, y1, x2, y2) {
+            const dx = x2 - x1, dy = y2 - y1;
+            if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
+            let t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+            t = Math.max(0, Math.min(1, t));
+            const projX = x1 + t * dx, projY = y1 + t * dy;
+            return Math.hypot(px - projX, py - projY);
+        }
+        function sampleCubic(p0, p1, p2, p3, t) {
+            const mt = 1 - t;
+            return [
+                mt * mt * mt * p0[0] + 3 * mt * mt * t * p1[0] + 3 * mt * t * t * p2[0] + t * t * t * p3[0],
+                mt * mt * mt * p0[1] + 3 * mt * mt * t * p1[1] + 3 * mt * t * t * p2[1] + t * t * t * p3[1]
+            ];
+        }
+        function distancePointToCubic(px, py, p0, p1, p2, p3) {
+            let minD = Infinity, prev = p0;
+            const STEPS = 12;
+            for (let i = 1; i <= STEPS; i++) {
+                const cur = sampleCubic(p0, p1, p2, p3, i / STEPS);
+                const d = distancePointToSegment(px, py, prev[0], prev[1], cur[0], cur[1]);
+                if (d < minD) minD = d;
+                prev = cur;
+            }
+            return minD;
+        }
+        function pointNearItem(px, py, ci, worldTol) {
+            const item = ci.obj.items[ci.itemIndex], type = item[0];
+            if (type === 'l') {
+                const [x1, y1] = item[1], [x2, y2] = item[2];
+                return distancePointToSegment(px, py, x1, y1, x2, y2) <= worldTol;
+            } else if (type === 'c') {
+                return distancePointToCubic(px, py, item[1], item[2], item[3], item[4]) <= worldTol;
+            } else if (type === 'qu') {
+                const pts = item[1];
+                if (!pts || pts.length !== 4) return false;
+                const edges = [[pts[0], pts[1]], [pts[1], pts[3]], [pts[3], pts[2]], [pts[2], pts[0]]];
+                return Math.min(...edges.map(([a, b]) => distancePointToSegment(px, py, a[0], a[1], b[0], b[1]))) <= worldTol;
+            }
+            return false;
+        }
+        
+        // FIXED: Sử dụng cropSeqnoToIds (chỉ cho crop modal)
+        function applySelectionAtPoint(worldX, worldY) {
+            if (!cropItems.length) return;
+            const scale = cropPreviewTransform?.scale || 1;
+            const worldTol = CONFIG.CROP_HIT_TOLERANCE / scale;
+            let changed = false;
+            for (const ci of cropItems) {
+                if ((selectionMode === 'hide' && !cropSelectedItemIds.has(ci.id)) || (selectionMode === 'show' && cropSelectedItemIds.has(ci.id))) continue;
+                if (pointNearItem(worldX, worldY, ci, worldTol)) {
+                    const ids = cropSeqnoToIds[ci.seqno]; // <-- Sử dụng crop map
+                    const allSelected = ids.every(id => cropSelectedItemIds.has(id));
+                    if ((selectionMode === 'hide' && allSelected) || (selectionMode === 'show' && !allSelected)) {
+                        ids.forEach(id => selectionMode === 'hide' ? cropSelectedItemIds.delete(id) : cropSelectedItemIds.add(id));
+                        changed = true;
+                    }
+                    break;
+                }
+            }
+            if (changed) {
+                recomputeAnchorBboxFromSelection();
+                recomputeCropDataFromSelection();
+                const cropCanvas = document.getElementById('crop-canvas');
+                const ctx2 = cropCanvas.getContext('2d');
+                ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+                redrawCropPreview(ctx2, cropItems.map(ci => ({ obj: ci.obj })), cropPreviewBbox, cropCanvas);
+                updateCommandCountSummary();
+            }
+        }
+        // Drawing
+        function buildShapePath(targetCtx, shape) {
+            targetCtx.beginPath();
+            if (!shape.items) return;
+            let started = false, cx, cy;
+            shape.items.forEach(item => {
+                const type = item[0];
+                if (type === 'l') {
+                    const [sx, sy] = item[1], [ex, ey] = item[2];
+                    if (!started) { targetCtx.moveTo(sx, sy); started = true; }
+                    else if (cx !== sx || cy !== sy) targetCtx.moveTo(sx, sy);
+                    targetCtx.lineTo(ex, ey);
+                    cx = ex; cy = ey;
+                } else if (type === 'c') {
+                    const [p0x, p0y] = item[1], [p1x, p1y] = item[2], [p2x, p2y] = item[3], [p3x, p3y] = item[4];
+                    if (!started) { targetCtx.moveTo(p0x, p0y); started = true; }
+                    else if (cx !== p0x || cy !== p0y) targetCtx.moveTo(p0x, p0y);
+                    targetCtx.bezierCurveTo(p1x, p1y, p2x, p2y, p3x, p3y);
+                    cx = p3x; cy = p3y;
+                } else if (type === 'qu') {
+                    const points = item[1];
+                    if (points?.length === 4) {
+                        const [q0x, q0y] = points[0];
+                        if (!started) { targetCtx.moveTo(q0x, q0y); started = true; }
+                        else if (cx !== q0x || cy !== q0y) targetCtx.moveTo(q0x, q0y);
+                        targetCtx.lineTo(points[1][0], points[1][1]);
+                        targetCtx.lineTo(points[3][0], points[3][1]);
+                        targetCtx.lineTo(points[2][0], points[2][1]);
+                        targetCtx.closePath();
+                        cx = q0x; cy = q0y;
+                    }
+                }
+            });
+            if (shape.closePath) targetCtx.closePath();
+        }
+        function strokeShapeItems(targetCtx, shape) {
+            if (!shape.color || shape.width <= 0 || !shape.items) return;
+            targetCtx.strokeStyle = toRgbString(shape.color);
+            targetCtx.lineWidth = shape.width || 1;
+            shape.items.forEach(item => {
+                const type = item[0];
+                targetCtx.beginPath();
+                if (type === 'l') {
+                    targetCtx.moveTo(item[1][0], item[1][1]);
+                    targetCtx.lineTo(item[2][0], item[2][1]);
+                } else if (type === 'c') {
+                    targetCtx.moveTo(item[1][0], item[1][1]);
+                    targetCtx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
+                } else if (type === 'qu') {
+                    const points = item[1];
+                    if (points?.length === 4) {
+                        targetCtx.moveTo(points[0][0], points[0][1]);
+                        targetCtx.lineTo(points[1][0], points[1][1]);
+                        targetCtx.lineTo(points[3][0], points[3][1]);
+                        targetCtx.lineTo(points[2][0], points[2][1]);
+                        targetCtx.closePath();
+                    }
+                }
+                targetCtx.stroke();
+            });
+        }
+        function drawShapeOnCtx(targetCtx, shape) {
+            if (shape.fill) {
+                buildShapePath(targetCtx, shape);
+                targetCtx.fillStyle = toRgbString(shape.fill);
+                targetCtx.fill();
+            }
+            strokeShapeItems(targetCtx, shape);
+        }
+        function drawShapeOnCtxWithColor(targetCtx, shape, overrideColor) {
+            if (shape.fill) {
+                buildShapePath(targetCtx, shape);
+                targetCtx.fillStyle = toRgbString(overrideColor);
+                targetCtx.fill();
+            }
+            if (!shape.color || shape.width <= 0 || !shape.items) return;
+            targetCtx.strokeStyle = toRgbString(overrideColor);
+            targetCtx.lineWidth = shape.width || 1;
+            shape.items.forEach(item => {
+                const type = item[0];
+                targetCtx.beginPath();
+                if (type === 'l') {
+                    targetCtx.moveTo(item[1][0], item[1][1]);
+                    targetCtx.lineTo(item[2][0], item[2][1]);
+                } else if (type === 'c') {
+                    targetCtx.moveTo(item[1][0], item[1][1]);
+                    targetCtx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
+                } else if (type === 'qu') {
+                    const points = item[1];
+                    if (points?.length === 4) {
+                        targetCtx.moveTo(points[0][0], points[0][1]);
+                        targetCtx.lineTo(points[1][0], points[1][1]);
+                        targetCtx.lineTo(points[3][0], points[3][1]);
+                        targetCtx.lineTo(points[2][0], points[2][1]);
+                        targetCtx.closePath();
+                    }
+                }
+                targetCtx.stroke();
+            });
+        }
+        function redrawCropPreview(previewCtx, croppedObjs, bboxRef, cropCanvas) {
+            const scaleX = cropCanvas.width / bboxRef.width;
+            const scaleY = cropCanvas.height / bboxRef.height;
+            const scale = Math.min(scaleX, scaleY);
+            const offsetX2 = (cropCanvas.width - bboxRef.width * scale) / 2;
+            const offsetY2 = (cropCanvas.height - bboxRef.height * scale) / 2;
+            previewCtx.save();
+            previewCtx.translate(offsetX2, offsetY2);
+            previewCtx.scale(scale, scale);
+            previewCtx.translate(-bboxRef.x, -bboxRef.y);
+            croppedObjs.forEach(({ obj }) => {
+                if (obj.type === 'text' || !obj.items) return;
+                obj.items.forEach((item, itemIndex) => {
+                    const type = item[0];
+                    if (!(type === 'l' || type === 'c' || type === 'qu')) return;
+                    const found = cropItems.find(ci => ci.obj === obj && ci.itemIndex === itemIndex);
+                    if (!found) return;
+                    const selected = cropSelectedItemIds.has(found.id);
+                    previewCtx.strokeStyle = selected ? toRgbString(obj.color || [0, 0, 0]) : toRgbString(obj.color || [0, 0, 0], 0.02);
+                    previewCtx.lineWidth = obj.width || 1;
+                    previewCtx.beginPath();
+                    if (type === 'l') {
+                        previewCtx.moveTo(item[1][0], item[1][1]);
+                        previewCtx.lineTo(item[2][0], item[2][1]);
+                    } else if (type === 'c') {
+                        previewCtx.moveTo(item[1][0], item[1][1]);
+                        previewCtx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
+                    } else if (type === 'qu') {
+                        const pts = item[1];
+                        if (pts?.length === 4) {
+                            previewCtx.moveTo(pts[0][0], pts[0][1]);
+                            previewCtx.lineTo(pts[1][0], pts[1][1]);
+                            previewCtx.lineTo(pts[3][0], pts[3][1]);
+                            previewCtx.lineTo(pts[2][0], pts[2][1]);
+                            previewCtx.closePath();
+                        }
+                    }
+                    previewCtx.stroke();
+                });
+            });
+            previewCtx.restore();
+        }
+        function applySvgTransform() {
+            if (!svgData) return;
+            const textLayer = document.getElementById('svg-text-layer');
+            const graphicLayer = document.getElementById('svg-graphic-layer');
+            const viewMinX = -offsetX / zoom;
+            const viewMinY = -offsetY / zoom;
+            const viewWidth = canvas.width / zoom;
+            const viewHeight = canvas.height / zoom;
+            const svgTextEl = textLayer.querySelector('svg');
+            const svgGraphicEl = graphicLayer.querySelector('svg');
+            if (svgTextEl) {
+                svgTextEl.setAttribute('viewBox', `${viewMinX} ${viewMinY} ${viewWidth} ${viewHeight}`);
+                svgTextEl.style.width = canvas.width + 'px';
+                svgTextEl.style.height = canvas.height + 'px';
+            }
+            if (svgGraphicEl) {
+                svgGraphicEl.setAttribute('viewBox', `${viewMinX} ${viewMinY} ${viewWidth} ${viewHeight}`);
+                svgGraphicEl.style.width = canvas.width + 'px';
+                svgGraphicEl.style.height = canvas.height + 'px';
+            }
+            textLayer.style.display = layerVisibility['svg_text'] ? 'block' : 'none';
+            graphicLayer.style.display = layerVisibility['svg_graphic'] ? 'block' : 'none';
+        }
+        function draw() {
+            if (!jsonShapes) return;
+            ctx.save();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(zoom, zoom);
+            
+            // Draw shapes sorted by seqno
+            const shapesToDraw = (allShapesSorted && allShapesSorted.length > 0) ? allShapesSorted : [];
+
+            // Viewport culling
+            const viewMinX = -offsetX / zoom;
+            const viewMinY = -offsetY / zoom;
+            const viewMaxX = (canvas.width - offsetX) / zoom;
+            const viewMaxY = (canvas.height - offsetY) / zoom;
+
+            shapesToDraw.forEach(obj => {
+                const layerName = obj.layer;
+                if (!layerVisibility[layerName]) return;
+                
+                // Culling check
+                if (obj.bbox) {
+                    // Add padding for line width to avoid clipping thick lines at the edge
+                    const padding = (obj.width || 2);
+                    if (obj.bbox.maxX + padding < viewMinX || 
+                        obj.bbox.minX - padding > viewMaxX || 
+                        obj.bbox.maxY + padding < viewMinY || 
+                        obj.bbox.minY - padding > viewMaxY) {
+                        return;
+                    }
+                }
+
+                if (cropLengths && mainLayers && !mainLayers.includes(layerName)) return;
+                if (cropLengths && mainLayers) {
+                    drawShapeOnCtx(ctx, obj);
+                } else {
+                    const filteredItems = obj.items?.filter((item, itemIndex) => {
+                        const type = item[0];
+                        if (!cropLengths) return true;
+                        const currentLength = calculateLength(type, item);
+                        return cropLengths[type].some(len => Math.abs(len - currentLength) <= 1);
+                    }) || [];
+                    if (filteredItems.length > 0) drawShapeOnCtx(ctx, { ...obj, items: filteredItems });
+                }
+            });
+            
+            // FIXED: Tránh vẽ Bbox bị lỗi nếu width/height = 0
+            if (currentBbox && currentBbox.width > 0 && currentBbox.height > 0) {
+                ctx.strokeStyle = 'red';
+                ctx.lineWidth = 2 / zoom;
+                ctx.strokeRect(currentBbox.x, currentBbox.y, currentBbox.width, currentBbox.height);
+            }
+            
+            if (anchorBbox) {
+                ctx.strokeStyle = 'blue';
+                ctx.lineWidth = 2 / zoom;
+                ctx.strokeRect(anchorBbox.x, anchorBbox.y, anchorBbox.width, anchorBbox.height);
+            }
+            similarBboxes.forEach(rect => {
+                ctx.strokeStyle = 'green';
+                ctx.lineWidth = CONFIG.SIMILAR_BBOX_LINE_WIDTH / zoom;
+                ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+                // Hiển thị độ tương đồng
+                ctx.fillStyle = 'green';
+                ctx.font = `${12 / zoom}px Arial`;
+                ctx.fillText(`${(rect.score * 100).toFixed(0)}%`, rect.x, rect.y - 5 / zoom);
+            });
+            // Vẽ các rect match theo sequence pattern
+            if (sequenceMatches?.length) {
+                sequenceMatches.forEach(m => {
+                    if (CONFIG.MERGE_RESULTS) {
+                         ctx.strokeStyle = 'green';
+                         ctx.setLineDash([]);
+                         ctx.fillStyle = 'green';
+                    } else {
+                         ctx.strokeStyle = 'purple';
+                         ctx.setLineDash([3, 3]);
+                         ctx.fillStyle = 'purple';
+                    }
+                    ctx.lineWidth = CONFIG.SIMILAR_BBOX_LINE_WIDTH / zoom;
+                    
+                    ctx.strokeRect(m.rect.x, m.rect.y, m.rect.width, m.rect.height);
+                    if (!CONFIG.MERGE_RESULTS) ctx.setLineDash([]);
+                    
+                    // Hiển thị độ tương đồng
+                    ctx.font = `${12 / zoom}px Arial`;
+                    ctx.fillText(`${(m.score * 100).toFixed(0)}%`, m.rect.x, m.rect.y - 5 / zoom);
+                });
+            }
+            if (isDrawingBbox) {
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 0.5 / zoom;
+                ctx.setLineDash([]);
+                const left = -offsetX / zoom, right = (canvas.width - offsetX) / zoom;
+                const top = -offsetY / zoom, bottom = (canvas.height - offsetY) / zoom;
+                ctx.beginPath(); ctx.moveTo(left, mouseY); ctx.lineTo(right, mouseY); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(mouseX, top); ctx.lineTo(mouseX, bottom); ctx.stroke();
+            }
+            
+            // Highlight hovered group in red
+            // FIXED: Sử dụng globalSeqnoToIds cho highlight
+            if (hoveredGroup !== null) {
+                const seqnos = groupToSeqnos[hoveredGroup];
+                const highlightedShapes = new Set();
+                seqnos.forEach(seqno => {
+                    const ids = globalSeqnoToIds[seqno];
+                    if (ids) {
+                        ids.forEach(id => {
+                            const [objIndex] = id.split('-').map(Number);
+                            highlightedShapes.add(objIndex);
+                        });
+                    }
+                });
+                highlightedShapes.forEach(objIndex => {
+                    const obj = jsonShapes[objIndex];
+                    if (obj.type === 'text' || !layerVisibility[obj.layer_1]) return;
+                    drawShapeOnCtxWithColor(ctx, obj, [255, 0, 0]); // red
+                });
+            }
+            ctx.restore();
+            applySvgTransform();
+        }
+        
+        function computeShapeBbox(shape) {
+            if (shape.bbox) return;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            if (shape.items && shape.items.length > 0) {
+                for (const item of shape.items) {
+                    const type = item[0];
+                    if (type === 'l') {
+                        const p1 = item[1], p2 = item[2];
+                        if (p1 && p2) {
+                            minX = Math.min(minX, p1[0], p2[0]);
+                            minY = Math.min(minY, p1[1], p2[1]);
+                            maxX = Math.max(maxX, p1[0], p2[0]);
+                            maxY = Math.max(maxY, p1[1], p2[1]);
+                        }
+                    } else if (type === 'c') {
+                        const p0 = item[1], p1 = item[2], p2 = item[3], p3 = item[4];
+                        if (p0 && p1 && p2 && p3) {
+                            minX = Math.min(minX, p0[0], p1[0], p2[0], p3[0]);
+                            minY = Math.min(minY, p0[1], p1[1], p2[1], p3[1]);
+                            maxX = Math.max(maxX, p0[0], p1[0], p2[0], p3[0]);
+                            maxY = Math.max(maxY, p0[1], p1[1], p2[1], p3[1]);
+                        }
+                    } else if (type === 'qu') {
+                        const points = item[1];
+                        if (Array.isArray(points)) {
+                            for (const p of points) {
+                                if (p) {
+                                    minX = Math.min(minX, p[0]);
+                                    minY = Math.min(minY, p[1]);
+                                    maxX = Math.max(maxX, p[0]);
+                                    maxY = Math.max(maxY, p[1]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (minX !== Infinity) {
+                shape.bbox = { minX, minY, maxX, maxY };
+            }
+        }
+
+        // Setup & Data
+        function buildLayerIndex() {
+            layerIndex = {};
+            totalCommands = {};
+            globalSeqnoToIds = {}; // Reset global map
+            seqnoToLayer = {};
+            allShapesSorted = [];
+            if (!jsonShapes) return;
+            jsonShapes.forEach((obj, objIndex) => {
+                const layerName = obj.layer_1;
+                if (!layerName || !layerName.startsWith('shape_color_')) return;
+                if (!obj.items || !Array.isArray(obj.items)) return;
+                layerIndex[layerName] ??= [];
+                const shapeObj = {
+                    layer: layerName,
+                    items: obj.items,
+                    color: obj.color,
+                    width: obj.width,
+                    fill: obj.fill,
+                    rect: obj.rect,
+                    seqno: obj.seqno || 0
+                };
+                computeShapeBbox(shapeObj);
+                layerIndex[layerName].push(shapeObj);
+                allShapesSorted.push(shapeObj);
+
+                totalCommands[layerName] = (totalCommands[layerName] || 0) + obj.items.length;
+                
+                // Build globalSeqnoToIds only for black shapes
+                if (obj.color && Array.isArray(obj.color) && obj.color.length >= 3 && obj.color[0] === 0 && obj.color[1] === 0 && obj.color[2] === 0) {
+                    const seqno = obj.seqno || 0;
+                    if (!globalSeqnoToIds[seqno]) globalSeqnoToIds[seqno] = [];
+                    obj.items.forEach((item, itemIndex) => {
+                        globalSeqnoToIds[seqno].push(`${objIndex}-${itemIndex}`);
+                    });
+                    seqnoToLayer[seqno] = layerName;
+                }
+            });
+
+            // Sort allShapesSorted by seqno ascending
+            allShapesSorted.sort((a, b) => (a.seqno || 0) - (b.seqno || 0));
+
+            if (svgData) {
+                layerVisibility['svg_text'] = true;
+                layerVisibility['svg_graphic'] = true;
+            }
+            linkConsecutiveSeqnos();
+        }
+        function precomputeAllLengths() {
+            precomputedLengths = {};
+            Object.keys(layerIndex).forEach(layerName => {
+                const list = layerIndex[layerName];
+                precomputedLengths[layerName] = {};
+                list.forEach((obj, objIndex) => {
+                    if (!obj?.items) return;
+                    precomputedLengths[layerName][objIndex] = {};
+                    obj.items.forEach((item, itemIndex) => {
+                        const type = item[0];
+                        if (type === 'l' || type === 'c' || type === 'qu') {
+                            precomputedLengths[layerName][objIndex][itemIndex] = calculateLength(type, item);
+                        }
+                    });
+                });
+            });
+        }
+        function setupVisualization() {
+            canvas.style.background = 'white';
+            if (!jsonShapes) return;
+            layerVisibility = {};
+            sortedLayerKeys = Object.keys(layerIndex).sort((a, b) => totalCommands[b] - totalCommands[a]);
+            sortedLayerKeys.forEach(layerName => layerVisibility[layerName] = true);
+            if (svgData) {
+                sortedLayerKeys.push('svg_graphic', 'svg_text');
+                layerVisibility['svg_graphic'] = true;
+                layerVisibility['svg_text'] = true;
+                const textLayer = document.getElementById('svg-text-layer');
+                const graphicLayer = document.getElementById('svg-graphic-layer');
+                textLayer.innerHTML = svgData.text_only || '';
+                graphicLayer.innerHTML = svgData.graphic_only || '';
+                applySvgTransform();
+            }
+            expandedNodes = {};
+            updateLayerList();
+            resetView();
+        }
+        // Layer Controls (giữ nguyên)
+        function createLayerControl(layerName) {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'layer-item';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = layerVisibility[layerName];
+            checkbox.id = `check-${layerName}`;
+            checkbox.dataset.layer = layerName;
+            checkbox.addEventListener('change', e => {
+                layerVisibility[e.target.dataset.layer] = e.target.checked;
+                scheduleDraw();
+            });
+            let color, type;
+            if (layerName === 'svg_text') {
+                color = '#444';
+                type = 'text';
+            } else if (layerName === 'svg_graphic') {
+                color = '#222';
+                type = 'shape';
+            } else {
+                const layerObjs = layerIndex[layerName];
+                if (!layerObjs || !layerObjs.length) {
+                    color = '#888';
+                    type = 'shape';
+                } else {
+                    const firstObj = layerObjs[0];
+                    color = toRgbString(firstObj.color);
+                    type = firstObj.fill ? 'filled' : 'shape';
+                }
+            }
+            const swatch = document.createElement('div');
+            swatch.className = 'color-swatch';
+            swatch.style.backgroundColor = color;
+            const icon = document.createElement('div');
+            icon.className = 'layer-icon';
+            icon.innerHTML = icons[type] || '';
+            const label = document.createElement('label');
+            label.htmlFor = `check-${layerName}`;
+            label.textContent = layerName;
+            label.title = layerName;
+            itemDiv.append(checkbox, swatch, icon, label);
+            return itemDiv;
+        }
+        function updateLayerList() {
+            layerList.innerHTML = '';
+            const typeGroups = { shape: [], svg_graphic: [], svg_text: [] };
+            sortedLayerKeys.forEach(layerName => {
+                if (layerName.startsWith('shape_')) {
+                    typeGroups.shape.push(layerName);
+                } else if (layerName === 'svg_graphic') {
+                    typeGroups.svg_graphic.push(layerName);
+                } else if (layerName === 'svg_text') {
+                    typeGroups.svg_text.push(layerName);
+                }
+            });
+            const typeLabels = { shape: 'Shape', svg_graphic: 'Image', svg_text: 'Text' };
+            const typeIcons = { shape: 'shape', svg_graphic: 'shape', svg_text: 'text' };
+            Object.entries(typeGroups).forEach(([typeName, layers]) => {
+                if (!layers.length) return;
+                const typeNode = document.createElement('div');
+                typeNode.className = 'layer-item';
+                typeNode.style.cursor = 'pointer';
+                typeNode.style.background = '#e8f4fd';
+                typeNode.style.marginBottom = '4px';
+                typeNode.style.border = '1px solid #cce7f8';
+                typeNode.style.borderRadius = '4px';
+                typeNode.style.padding = '6px';
+                typeNode.dataset.nodeId = `type-${typeName}`;
+                const typeCheckbox = document.createElement('input');
+                typeCheckbox.type = 'checkbox';
+                const allTypeChecked = layers.every(l => layerVisibility[l]);
+                const someTypeChecked = layers.some(l => layerVisibility[l]);
+                typeCheckbox.checked = allTypeChecked;
+                typeCheckbox.indeterminate = !allTypeChecked && someTypeChecked;
+                typeCheckbox.style.marginRight = '8px';
+                typeCheckbox.addEventListener('change', e => {
+                    layers.forEach(l => layerVisibility[l] = e.target.checked);
+                    updateLayerList();
+                    scheduleDraw();
+                });
+                const icon = document.createElement('div');
+                icon.className = 'layer-icon';
+                icon.innerHTML = icons[typeIcons[typeName]] || '';
+                const label = document.createElement('span');
+                label.textContent = `${typeLabels[typeName]} (${layers.length})`;
+                label.style.fontWeight = 'bold';
+                const toggleIcon = document.createElement('span');
+                toggleIcon.textContent = expandedNodes[`type-${typeName}`] ? ' ▼' : ' ▶';
+                toggleIcon.style.marginLeft = 'auto';
+                typeNode.append(typeCheckbox, icon, label, toggleIcon);
+                const colorSubtree = document.createElement('div');
+                colorSubtree.style.display = expandedNodes[`type-${typeName}`] ? 'block' : 'none';
+                colorSubtree.style.marginLeft = '20px';
+                const colorGroups = {};
+                layers.forEach(layerName => {
+                    const layerObjs = layerIndex[layerName];
+                    if (!layerObjs || !layerObjs.length) return;
+                    const firstObj = layerObjs[0];
+                    const color = toRgbString(firstObj.color);
+                    colorGroups[color] ??= [];
+                    colorGroups[color].push(layerName);
+                });
+                const sortedColorEntries = Object.entries(colorGroups).sort(([a], [b]) => a.localeCompare(b));
+                sortedColorEntries.forEach(([color, colorLayers]) => {
+                    const colorNode = document.createElement('div');
+                    colorNode.className = 'layer-item';
+                    colorNode.style.cursor = 'pointer';
+                    colorNode.style.background = '#f0f8e1';
+                    colorNode.style.marginBottom = '2px';
+                    colorNode.style.border = '1px solid #dcedc8';
+                    colorNode.style.borderRadius = '3px';
+                    colorNode.style.padding = '4px';
+                    colorNode.dataset.nodeId = `color-${typeName}-${color}`;
+                    const colorCheckbox = document.createElement('input');
+                    colorCheckbox.type = 'checkbox';
+                    const allColorChecked = colorLayers.every(l => layerVisibility[l]);
+                    const someColorChecked = colorLayers.some(l => layerVisibility[l]);
+                    colorCheckbox.checked = allColorChecked;
+                    colorCheckbox.indeterminate = !allColorChecked && someColorChecked;
+                    colorCheckbox.style.marginRight = '6px';
+                    colorCheckbox.addEventListener('change', e => {
+                        colorLayers.forEach(l => layerVisibility[l] = e.target.checked);
+                        updateLayerList();
+                        scheduleDraw();
+                    });
+                    const swatch = document.createElement('div');
+                    swatch.className = 'color-swatch';
+                    swatch.style.backgroundColor = color;
+                    const colorLabel = document.createElement('span');
+                    colorLabel.textContent = `${color} (${colorLayers.length})`;
+                    colorLabel.style.fontSize = '13px';
+                    const colorToggleIcon = document.createElement('span');
+                    colorToggleIcon.textContent = expandedNodes[`color-${typeName}-${color}`] ? ' ▼' : ' ▶';
+                    colorToggleIcon.style.marginLeft = 'auto';
+                    colorNode.append(colorCheckbox, swatch, colorLabel, colorToggleIcon);
+                    const colorSubLayers = document.createElement('div');
+                    colorSubLayers.style.display = expandedNodes[`color-${typeName}-${color}`] ? 'block' : 'none';
+                    colorSubLayers.style.marginLeft = '16px';
+                    colorLayers.sort((a, b) => totalCommands[b] - totalCommands[a]);
+                    colorLayers.forEach((layerName, index) => {
+                        const layerItem = createLayerControl(layerName);
+                        layerItem.style.marginBottom = '1px';
+                        const label = layerItem.querySelector('label');
+                        label.textContent = totalCommands[layerName] + ' elements';
+                        label.title = layerName;
+                        colorSubLayers.appendChild(layerItem);
+                    });
+                    colorNode.addEventListener('click', e => {
+                        if (e.target === colorToggleIcon) {
+                            const nodeId = `color-${typeName}-${color}`;
+                            expandedNodes[nodeId] = !expandedNodes[nodeId];
+                            updateLayerList();
+                        } else if (e.target !== colorCheckbox) {
+                            colorCheckbox.checked = !colorCheckbox.checked;
+                            colorCheckbox.dispatchEvent(new Event('change'));
+                        }
+                    });
+                    colorSubtree.appendChild(colorNode);
+                    colorSubtree.appendChild(colorSubLayers);
+                });
+                typeNode.addEventListener('click', e => {
+                    if (e.target === toggleIcon) {
+                        const nodeId = `type-${typeName}`;
+                        expandedNodes[nodeId] = !expandedNodes[nodeId];
+                        updateLayerList();
+                    } else if (e.target !== typeCheckbox) {
+                        typeCheckbox.checked = !typeCheckbox.checked;
+                        typeCheckbox.dispatchEvent(new Event('change'));
+                    }
+                });
+                layerList.appendChild(typeNode);
+                layerList.appendChild(typeNode);
+                layerList.appendChild(colorSubtree);
+            });
+        }
+        // View Control
+        function resizeCanvas() {
+            canvas.width = canvasContainer.clientWidth;
+            canvas.height = canvasContainer.clientHeight;
+            scheduleDraw();
+        }
+        function resetView() {
+            let data = Array.isArray(jsonData) ? jsonData : jsonShapes || [];
+            if (!data.length) return;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            data.forEach(obj => {
+                if (obj.rect) {
+                    minX = Math.min(minX, obj.rect[0]);
+                    minY = Math.min(minY, obj.rect[1]);
+                    maxX = Math.max(maxX, obj.rect[2]);
+                    maxY = Math.max(maxY, obj.rect[3]);
+                }
+            });
+            if (minX === Infinity) {
+                if (jsonData && jsonData.metadata && jsonData.metadata.bbox_all) {
+                    [minX, minY, maxX, maxY] = jsonData.metadata.bbox_all;
+                } else {
+                    offsetX = canvas.width / 2;
+                    offsetY = canvas.height / 2;
+                    zoom = 1;
+                    return;
+                }
+            }
+            const contentWidth = maxX - minX, contentHeight = maxY - minY;
+            zoom = Math.min(canvas.width / contentWidth, canvas.height / contentHeight) * CONFIG.ZOOM_FIT_MARGIN;
+            offsetX = canvas.width / 2 - (minX + contentWidth / 2) * zoom;
+            offsetY = canvas.height / 2 - (minY + contentHeight / 2) * zoom;
+            scheduleDraw();
+        }
+        function scheduleDraw() {
+            if (drawScheduled) return;
+            drawScheduled = true;
+            requestAnimationFrame(() => {
+                draw();
+                drawScheduled = false;
+            });
+        }
+        // Crop & Similarity
+        function recomputeMainLayersFromSelection() {
+            const layerSet = new Set(cropItems.filter(ci => cropSelectedItemIds.has(ci.id)).map(ci => ci.layer));
+            mainLayers = Array.from(layerSet);
+            // Do not change user's layer visibility here. mainLayers is used for internal filtering only.
+            scheduleDraw();
+        }
+        function recomputeAnchorBboxFromSelection() {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const selectedObjSet = new Set(cropItems.filter(ci => cropSelectedItemIds.has(ci.id)).map(ci => ci.obj));
+            selectedObjSet.forEach(obj => {
+                if (!obj.rect) return;
+                const [x1, y1, x2, y2] = obj.rect;
+                minX = Math.min(minX, x1); minY = Math.min(minY, y1);
+                maxX = Math.max(maxX, x2); maxY = Math.max(maxY, y2);
+            });
+            if (minX === Infinity) return;
+            const padding = CONFIG.TIGHT_BBOX_PADDING_RATIO;
+            anchorBbox = { x: minX - padding, y: minY - padding, width: (maxX - minX) + 2 * padding, height: (maxY - minY) + 2 * padding };
+            searchBboxSize = { width: anchorBbox.width, height: anchorBbox.height };
+        }
+        function updateCommandCountSummary() {
+            const commandCount = document.getElementById('command-count');
+            if (!commandCount) return;
+            const countsSel = { l: 0, c: 0, qu: 0 };
+            cropItems.forEach(ci => { if (cropSelectedItemIds.has(ci.id)) countsSel[ci.type]++; });
+            commandCount.querySelector('[data-summary]')?.remove();
+            const summary = document.createElement('li');
+            summary.setAttribute('data-summary', '');
+            summary.innerHTML = `<strong>Selected:</strong> l=${countsSel.l}, c=${countsSel.c}, qu=${countsSel.qu} / Total=${cropItems.length}`;
+            commandCount.insertBefore(summary, commandCount.firstChild);
+        }
+        function recomputeCropDataFromSelection() {
+            cropLengthsFull = { l: [], c: [], qu: [] };
+            anchorPatterns = [];
+            rawAnchorPatternCount = 0;
+            if (!anchorBbox) return;
+            cropItems.forEach(ci => {
+                if (!cropSelectedItemIds.has(ci.id)) return;
+                cropLengthsFull[ci.type].push(ci.length);
+                const relX = (ci.anchorX - anchorBbox.x) / anchorBbox.width;
+                const relY = (ci.anchorY - anchorBbox.y) / anchorBbox.height;
+                anchorPatterns.push({ type: ci.type, relX, relY, length: ci.length });
+            });
+            rawAnchorPatternCount = anchorPatterns.length;
+            anchorPatterns = reduceAnchorPatterns(anchorPatterns, CONFIG.MAX_ANCHOR_PATTERNS);
+            cropLengthsFiltered = { l: [], c: [], qu: [] };
+            for (const t in cropLengthsFull) {
+                cropLengthsFiltered[t] = [...cropLengthsFull[t]].sort((a, b) => b - a).slice(0, CONFIG.MAX_COMMANDS_PER_TYPE);
+            }
+            cropLengths = cropLengthsFiltered;
+            // Sau khi cập nhật selection, dựng sequence pattern tokens.
+            buildSequencePatternTokens();
+        }
+        function reduceAnchorPatterns(patterns, maxCount) {
+            if (!patterns?.length) return [];
+            patterns.sort((a, b) => b.length - a.length);
+            return patterns.slice(0, maxCount);
+        }
+        function checkBboxSimilarityOptimized(testBbox, layerObjIndexMap2) {
+            const objectsInBbox = [];
+            for (let i = 0; i < mainLayers.length; i++) {
+                const layerName = mainLayers[i];
+                if (!layerVisibility[layerName]) continue;
+                const layerArr = layerIndex[layerName];
+                if (!layerArr) continue;
+                for (let j = 0; j < layerArr.length; j++) {
+                    const obj = layerArr[j];
+                    if (obj.type === 'text' || !obj.rect || !obj.items) continue;
+                    if (bboxInside(obj.rect, [testBbox.x, testBbox.y, testBbox.x + testBbox.width, testBbox.y + testBbox.height])) {
+                        objectsInBbox.push({ obj, objIndex: j, layer: layerName });
+                    }
+                }
+            }
+            if (!objectsInBbox.length) return false;
+            const testLengths = { l: [], c: [], qu: [] };
+            const tolerance = CONFIG.SIMILARITY_TOLERANCE;
+            const requiredCounts = { l: cropLengthsFull.l.length, c: cropLengthsFull.c.length, qu: cropLengthsFull.qu.length };
+            for (let i = 0; i < objectsInBbox.length; i++) {
+                const { obj, objIndex, layer } = objectsInBbox[i];
+                const realIndex = layerObjIndexMap2[layer]?.get(obj);
+                for (let j = 0; j < obj.items.length; j++) {
+                    const item = obj.items[j];
+                    const type = item[0];
+                    if (!testLengths.hasOwnProperty(type)) continue;
+                    const length = realIndex != null ? precomputedLengths[layer]?.[realIndex]?.[j] : calculateLength(type, item);
+                    testLengths[type].push(length);
+                }
+                if (testLengths.l.length >= requiredCounts.l && 
+                    testLengths.c.length >= requiredCounts.c && 
+                    testLengths.qu.length >= requiredCounts.qu) {
+                    break;
+                }
+            }
+            if (testLengths.l.length < Math.ceil(requiredCounts.l * CONFIG.MIN_MATCHING_ITEMS_RATIO) || 
+                testLengths.c.length < Math.ceil(requiredCounts.c * CONFIG.MIN_MATCHING_ITEMS_RATIO) || 
+                testLengths.qu.length < Math.ceil(requiredCounts.qu * CONFIG.MIN_MATCHING_ITEMS_RATIO)) {
+                return 0;
+            }
+            const totalTestCommands = testLengths.l.length + testLengths.c.length + testLengths.qu.length;
+            const totalRequiredCommands = requiredCounts.l + requiredCounts.c + requiredCounts.qu;
+            let similarityScore = totalTestCommands / totalRequiredCommands;
+            if (similarityScore > 1) {
+                similarityScore = totalRequiredCommands / totalTestCommands;
+            }
+            for (const type in cropLengthsFiltered) {
+                if (!cropLengthsFiltered[type].length) continue;
+                const uniqueCropLengths = [...new Set(cropLengthsFiltered[type])];
+                for (let i = 0; i < uniqueCropLengths.length; i++) {
+                    const cropLen = uniqueCropLengths[i];
+                    const cropCount = cropLengthsFiltered[type].filter(len => Math.abs(len - cropLen) <= 0.001).length;
+                    let testCount = 0;
+                    for (let j = 0; j < testLengths[type].length; j++) {
+                        if (Math.abs(testLengths[type][j] - cropLen) <= tolerance) {
+                            testCount++;
+                        }
+                    }
+                    if (testCount < cropCount) return similarityScore * 0.5;
+                }
+            }
+            return similarityScore;
+        }
+        function buildSequencePatternTokens() {
+            sequencePatternTokens = null;
+            if (!cropItems.length) return;
+            // Lấy các obj được chọn trong anchorBbox (dùng seqno để tạo chuỗi)
+            const selectedBySeq = {};
+            cropItems.forEach(ci => {
+                if (!cropSelectedItemIds.has(ci.id)) return;
+                selectedBySeq[ci.seqno] ??= { l:0, c:0, qu:0, lengths: [] };
+                selectedBySeq[ci.seqno][ci.type]++;
+                selectedBySeq[ci.seqno].lengths.push(ci.length);
+            });
+            let seqnos = Object.keys(selectedBySeq).map(n => parseInt(n,10)).sort((a,b)=>a-b);
+            if (!seqnos.length) return;
+            
+            // Tìm đoạn liên tiếp dài nhất để làm pattern chính (logic cũ)
+            let bestRun = [], currentRun = [seqnos[0]];
+            for (let i=1;i<seqnos.length;i++) {
+                if (seqnos[i] === seqnos[i-1] + 1) currentRun.push(seqnos[i]);
+                else {
+                    if (currentRun.length > bestRun.length) bestRun = currentRun.slice();
+                    currentRun = [seqnos[i]];
+                }
+            }
+            if (currentRun.length > bestRun.length) bestRun = currentRun.slice();
+            
+            // Nếu có đoạn liên tiếp dài >= 2, ưu tiên dùng nó
+            if (bestRun.length >= 2) {
+                sequencePatternTokens = {
+                    type: 'consecutive',
+                    seqnos: bestRun,
+                    gaps: bestRun.slice(1).map(() => 1), // gaps đều là 1
+                    tokens: bestRun.map(s => {
+                        const counts = selectedBySeq[s];
+                        const tokenParts = [];
+                        if (counts.l) tokenParts.push(counts.l + 'l');
+                        if (counts.c) tokenParts.push(counts.c + 'c');
+                        if (counts.qu) tokenParts.push(counts.qu + 'q');
+                        return tokenParts.join('');
+                    }),
+                    lengths: bestRun.map(s => selectedBySeq[s].lengths) // lưu độ dài các lệnh
+                };
+            } else {
+                // Nếu không có đoạn liên tiếp, dùng toàn bộ với gaps thực
+                const gaps = [];
+                for (let i=1; i<seqnos.length; i++) {
+                    gaps.push(seqnos[i] - seqnos[i-1]);
+                }
+                
+                sequencePatternTokens = {
+                    type: 'gapped',
+                    seqnos: seqnos,
+                    gaps: gaps,
+                    tokens: seqnos.map(s => {
+                        const counts = selectedBySeq[s];
+                        const tokenParts = [];
+                        if (counts.l) tokenParts.push(counts.l + 'l');
+                        if (counts.c) tokenParts.push(counts.c + 'c');
+                        if (counts.qu) tokenParts.push(counts.qu + 'q');
+                        return tokenParts.join('');
+                    }),
+                    lengths: seqnos.map(s => selectedBySeq[s].lengths) // lưu độ dài các lệnh
+                };
+            }
+        }
+
+        function findSimilarSequencePatternMatches() {
+            sequenceMatches = [];
+            if (!sequencePatternTokens || !sequencePatternTokens.tokens?.length || !mainLayers?.length) return;
+            const t0 = performance.now();
+            
+            // Dựng token list toàn cục theo thứ tự seqno, chỉ trên mainLayers.
+            // Use allShapesSorted which is already sorted by seqno
+            const globalObjs = allShapesSorted.filter(obj => mainLayers.includes(obj.layer) && obj.seqno != null)
+                .map(o => ({ obj: o, seqno: o.seqno }));
+            
+            const globalTokens = globalObjs.map(g => {
+                const counts = { l:0, c:0, qu:0 };
+                if (g.obj.items) g.obj.items.forEach(item => { const t=item[0]; if (counts[t]!=null) counts[t]++; });
+                const parts=[]; if (counts.l) parts.push(counts.l+'l'); if (counts.c) parts.push(counts.c+'c'); if (counts.qu) parts.push(counts.qu+'q');
+                return parts.join('');
+            });
+            
+            const patternTokens = sequencePatternTokens.tokens;
+            const patternGaps = sequencePatternTokens.gaps;
+            const patLen = patternTokens.length;
+            
+            if (patLen === 1) {
+                // Trường hợp đặc biệt: chỉ có 1 token, tìm tất cả match
+                for (let i = 0; i < globalTokens.length; i++) {
+                    if (globalTokens[i] === patternTokens[0]) {
+                        let lengthsMatch = true;
+                        let totalDiff = 0;
+                        let totalCount = 0;
+                        
+                        // Kiểm tra độ dài lệnh với sai lệch cho pattern 1 token
+                        const expectedLengths = sequencePatternTokens.lengths[0];
+                        const actualObj = globalObjs[i].obj;
+                        
+                        if (actualObj.items) {
+                            // Lấy độ dài các lệnh của object hiện tại
+                            const actualLengths = actualObj.items
+                                .filter(item => ['l', 'c', 'qu'].includes(item[0]))
+                                .map(item => calculateLength(item[0], item))
+                                .sort((a, b) => a - b);
+                            
+                            // So sánh độ dài với sai lệch cho phép
+                            if (expectedLengths.length !== actualLengths.length) {
+                                lengthsMatch = false;
+                            } else {
+                                for (let j = 0; j < expectedLengths.length; j++) {
+                                    const diff = Math.abs(expectedLengths[j] - actualLengths[j]);
+                                    if (diff > CONFIG.SIMILARITY_TOLERANCE) {
+                                        lengthsMatch = false;
+                                        break;
+                                    }
+                                    totalDiff += diff;
+                                    totalCount++;
+                                }
+                            }
+                        }
+                        
+                        if (!lengthsMatch) continue;
+                        
+                        const obj = globalObjs[i].obj;
+                        if (!obj.rect) continue;
+                        const [x1,y1,x2,y2] = obj.rect;
+                        const rect = { x:x1, y:y1, width:x2-x1, height:y2-y1 };
+                        
+                        // Đếm số lệnh l và c trong object tìm được
+                        let foundL = 0, foundC = 0;
+                        if (obj.items) {
+                            obj.items.forEach(item => {
+                                if (item[0] === 'l') foundL++;
+                                else if (item[0] === 'c') foundC++;
+                            });
+                        }
+                        
+                        // Tính score dựa trên số lượng lệnh l,c tìm được so với bbox gốc
+                        const expectedL = cropLengthsFull.l.length;
+                        const expectedC = cropLengthsFull.c.length;
+                        const totalExpected = expectedL + expectedC;
+                        const totalFound = foundL + foundC;
+                        let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
+                        
+                        if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
+                             sequenceMatches.push({ rect, startSeqno: globalObjs[i].seqno, endSeqno: globalObjs[i].seqno, score });
+                        }
+                    }
+                }
+            } else if (sequencePatternTokens.type === 'consecutive') {
+                // Logic cũ: tìm dãy liên tiếp
+                for (let start = 0; start <= globalTokens.length - patLen; start++) {
+                    // Kiểm tra seqno liên tiếp & token match.
+                    let ok = true;
+                    
+                    for (let k = 0; k < patLen; k++) {
+                        const actualToken = globalTokens[start + k];
+                        const expectedToken = patternTokens[k];
+                        
+                        if (actualToken !== expectedToken) { 
+                            ok = false; 
+                            break; 
+                        }
+                        // Kiểm tra liên tiếp seqno
+                        if (k > 0 && globalObjs[start + k].seqno !== globalObjs[start + k - 1].seqno + 1) { 
+                            ok = false; 
+                            break; 
+                        }
+                    }
+                    
+                    let totalDiff = 0;
+                    let totalCount = 0;
+
+                    // Nếu số lệnh được chọn < 20, kiểm tra thêm độ dài lệnh với sai lệch
+                    if (ok && cropSelectedItemIds.size < 20) {
+                        for (let k = 0; k < patLen; k++) {
+                            const expectedLengths = sequencePatternTokens.lengths[k];
+                            const actualObj = globalObjs[start + k].obj;
+                            
+                            if (!actualObj.items) continue;
+                            
+                            // Lấy độ dài các lệnh của object hiện tại
+                            const actualLengths = actualObj.items
+                                .filter(item => ['l', 'c', 'qu'].includes(item[0]))
+                                .map(item => calculateLength(item[0], item))
+                                .sort((a, b) => a - b);
+                            
+                            // So sánh độ dài với sai lệch cho phép
+                            if (expectedLengths.length !== actualLengths.length) {
+                                ok = false;
+                                break;
+                            }
+                            
+                            for (let i = 0; i < expectedLengths.length; i++) {
+                                const diff = Math.abs(expectedLengths[i] - actualLengths[i]);
+                                if (diff > CONFIG.SIMILARITY_TOLERANCE) {
+                                    ok = false;
+                                    break;
+                                }
+                                totalDiff += diff;
+                                totalCount++;
+                            }
+                            
+                            if (!ok) break;
+                        }
+                    }
+                    
+                    if (!ok) continue;
+                    
+                    // Tính rect chặt cho window
+                    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+                    for (let k=0;k<patLen;k++) {
+                        const b = globalObjs[start+k].obj.rect;
+                        if (!b) continue;
+                        minX = Math.min(minX,b[0]); minY = Math.min(minY,b[1]);
+                        maxX = Math.max(maxX,b[2]); maxY = Math.max(maxY,b[3]);
+                    }
+                    if (minX===Infinity) continue;
+                    
+                    const rect = { x:minX, y:minY, width:maxX-minX, height:maxY-minY };
+                    
+                    // Đếm số lệnh l và c trong các object tìm được
+                    let foundL = 0, foundC = 0;
+                    for (let k = 0; k < patLen; k++) {
+                        const obj = globalObjs[start + k].obj;
+                        if (obj.items) {
+                            obj.items.forEach(item => {
+                                if (item[0] === 'l') foundL++;
+                                else if (item[0] === 'c') foundC++;
+                            });
+                        }
+                    }
+                    
+                    // Tính score dựa trên số lượng lệnh l,c tìm được so với bbox gốc
+                    const expectedL = cropLengthsFull.l.length;
+                    const expectedC = cropLengthsFull.c.length;
+                    const totalExpected = expectedL + expectedC;
+                    const totalFound = foundL + foundC;
+                    let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
+
+                    if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
+                        sequenceMatches.push({ rect, startSeqno: globalObjs[start].seqno, endSeqno: globalObjs[start+patLen-1].seqno, score });
+                    }
+                }
+            } else {
+                // Logic mới: tìm pattern với khoảng cách tương tự
+                for (let start = 0; start <= globalTokens.length - patLen; start++) {
+                    // Kiểm tra token match
+                    let tokensMatch = true;
+                    for (let k = 0; k < patLen; k++) {
+                        if (globalTokens[start + k] !== patternTokens[k]) {
+                            tokensMatch = false;
+                            break;
+                        }
+                    }
+                    if (!tokensMatch) continue;
+                    
+                    // Kiểm tra gaps (khoảng cách giữa seqno)
+                    let gapsMatch = true;
+                    for (let k = 0; k < patLen - 1; k++) {
+                        const actualGap = globalObjs[start + k + 1].seqno - globalObjs[start + k].seqno;
+                        const expectedGap = patternGaps[k];
+                        if (actualGap !== expectedGap) {
+                            gapsMatch = false;
+                            break;
+                        }
+                    }
+                    if (!gapsMatch) continue;
+                    
+                    let totalDiff = 0;
+                    let totalCount = 0;
+
+                    // Nếu số lệnh được chọn < 20, kiểm tra thêm độ dài lệnh với sai lệch
+                    let lengthsMatch = true;
+                    if (cropSelectedItemIds.size < 20) {
+                        for (let k = 0; k < patLen; k++) {
+                            const expectedLengths = sequencePatternTokens.lengths[k];
+                            const actualObj = globalObjs[start + k].obj;
+                            
+                            if (!actualObj.items) continue;
+                            
+                            // Lấy độ dài các lệnh của object hiện tại
+                            const actualLengths = actualObj.items
+                                .filter(item => ['l', 'c', 'qu'].includes(item[0]))
+                                .map(item => calculateLength(item[0], item))
+                                .sort((a, b) => a - b);
+                            
+                            // So sánh độ dài với sai lệch cho phép
+                            if (expectedLengths.length !== actualLengths.length) {
+                                lengthsMatch = false;
+                                break;
+                            }
+                            
+                            for (let i = 0; i < expectedLengths.length; i++) {
+                                const diff = Math.abs(expectedLengths[i] - actualLengths[i]);
+                                if (diff > CONFIG.SIMILARITY_TOLERANCE) {
+                                    lengthsMatch = false;
+                                    break;
+                                }
+                                totalDiff += diff;
+                                totalCount++;
+                            }
+                            
+                            if (!lengthsMatch) break;
+                        }
+                    }
+                    if (!lengthsMatch) continue;
+                    
+                    // Tính rect chặt cho window
+                    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+                    for (let k=0;k<patLen;k++) {
+                        const b = globalObjs[start+k].obj.rect;
+                        if (!b) continue;
+                        minX = Math.min(minX,b[0]); minY = Math.min(minY,b[1]);
+                        maxX = Math.max(maxX,b[2]); maxY = Math.max(maxY,b[3]);
+                    }
+                    if (minX===Infinity) continue;
+                    
+                    const rect = { x:minX, y:minY, width:maxX-minX, height:maxY-minY };
+                    
+                    // Đếm số lệnh l và c trong các object tìm được
+                    let foundL = 0, foundC = 0;
+                    for (let k = 0; k < patLen; k++) {
+                        const obj = globalObjs[start + k].obj;
+                        if (obj.items) {
+                            obj.items.forEach(item => {
+                                if (item[0] === 'l') foundL++;
+                                else if (item[0] === 'c') foundC++;
+                            });
+                        }
+                    }
+                    
+                    // Tính score dựa trên số lượng lệnh l,c tìm được so với bbox gốc
+                    const expectedL = cropLengthsFull.l.length;
+                    const expectedC = cropLengthsFull.c.length;
+                    const totalExpected = expectedL + expectedC;
+                    const totalFound = foundL + foundC;
+                    let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
+
+                    if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
+                        sequenceMatches.push({ rect, startSeqno: globalObjs[start].seqno, endSeqno: globalObjs[start+patLen-1].seqno, score });
+                    }
+                }
+            }
+            
+            // Filter overlaps > 20% (matching Python logic)
+            const filteredMatches = [];
+            sequenceMatches.sort((a, b) => b.score - a.score); // Sort by score desc first
+            for (const match of sequenceMatches) {
+                let isOverlap = false;
+                for (const existing of filteredMatches) {
+                    if (bboxOverlapPercentage(match.rect, existing.rect) > 20) {
+                        isOverlap = true;
+                        break;
+                    }
+                }
+                if (!isOverlap) {
+                    filteredMatches.push(match);
+                }
+            }
+            sequenceMatches = filteredMatches;
+            
+            lastSequenceSearchMs = performance.now() - t0;
+        }
+
+        function findSimilarRegions() {
+            if (!jsonData || !cropLengths || !searchBboxSize) return;
+            
+            // 1. Run Purple Logic FIRST
+            findSimilarSequencePatternMatches();
+
+            similarBboxes = [];
+            if (!anchorPatterns?.length) {
+                console.warn('Không có anchorPatterns để so sánh.');
+                // If no anchor patterns, we can't run green logic, but we might have purple results.
+                // We should proceed to update UI.
+            } else {
+                const t0 = performance.now();
+                let candidateCount = 0, timeoutExceeded = false;
+                const globalLayerObjIndexMap = {};
+                for (let i = 0; i < mainLayers.length; i++) {
+                    const layerName = mainLayers[i];
+                    const arr = layerIndex[layerName] || [];
+                    globalLayerObjIndexMap[layerName] = new Map(arr.map((o, idx) => [o, idx]));
+                }
+                const patternsByType = { l: [], c: [], qu: [] };
+                for (let i = 0; i < anchorPatterns.length; i++) {
+                    const pattern = anchorPatterns[i];
+                    if (patternsByType[pattern.type]) {
+                        patternsByType[pattern.type].push(pattern);
+                    }
+                }
+                const checkedBboxes = new Set();
+                for (let layerIdx = 0; layerIdx < sortedLayerKeys.length; layerIdx++) {
+                    const layerName = sortedLayerKeys[layerIdx];
+                    // Search should consider internal mainLayers regardless of what user has toggled visually.
+                    if (!mainLayers.includes(layerName)) continue;
+                    const arr = layerIndex[layerName] || [];
+                    for (let objIndex = 0; objIndex < arr.length; objIndex++) {
+                        const obj = arr[objIndex];
+                        if (obj.type === 'text' || !obj.items) continue;
+                        for (let itemIndex = 0; itemIndex < obj.items.length; itemIndex++) {
+                            if (candidateCount % 200 === 0 && performance.now() - t0 > CONFIG.TIMEOUT_MS) {
+                                timeoutExceeded = true;
+                                break;
+                            }
+                            const item = obj.items[itemIndex];
+                            const commandType = item[0];
+                            if (commandType !== 'l' && commandType !== 'c' && commandType !== 'qu') continue;
+                            const relevantPatterns = patternsByType[commandType];
+                            if (!relevantPatterns?.length) continue;
+                            const commandLength = precomputedLengths[layerName]?.[objIndex]?.[itemIndex] || calculateLength(commandType, item);
+                            let anchorX, anchorY;
+                            if (commandType === 'l' || commandType === 'c') {
+                                [anchorX, anchorY] = item[1];
+                            } else if (commandType === 'qu') {
+                                const points = item[1];
+                                if (points?.length) {
+                                    [anchorX, anchorY] = points[0];
+                                } else {
+                                    continue;
+                                }
+                            }
+                            for (let patternIdx = 0; patternIdx < relevantPatterns.length; patternIdx++) {
+                                const pattern = relevantPatterns[patternIdx];
+                                if (Math.abs(pattern.length - commandLength) > CONFIG.SIMILARITY_TOLERANCE) continue;
+                                candidateCount++;
+                                const rotations = [
+                                    { relX: pattern.relX, relY: pattern.relY, width: searchBboxSize.width, height: searchBboxSize.height },
+                                    { relX: 1 - pattern.relY, relY: pattern.relX, width: searchBboxSize.height, height: searchBboxSize.width },
+                                    { relX: 1 - pattern.relX, relY: 1 - pattern.relY, width: searchBboxSize.width, height: searchBboxSize.height },
+                                    { relX: pattern.relY, relY: 1 - pattern.relX, width: searchBboxSize.height, height: searchBboxSize.width },
+                                    { relX: 1 - pattern.relX, relY: pattern.relY, width: searchBboxSize.width, height: searchBboxSize.height },
+                                    { relX: pattern.relX, relY: 1 - pattern.relY, width: searchBboxSize.width, height: searchBboxSize.height },
+                                    { relX: 1 - (1 - pattern.relY), relY: pattern.relX, width: searchBboxSize.height, height: searchBboxSize.width },
+                                    { relX: 1 - (1 - pattern.relX), relY: 1 - pattern.relY, width: searchBboxSize.width, height: searchBboxSize.height },
+                                    { relX: 1 - pattern.relY, relY: 1 - pattern.relX, width: searchBboxSize.height, height: searchBboxSize.width },
+                                    { relX: 1 - pattern.relY, relY: 1 - pattern.relX, width: searchBboxSize.height, height: searchBboxSize.width },
+                                    { relX: 1 - pattern.relX, relY: 1 - (1 - pattern.relY), width: searchBboxSize.width, height: searchBboxSize.height },
+                                    { relX: pattern.relY, relY: 1 - (1 - pattern.relX), width: searchBboxSize.height, height: searchBboxSize.width }
+                                ];
+                                for (let rotIdx = 0; rotIdx < rotations.length; rotIdx++) {
+                                    const rotatedPattern = rotations[rotIdx];
+                                    const testBbox = {
+                                        x: anchorX - rotatedPattern.relX * rotatedPattern.width,
+                                        y: anchorY - rotatedPattern.relY * rotatedPattern.height,
+                                        width: rotatedPattern.width,
+                                        height: rotatedPattern.height
+                                    };
+                                    const bboxKey = `${Math.round(testBbox.x * 10)},${Math.round(testBbox.y * 10)},${Math.round(testBbox.width * 10)},${Math.round(testBbox.height * 10)}`;
+                                    if (checkedBboxes.has(bboxKey)) continue;
+                                    checkedBboxes.add(bboxKey);
+                                    const score = checkBboxSimilarityOptimized(testBbox, globalLayerObjIndexMap);
+                                    if (score >= CONFIG.SIMILARITY_THRESHOLD_GREEN) {
+                                        let tightMinX = Infinity, tightMinY = Infinity, tightMaxX = -Infinity, tightMaxY = -Infinity;
+                                        for (let i = 0; i < sortedLayerKeys.length; i++) {
+                                            const layerName2 = sortedLayerKeys[i];
+                                            if (!mainLayers.includes(layerName2)) continue;
+                                            const layerArr = layerIndex[layerName2] || [];
+                                            for (let j = 0; j < layerArr.length; j++) {
+                                                const obj2 = layerArr[j];
+                                                if (!obj2.rect) continue;
+                                                if (bboxInside(obj2.rect, [testBbox.x, testBbox.y, testBbox.x + testBbox.width, testBbox.y + testBbox.height])) {
+                                                    const [x1, y1, x2, y2] = obj2.rect;
+                                                    if (x1 < tightMinX) tightMinX = x1;
+                                                    if (y1 < tightMinY) tightMinY = y1;
+                                                    if (x2 > tightMaxX) tightMaxX = x2;
+                                                    if (y2 > tightMaxY) tightMaxY = y2;
+                                                }
+                                            }
+                                        }
+                                        if (tightMinX !== Infinity) {
+                                            similarBboxes.push({ x: tightMinX, y: tightMinY, width: tightMaxX - tightMinX, height: tightMaxY - tightMinY, score });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (timeoutExceeded) break;
+                    }
+                    if (timeoutExceeded) break;
+                }
+                lastSearchMs = performance.now() - t0;
+                console.log(`Anchor patterns (reduced): ${anchorPatterns.length} / raw ${rawAnchorPatternCount}, candidates tested: ${candidateCount}, similar found before filter: ${similarBboxes.length}, time: ${lastSearchMs.toFixed(0)} ms`);
+                similarBboxes.sort((a, b) => b.score - a.score);
+                similarBboxes = similarBboxes.filter((rect, idx, arr) => {
+                    for (let i = 0; i < idx; i++) {
+                        if (bboxOverlapPercentage(rect, arr[i]) > 20) {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+                console.log(`Similar found after filter: ${similarBboxes.length}`);
+                
+                if (timeoutExceeded) {
+                    alert(`Error: Search timed out after ${CONFIG.TIMEOUT_MS / 1000} seconds due to complexity. Search stopped.`);
+                    similarCount.textContent = `Search stopped after ${CONFIG.TIMEOUT_MS / 1000} seconds.`;
+                }
+            }
+
+            // Merge Logic
+            if (CONFIG.MERGE_RESULTS && sequenceMatches && sequenceMatches.length > 0 && similarBboxes.length > 0) {
+                const initialPurpleCount = sequenceMatches.length;
+                sequenceMatches = sequenceMatches.filter(purpleBox => {
+                    // Check if this purple box overlaps with any green box > 50% (overlap / smaller_area)
+                    const overlapsGreen = similarBboxes.some(greenBox => {
+                        const overlapPct = bboxOverlapPercentage(purpleBox.rect, greenBox);
+                        return overlapPct > 50;
+                    });
+                    // If overlaps, remove it (return false), otherwise keep it (return true)
+                    return !overlapsGreen;
+                });
+                console.log(`Merged results: Removed ${initialPurpleCount - sequenceMatches.length} purple boxes overlapping with green boxes.`);
+            }
+
+            const foundCountDiv = document.getElementById('found-count');
+            let totalFound = similarBboxes.length + (sequenceMatches ? sequenceMatches.length : 0);
+            if (totalFound > 0) {
+                let msg;
+                if (CONFIG.MERGE_RESULTS) {
+                     msg = `Found ${totalFound} in ${((lastSearchMs + lastSequenceSearchMs) / 1000).toFixed(2)}s`;
+                } else {
+                    msg = `Found ${similarBboxes.length} (green) in ${(lastSearchMs / 1000).toFixed(2)}s`;
+                    if (sequenceMatches && sequenceMatches.length > 0) {
+                        msg += `, ${sequenceMatches.length} (purple) in ${(lastSequenceSearchMs / 1000).toFixed(2)}s`;
+                    }
+                }
+                foundCountDiv.textContent = msg;
+                foundCountDiv.style.display = 'block';
+            } else {
+                foundCountDiv.style.display = 'none';
+            }
+        }
+        function exportToSVG() {
+            if (!jsonData) {
+                alert('No data to export.');
+                return;
+            }
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const paths = [];
+            sortedLayerKeys.forEach(layerName => {
+                if (!layerVisibility[layerName]) return;
+                const layerArr = layerIndex[layerName] || [];
+                layerArr.forEach(obj => {
+                    if (obj.type === 'text') return;
+                    if (obj.rect) {
+                        minX = Math.min(minX, obj.rect[0]);
+                        minY = Math.min(minY, obj.rect[1]);
+                        maxX = Math.max(maxX, obj.rect[2]);
+                        maxY = Math.max(maxY, obj.rect[3]);
+                    }
+                    if (!obj.items) return;
+                    obj.items.forEach(item => {
+                        const type = item[0];
+                        let d = '';
+                        if (type === 'l') {
+                            const [x1, y1] = item[1], [x2, y2] = item[2];
+                            d = `M ${x1} ${y1} L ${x2} ${y2}`;
+                        } else if (type === 'c') {
+                            const [p0x, p0y] = item[1], [p1x, p1y] = item[2], [p2x, p2y] = item[3], [p3x, p3y] = item[4];
+                            d = `M ${p0x} ${p0y} C ${p1x} ${p1y} ${p2x} ${p2y} ${p3x} ${p3y}`;
+                        } else if (type === 'qu') {
+                            const points = item[1];
+                            if (points?.length === 4) d = `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]} L ${points[3][0]} ${points[3][1]} L ${points[2][0]} ${points[2][1]} Z`;
+                        }
+                        if (d) {
+                            const color = obj.color ? toRgbString(obj.color) : '#000';
+                            const width = obj.width || 1;
+                            paths.push(`<path d="${d}" stroke="${color}" stroke-width="${width}" fill="none"/>`);
+                        }
+                    });
+                });
+            });
+            if (!paths.length && !svgData) {
+                alert('Không có đường vẽ hoặc SVG nào để xuất.');
+                return;
+            }
+            const width = maxX - minX || 100, height = maxY - minY || 100;
+            let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX} ${minY} ${width} ${height}" width="${width}" height="${height}">`;
+            if (paths.length) svgContent += paths.join('\n');
+            if (svgData && svgData.text_only && layerVisibility['svg_text']) {
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svgData.text_only, 'image/svg+xml');
+                const defs = svgDoc.querySelector('defs');
+                if (defs) svgContent += new XMLSerializer().serializeToString(defs);
+                const uses = svgDoc.querySelectorAll('use');
+                uses.forEach(use => svgContent += new XMLSerializer().serializeToString(use));
+            }
+            if (svgData && svgData.graphic_only && layerVisibility['svg_graphic']) {
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svgData.graphic_only, 'image/svg+xml');
+                const defs = svgDoc.querySelector('defs');
+                if (defs) svgContent += new XMLSerializer().serializeToString(defs);
+                const children = Array.from(svgDoc.children).filter(child => child.tagName !== 'defs');
+                children.forEach(child => svgContent += new XMLSerializer().serializeToString(child));
+            }
+            svgContent += '</svg>';
+            const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'exported_visual.svg';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        function showCropModal(rect) {
+            // FIXED: Kiểm tra size bbox để tránh lỗi Infinity khi scale
+            if (!rect || !jsonData || rect.width <= 0 || rect.height <= 0) return;
+            selectionMode = 'hide';
+            const modal = document.getElementById('crop-modal');
+            const cropCanvas = document.getElementById('crop-canvas');
+            const ctx2 = cropCanvas.getContext('2d');
+            const commandCount = document.getElementById('command-count');
+            const bboxCoords = document.getElementById('rect-coords');
+            const btnHideMode = document.getElementById('btn-hide-mode');
+            const btnShowMode = document.getElementById('btn-show-mode');
+            btnHideMode.classList.add('active');
+            btnShowMode.classList.remove('active');
+            const croppedObjs = [];
+            const layerSet = new Set();
+            sortedLayerKeys.forEach(layerName => {
+                if (!layerVisibility[layerName]) return;
+                const layerArr = layerIndex[layerName] || [];
+                layerArr.forEach(obj => {
+                    if (bboxInside(obj.rect, [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height])) {
+                        croppedObjs.push({ obj, layer: layerName });
+                        layerSet.add(layerName);
+                    }
+                });
+            });
+            if (!croppedObjs.length) return;
+            let tightMinX = Infinity, tightMinY = Infinity, tightMaxX = -Infinity, tightMaxY = -Infinity;
+            croppedObjs.forEach(({ obj }) => {
+                if (!obj.rect) return;
+                const [x1, y1, x2, y2] = obj.rect;
+                tightMinX = Math.min(tightMinX, x1); tightMinY = Math.min(tightMinY, y1);
+                tightMaxX = Math.max(tightMaxX, x2); tightMaxY = Math.max(tightMaxY, y2);
+            });
+            if (tightMinX === Infinity) {
+                tightMinX = rect.x; tightMinY = rect.y;
+                tightMaxX = rect.x + rect.width; tightMaxY = rect.y + rect.height;
+            }
+            const padding = CONFIG.TIGHT_BBOX_PADDING_RATIO;
+            anchorBbox = { x: tightMinX - padding, y: tightMinY - padding, width: (tightMaxX - tightMinX) + 2 * padding, height: (tightMaxY - tightMinY) + 2 * padding };
+            cropPreviewBbox = { ...anchorBbox };
+            bboxCoords.textContent = `${anchorBbox.x.toFixed(2)}, ${anchorBbox.y.toFixed(2)}, ${(anchorBbox.x + anchorBbox.width).toFixed(2)}, ${(anchorBbox.y + anchorBbox.height).toFixed(2)}`;
+            mainLayers = Array.from(layerSet);
+            searchBboxSize = { width: anchorBbox.width, height: anchorBbox.height };
+            cropItems = [];
+            let nextId = 0;
+            const tempLayerObjIndexMap = {};
+            sortedLayerKeys.forEach(layerName => {
+                const arr = layerIndex[layerName] || [];
+                tempLayerObjIndexMap[layerName] = new Map(arr.map((o, i) => [o, i]));
+            });
+            croppedObjs.forEach(({ obj, layer }) => {
+                if (obj.type === 'text' || !obj.items) return;
+                const objIndex = tempLayerObjIndexMap[layer]?.get(obj);
+                obj.items.forEach((item, itemIndex) => {
+                    const type = item[0];
+                    if (!(type === 'l' || type === 'c' || type === 'qu')) return;
+                    const length = objIndex != null ? precomputedLengths[layer]?.[objIndex]?.[itemIndex] : calculateLength(type, item);
+                    let anchorX, anchorY;
+                    if (type === 'l' || type === 'c') [anchorX, anchorY] = item[1];
+                    else if (type === 'qu') {
+                        const pts = item[1];
+                        if (pts?.length) [anchorX, anchorY] = pts[0];
+                        else return;
+                    }
+                    cropItems.push({ id: nextId++, type, length, anchorX, anchorY, obj, layer, objIndex, itemIndex, seqno: obj.seqno || objIndex });
+                });
+            });
+            cropSelectedItemIds = new Set(cropItems.map(ci => ci.id));
+
+            // FIXED: Sử dụng cropSeqnoToIds thay vì ghi đè biến global
+            cropSeqnoToIds = {};
+            cropItems.forEach(ci => {
+                cropSeqnoToIds[ci.seqno] ??= [];
+                cropSeqnoToIds[ci.seqno].push(ci.id);
+            });
+
+            // Save current visibility and crop/search state so we can restore them after modal
+            const prevLayerVisibility = { ...layerVisibility };
+            const prevCropState = {
+                cropLengths, cropLengthsFull, cropLengthsFiltered, mainLayers: mainLayers ? [...mainLayers] : null,
+                anchorBbox, searchBboxSize, similarBboxes: similarBboxes ? [...similarBboxes] : []
+            };
+
+            recomputeCropDataFromSelection();
+            const displayLengths = {};
+            for (const type in cropLengthsFull) displayLengths[type] = [...new Set(cropLengthsFull[type])].sort((a, b) => a - b);
+            // For modal preview we temporarily show only mainLayers (optimization stays internal)
+            sortedLayerKeys.forEach(layerName => layerVisibility[layerName] = mainLayers.includes(layerName));
+            updateLayerList();
+            let counts = { l: 0, c: 0, qu: 0 };
+            croppedObjs.forEach(({ obj }) => {
+                if (obj.type !== 'text' && obj.items) {
+                    obj.items.forEach(item => {
+                        const type = item[0];
+                        if (counts.hasOwnProperty(type)) counts[type]++;
+                    });
+                }
+            });
+                commandCount.innerHTML = `<li><strong>Total (within region):</strong> l=${counts.l}, c=${counts.c}, qu=${counts.qu}</li>
+            ${displayLengths.l.length ? `<li>l lengths: ${getDisplayLengths(displayLengths.l)}</li>` : ''}
+            ${displayLengths.c.length ? `<li>c lengths: ${getDisplayLengths(displayLengths.c)}</li>` : ''}
+            ${displayLengths.qu.length ? `<li>qu lengths: ${getDisplayLengths(displayLengths.qu)}</li>` : ''}
+            <li style='margin-top:6px;list-style:none;'><em>Hold left mouse and hover over strokes to hide/show.</em></li>`;
+            
+            // Hiển thị sequence pattern nếu có
+            if (sequencePatternTokens?.tokens?.length) {
+                const li = document.createElement('li');
+                li.style.listStyle='none';
+                const seqnos = sequencePatternTokens.seqnos.join(', ');
+                const type = sequencePatternTokens.type === 'consecutive' ? 'consecutive' : 'gapped';
+                const gaps = sequencePatternTokens.gaps.length ? ` (gaps: ${sequencePatternTokens.gaps.join(', ')})` : '';
+                const tokens = sequencePatternTokens.tokens.join(' ');
+                const lengthCheck = sequencePatternTokens.tokens.length < 5 ? ' (length check)' : '';
+                li.innerHTML = `<strong>Pattern ${type}:</strong> [${seqnos}]${gaps}<br><strong>Tokens:</strong> ${tokens} (len ${sequencePatternTokens.tokens.length})${lengthCheck}`;
+                commandCount.appendChild(li);
+            }
+            ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+            const scaleX = cropCanvas.width / cropPreviewBbox.width;
+            const scaleY = cropCanvas.height / cropPreviewBbox.height;
+            const scale = Math.min(scaleX, scaleY);
+            const offsetX2 = (cropCanvas.width - anchorBbox.width * scale) / 2;
+            const offsetY2 = (cropCanvas.height - anchorBbox.height * scale) / 2;
+            cropPreviewTransform = { scale, offsetX: offsetX2, offsetY: offsetY2, rect: cropPreviewBbox };
+            redrawCropPreview(ctx2, croppedObjs, cropPreviewBbox, cropCanvas);
+            modal.style.display = 'block';
+            const closeBtn = modal.querySelector('.close');
+            let searchTriggered = false;
+
+            const restoreAndClose = (doSearch) => {
+                // If doSearch is true we need to run search first (uses current cropLengths/mainLayers),
+                // capture results, then restore previous crop state so the user's view (filters) returns to prior state,
+                // while keeping the search overlay (similarBboxes) visible.
+                const finish = (results) => {
+                    modal.style.display = 'none';
+                    // Restore user's original layer visibility by mutating the existing object
+                    Object.keys(layerVisibility).forEach(k => delete layerVisibility[k]);
+                    Object.entries(prevLayerVisibility).forEach(([k, v]) => layerVisibility[k] = v);
+                    // Restore crop/search state (so canvas no longer filtered by the modal selection)
+                    cropLengths = prevCropState.cropLengths;
+                    cropLengthsFull = prevCropState.cropLengthsFull;
+                    cropLengthsFiltered = prevCropState.cropLengthsFiltered;
+                    mainLayers = prevCropState.mainLayers;
+                    anchorBbox = prevCropState.anchorBbox;
+                    searchBboxSize = prevCropState.searchBboxSize;
+                    // Set similarBboxes from search results (if any) so overlay remains
+                    similarBboxes = results || [];
+                    updateLayerList();
+                    // Ensure checkboxes match restored visibility (DOM may have been rebuilt)
+                    try {
+                        sortedLayerKeys.forEach(ln => {
+                            const cb = document.getElementById(`check-${ln}`);
+                            if (cb) cb.checked = !!layerVisibility[ln];
+                        });
+                    } catch (e) { /* ignore DOM timing issues */ }
+                    scheduleDraw();
+                    // Apply svg layer visibility too
+                    applySvgTransform();
+                };
+
+                if (doSearch) {
+                    if (cropSelectedItemIds.size > 0) {
+                        // Recalculate mainLayers based on the final selection in the crop modal
+                        recomputeMainLayersFromSelection();
+                        
+                        // Show blocking overlay then run search so UI is blocked during processing
+                        const popup = document.getElementById('loading-popup');
+                        if (popup) popup.style.display = 'flex';
+                        // allow overlay to render
+                        setTimeout(() => {
+                            try {
+                                findSimilarRegions();
+                                const results = similarBboxes ? [...similarBboxes] : [];
+                                if (popup) popup.style.display = 'none';
+                                finish(results);
+                            } catch (err) {
+                                console.error('Error during search', err);
+                                if (popup) popup.style.display = 'none';
+                                finish([]);
+                            }
+                        }, 20);
+                    } else {
+                        alert('No items selected – skipping search.');
+                        finish([]);
+                    }
+                } else {
+                    // Cancel: don't perform search, restore prior state and clear any temporary similar boxes
+                    finish([]);
+                }
+            };
+
+            closeBtn.onclick = () => restoreAndClose(false);
+            window.onclick = event => {
+                if (event.target === modal) restoreAndClose(false);
+            };
+
+            // Wire the new modal buttons
+            const btnSearchNow = document.getElementById('btn-search-now');
+            const btnCancelSearch = document.getElementById('btn-cancel-search');
+            btnSearchNow.onclick = () => restoreAndClose(true);
+            btnCancelSearch.onclick = () => restoreAndClose(false);
+            btnHideMode.addEventListener('click', () => {
+                selectionMode = 'hide';
+                btnHideMode.classList.add('active');
+                btnShowMode.classList.remove('active');
+            });
+            btnShowMode.addEventListener('click', () => {
+                selectionMode = 'show';
+                btnShowMode.classList.add('active');
+                btnHideMode.classList.remove('active');
+            });
+            cropCanvas.addEventListener('mousedown', e => {
+                dragSelecting = true;
+                const rect = cropCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left, y = e.clientY - rect.top;
+                if (!cropPreviewTransform) return;
+                const worldX = (x - cropPreviewTransform.offsetX) / cropPreviewTransform.scale + cropPreviewTransform.rect.x;
+                const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
+                applySelectionAtPoint(worldX, worldY);
+            });
+            cropCanvas.addEventListener('mouseup', () => dragSelecting = false);
+            cropCanvas.addEventListener('mouseleave', () => dragSelecting = false);
+            cropCanvas.addEventListener('mousemove', e => {
+                if (!dragSelecting) return;
+                const rect = cropCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left, y = e.clientY - rect.top;
+                if (!cropPreviewTransform) return;
+                const worldX = (x - cropPreviewTransform.offsetX) / cropPreviewTransform.scale + cropPreviewTransform.rect.x;
+                const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
+                applySelectionAtPoint(worldX, worldY);
+            });
+            updateCommandCountSummary();
+        }
+        // Events
+        window.addEventListener('resize', resizeCanvas);
+        dropZone.addEventListener('dragover', e => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.add('hidden');
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.json')) {
+                const reader = new FileReader();
+                reader.onload = event => {
+                    try {
+                        const parsed = JSON.parse(event.target.result);
+                        jsonData = parsed;
+                        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                            jsonShapes = parsed.shapes || [];
+                            svgData = parsed.svg || null;
+                        } else if (Array.isArray(parsed)) {
+                            jsonShapes = parsed;
+                            svgData = null;
+                        } else {
+                            throw new Error('Định dạng JSON không hợp lệ (phải là mảng hoặc object).');
+                        }
+                        buildLayerIndex();
+                        precomputeAllLengths();
+                        setupVisualization();
+                    } catch (error) {
+                        alert('Lỗi: Tệp JSON không hợp lệ.\n' + error);
+                        dropZone.classList.remove('hidden');
+                    }
+                };
+                reader.readAsText(file);
+            } else {
+                alert('Vui lòng chỉ thả tệp có định dạng .json.');
+                dropZone.classList.remove('hidden');
+            }
+        });
+
+        // Auto-load example if `example` query parameter is provided
+        (function autoLoadExampleFromQuery() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const examplePath = params.get('example');
+                if (!examplePath) return;
+                // Hide and disable drop zone to prevent uploads when example forced
+                dropZone.classList.add('hidden');
+                dropZone.innerHTML = `<p>Example forced: ${examplePath}</p>`;
+                dropZone.style.pointerEvents = 'none';
+
+                // Replace export button with Back-to-Portfolio link in the left panel
+                const exportContainer = document.getElementById('btn-export-svg-container');
+                const originalExportHTML = exportContainer ? exportContainer.innerHTML : null;
+                if (exportContainer) {
+                    exportContainer.innerHTML = `\n                        <a href="index.html" id="back-btn-panel" style="display:inline-flex; align-items:center; gap:8px; padding:8px 12px; background:#fff; border-radius:6px; text-decoration:none; color:#333; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,0.08);">\n                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>\n                            Back to Portfolio\n                        </a>\n                    `;
+                }
+
+                // Show loading overlay while fetching/parsing
+                const loadingPopup = document.getElementById('loading-popup');
+                if (loadingPopup) loadingPopup.style.display = 'flex';
+
+                // Try to use prefetched JSON from sessionStorage first
+                const storageKey = `prefetch_example::${examplePath}`;
+                const prefetched = sessionStorage.getItem(storageKey);
+                const finalizeFailure = (err) => {
+                    console.error('Example load failed', err);
+                    if (loadingPopup) loadingPopup.style.display = 'none';
+                    // restore drop zone and export button on failure
+                    dropZone.classList.remove('hidden');
+                    dropZone.style.pointerEvents = '';
+                    if (exportContainer && originalExportHTML !== null) exportContainer.innerHTML = originalExportHTML;
+                };
+
+                const processText = (text) => {
+                    try {
+                        const parsed = JSON.parse(text);
+                        jsonData = parsed;
+                        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                            jsonShapes = parsed.shapes || [];
+                            svgData = parsed.svg || null;
+                        } else if (Array.isArray(parsed)) {
+                            jsonShapes = parsed;
+                            svgData = null;
+                        } else {
+                            throw new Error('Định dạng JSON không hợp lệ (phải là mảng hoặc object).');
+                        }
+                        // Save parsed text to sessionStorage for next time
+                        try { sessionStorage.setItem(storageKey, text); } catch (e) {}
+                        buildLayerIndex();
+                        precomputeAllLengths();
+                        setupVisualization();
+                        if (loadingPopup) loadingPopup.style.display = 'none';
+                    } catch (err) {
+                        finalizeFailure(err);
+                    }
+                };
+
+                if (prefetched) {
+                    // use already-fetched JSON
+                    processText(prefetched);
+                } else {
+                    // Fetch the example JSON (relative path)
+                    fetch(examplePath).then(resp => {
+                        if (!resp.ok) throw new Error('Network response was not ok');
+                        return resp.text();
+                    }).then(text => {
+                        processText(text);
+                    }).catch(err => finalizeFailure(err));
+                }
+            } catch (err) {
+                console.error('autoLoadExampleFromQuery error', err);
+            }
+        })();
+        btnExportSvg.addEventListener('click', exportToSVG);
+        btnDrawBbox.addEventListener('click', () => {
+            isDrawingBbox = !isDrawingBbox;
+            btnDrawBbox.textContent = isDrawingBbox ? 'Cancel Draw BBox' : 'Draw BBox to Find';
+            btnDrawBbox.classList.toggle('active', isDrawingBbox);
+            if (isDrawingBbox) {
+                mouseX = (canvas.width / zoom) / 2;
+                mouseY = (canvas.height / zoom) / 2;
+            }
+            if (!isDrawingBbox) {
+                bboxStart = null;
+                currentBbox = null;
+                cropLengths = null;
+                cropLengthsFull = null;
+                cropLengthsFiltered = null;
+                mainLayers = null;
+                anchorBbox = null;
+                similarBboxes = [];
+                searchBboxSize = null;
+                expandedNodes = {};
+                searchInfo.style.display = 'none';
+                scheduleDraw();
+            }
+        });
+        btnResetFilter.addEventListener('click', () => {
+            cropLengths = null;
+            cropLengthsFull = null;
+            cropLengthsFiltered = null;
+            mainLayers = null;
+            anchorBbox = null;
+            similarBboxes = [];
+            sequenceMatches = [];
+            sequencePatternTokens = null;
+            searchBboxSize = null;
+            expandedNodes = {};
+            searchInfo.style.display = 'none';
+            document.getElementById('found-count').style.display = 'none';
+            isDrawingBbox = false;
+            btnDrawBbox.textContent = 'Draw BBox to Find';
+            btnDrawBbox.classList.remove('active');
+            scheduleDraw();
+        });
+        canvas.addEventListener('mousedown', e => {
+            const rect = canvas.getBoundingClientRect();
+            if (isDrawingBbox) {
+                bboxStart = { x: (e.clientX - rect.left - offsetX) / zoom, y: (e.clientY - rect.top - offsetY) / zoom };
+                currentBbox = null;
+            } else {
+                isDragging = true;
+                lastX = e.clientX; lastY = e.clientY;
+            }
+        });
+        canvas.addEventListener('mouseup', () => {
+            if (isDrawingBbox && currentBbox) {
+                // FIXED: Thêm điều kiện kiểm tra kích thước bbox > 1px để tránh click nhầm gây lỗi
+                if (currentBbox.width > 1 && currentBbox.height > 1) {
+                    showCropModal(currentBbox);
+                }
+                isDrawingBbox = false;
+                btnDrawBbox.textContent = 'Draw BBox to Find';
+                btnDrawBbox.classList.remove('active');
+                bboxStart = null;
+                currentBbox = null;
+                scheduleDraw();
+            }
+            isDragging = false;
+        });
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+        });
+        canvas.addEventListener('mousemove', e => {
+            const rect = canvas.getBoundingClientRect();
+            const canvasX = (e.clientX - rect.left - offsetX) / zoom;
+            const canvasY = (e.clientY - rect.top - offsetY) / zoom;
+            mouseX = canvasX; mouseY = canvasY;
+            if (isDrawingBbox) scheduleDraw();
+            if (isDrawingBbox && bboxStart) {
+                currentBbox = {
+                    x: Math.min(bboxStart.x, canvasX),
+                    y: Math.min(bboxStart.y, canvasY),
+                    width: Math.abs(canvasX - bboxStart.x),
+                    height: Math.abs(canvasY - bboxStart.y)
+                };
+                scheduleDraw();
+            } else if (isDragging) {
+                offsetX += e.clientX - lastX;
+                offsetY += e.clientY - lastY;
+                lastX = e.clientX; lastY = e.clientY;
+                scheduleDraw();
+            } else {
+                // Hover detection for group highlight
+                let hoveredSeqno = null;
+                const tol = 15 / zoom;
+                // FIXED: Sử dụng globalSeqnoToIds cho main hover
+                for (const seqno in globalSeqnoToIds) {
+                    const ids = globalSeqnoToIds[seqno];
+                    for (const id of ids) {
+                        const [objIndex, itemIndex] = id.split('-').map(Number);
+                        const obj = jsonShapes[objIndex];
+                        if (pointNearItem(canvasX, canvasY, { obj: obj, itemIndex: itemIndex }, tol)) {
+                            hoveredSeqno = parseInt(seqno);
+                            break;
+                        }
+                    }
+                    if (hoveredSeqno !== null) break;
+                }
+                const newHoveredGroup = hoveredSeqno !== null ? seqnoGroups[hoveredSeqno] : null;
+                if (newHoveredGroup !== hoveredGroup) {
+                    hoveredGroup = newHoveredGroup;
+                    scheduleDraw();
+                }
+            }
+        });
+        canvas.addEventListener('wheel', e => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
+            const worldX = (mouseX - offsetX) / zoom, worldY = (mouseY - offsetY) / zoom;
+            const newZoom = e.deltaY < 0 ? zoom * CONFIG.ZOOM_STEP : zoom / CONFIG.ZOOM_STEP;
+            offsetX = mouseX - worldX * newZoom;
+            offsetY = mouseY - worldY * newZoom;
+            zoom = newZoom;
+            scheduleDraw();
+        });
+        resizeCanvas();
+    </script>
+</body>
+</html>

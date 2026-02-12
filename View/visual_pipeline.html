@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipe Object Visualization Tool</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            min-height: 100vh; 
+        }
+        
+        .container { 
+            background: rgba(255, 255, 255, 0.95); 
+            overflow: hidden; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh;
+            width: 100%;
+        }
+
+        .header { background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 20px 30px; text-align: center; }
+        .header h1 { font-size: 2em; margin-bottom: 5px; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+        .header p { font-size: 0.9em; opacity: 0.9; }
+        
+        /* --- Layout chính --- */
+        .content-wrapper { display: flex; flex: 1; overflow: hidden; }
+
+        /* --- Vùng hiển thị chính --- */
+        .image-container { flex: 3; position: relative; background: #2c3e50; overflow: hidden; cursor: grab; display: flex; align-items: center; justify-content: center;}
+        .image-container.dragging { cursor: grabbing; }
+        .image-container.drag-over { background: rgba(52, 152, 219, 0.1); border: 2px dashed #3498db; }
+        .image-canvas { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 20px; }
+        .canvas-container { position: relative; border-radius: 10px; overflow: hidden; background: white; box-shadow: 0 10px 20px rgba(0,0,0,0.3); transform-origin: 0 0; transition: transform 0.1s ease; }
+        .no-data { text-align: center; padding: 50px; color: #7f8c8d; font-size: 1.5em; background: rgba(255,255,255,0.9); border-radius: 15px; max-width: 80%; }
+        .no-data span { font-size: 3em; display: block; margin-bottom: 10px;}
+        .no-data.drag-over { background: rgba(52, 152, 219, 0.1); border: 2px dashed #3498db; color: #3498db; }
+
+        /* --- Thanh bên --- */
+        .info-panel { flex: 1; background: #f8f9fa; overflow-y: auto; min-width: 350px; max-width: 380px; display: flex; flex-direction: column; }
+        .sidebar-content { padding: 15px; display: flex; flex-direction: column; gap: 15px; }
+
+        .upload-section h3, .controls-section h3, .legend-section h3 { color: #2c3e50; margin-bottom: 10px; font-size: 1.1em; padding-bottom: 8px; border-bottom: 2px solid #e9ecef; }
+        .upload-item { background: white; border-radius: 15px; padding: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.05); }
+        .file-input { width: 100%; padding: 15px; border: 2px dashed #3498db; border-radius: 10px; background: #ecf0f1; cursor: pointer; transition: all 0.3s ease; }
+        .file-input:hover { border-color: #2980b9; background: #e0e5e5; }
+        .upload-item p { margin-top: 10px; font-size: 0.9em; color: #7f8c8d; }
+
+        .controls { display: flex; flex-direction: column; gap: 10px; flex-wrap: wrap; }
+        .control-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #fff; padding: 8px 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .control-group label { color: #34495e; font-weight: 500; }
+        .control-group input[type="checkbox"] { transform: scale(1.2); }
+        .control-group input, .control-group select { padding: 8px 12px; border: 1px solid #ccc; border-radius: 5px; background: #fdfdfd; flex: 1; }
+        
+        .zoom-controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .zoom-btn { background: #3498db; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.3s ease; }
+        .zoom-btn:hover { background: #2980b9; transform: translateY(-1px); }
+
+        .legend-items { display: flex; flex-wrap: wrap; gap: 10px; }
+        .legend-item { display: flex; align-items: center; gap: 6px; background: #e9ecef; padding: 6px 10px; border-radius: 12px; font-size: 0.85em; }
+        .legend-color { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 2px rgba(0,0,0,0.2); }
+        
+        /* --- Lớp phủ & Thông tin --- */
+        .bbox, .color-overlay { transition: opacity 0.3s ease, stroke-width 0.3s ease; }
+        .color-overlay { cursor: pointer; }
+        .bbox.highlighted, .color-overlay.highlighted { z-index: 100; }
+        .loading, .viewport-info, .zoom-info { position: absolute; background: rgba(0,0,0,0.7); color: white; padding: 8px 12px; border-radius: 5px; z-index: 1000; }
+        .loading { top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 20px 30px; display: none; }
+        .viewport-info { bottom: 10px; right: 10px; }
+        .zoom-info { bottom: 10px; left: 10px; }
+        
+        /* --- Tooltip --- */
+        .tooltip { 
+            position: fixed; 
+            background: rgba(0, 0, 0, 0.9); 
+            color: white; 
+            padding: 10px 15px; 
+            border-radius: 8px; 
+            font-size: 12px; 
+            pointer-events: none; 
+            z-index: 2000; 
+            max-width: 300px; 
+            white-space: pre-line;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+            display: none;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.4;
+        }
+        .tooltip.show { display: block; }
+
+        @media (max-width: 1024px) {
+            .content-wrapper { flex-direction: column; }
+            .info-panel { min-width: auto; max-width: 100%; max-height: 50vh; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="content-wrapper">
+            <!-- VÙNG HIỂN THỊ CHÍNH -->
+            <div class="image-container" id="imageContainer">
+                <div class="viewport-info" id="viewportInfo">Ready</div>
+                <div class="zoom-info" id="zoomInfo">Zoom: 100%</div>
+                <div id="imageCanvas" class="image-canvas">
+                    <div class="no-data">
+                        <span>📤</span>
+                        Please drag and drop a JSON data file to start
+                    </div>
+                </div>
+            </div>
+
+            <!-- THANH BÊN (SIDEBAR) -->
+            <div class="info-panel">
+                <div class="sidebar-content">
+                    <!-- PHẦN ĐIỀU KHIỂN -->
+                    <div class="controls-section">
+                        <h3>⚙️ Controls</h3>
+                        <div class="controls">
+                            <div class="control-group">
+                                <label for="showBorders">Show Borders:</label>
+                                <input type="checkbox" id="showBorders" checked>
+                            </div>
+                            <div class="control-group">
+                                <label for="pipeFilter">Highlight Pipe:</label>
+                                <select id="pipeFilter"><option value="all">All Pipes</option></select>
+                            </div>
+                            <div class="control-group">
+                                <label for="dnFilter">Highlight DN:</label>
+                                <select id="dnFilter"><option value="all">All DN</option></select>
+                            </div>
+                            <div class="control-group">
+                                <label for="shapeFilter">Shape Filter:</label>
+                                <select id="shapeFilter"><option value="all">All Shapes</option></select>
+                            </div>
+                            <div class="control-group">
+                                <label for="typeFilter">Sprinkler Type:</label>
+                                <select id="typeFilter"><option value="all">All Types</option></select>
+                            </div>
+                             <div class="zoom-controls">
+                                <button class="zoom-btn" onclick="app.zoomIn()">Zoom In (+)</button>
+                                <button class="zoom-btn" onclick="app.zoomOut()">Zoom Out (-)</button>
+                                <button class="zoom-btn" onclick="app.resetView()">Reset View</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PHẦN CHÚ THÍCH -->
+                    <div class="legend-section">
+                        <h3>🎨 Shape Legend</h3>
+                        <div id="legendContainer" class="legend-items"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="loading" id="loading"></div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        class PipeVisualization {
+            constructor() {
+                // State
+                this.data = null;
+                this.bounds = null;
+                this.shapeColors = {};
+                this.currentZoom = 1;
+                this.panX = 0;
+                this.panY = 0;
+                this.isDragging = false;
+                this.lastMouseX = 0;
+                this.lastMouseY = 0;
+
+                // DOM Elements
+                this.canvasContainer = null;
+                this.imageContainer = document.getElementById('imageContainer');
+                this.tooltip = document.getElementById('tooltip');
+                
+                // Configuration Constants
+                this.ZOOM_FACTOR = 1.2;
+                this.MAX_ZOOM = 20;
+                this.MIN_ZOOM = 1;
+                this.HIGHLIGHT_OPACITY = 1;
+                this.NORMAL_OPACITY = 0.2;
+                this.HIGHLIGHT_STROKE_WIDTH = 0.5;
+                this.NORMAL_STROKE_WIDTH = 0.2;
+
+                this.initializeEventListeners();
+                this.generateColors();
+            }
+
+            initializeEventListeners() {
+                ['showBorders', 'pipeFilter', 'dnFilter', 'shapeFilter', 'typeFilter'].forEach(id => {
+                    document.getElementById(id).addEventListener('change', () => this.updateVisualization());
+                });
+                
+                this.imageContainer.addEventListener('wheel', e => this.handleMouseWheel(e));
+                this.imageContainer.addEventListener('mousedown', e => this.handleMouseDown(e));
+                this.imageContainer.addEventListener('mousemove', e => this.handleMouseMove(e));
+                this.imageContainer.addEventListener('mouseup', e => this.handleMouseUp(e));
+                this.imageContainer.addEventListener('mouseleave', e => this.handleMouseUp(e));
+
+                // Drag and drop events
+                this.dragCounter = 0;
+                this.imageContainer.addEventListener('dragover', e => this.handleDragOver(e));
+                this.imageContainer.addEventListener('dragenter', e => this.handleDragEnter(e));
+                this.imageContainer.addEventListener('dragleave', e => this.handleDragLeave(e));
+                this.imageContainer.addEventListener('drop', e => this.handleDrop(e));
+            }
+
+            // --- Event Handlers ---
+            handleMouseWheel(e) {
+                if (!this.canvasContainer) return;
+                e.preventDefault();
+                const zoomMultiplier = e.deltaY > 0 ? 1 / this.ZOOM_FACTOR : this.ZOOM_FACTOR;
+                this._zoomAtPoint(zoomMultiplier, e.clientX, e.clientY);
+            }
+
+            handleMouseDown(e) {
+                if (!this.canvasContainer) return;
+                this.isDragging = true;
+                this.lastMouseX = e.clientX;
+                this.lastMouseY = e.clientY;
+                this.imageContainer.classList.add('dragging');
+            }
+
+            handleMouseMove(e) {
+                if (!this.isDragging) return;
+                this.panX += e.clientX - this.lastMouseX;
+                this.panY += e.clientY - this.lastMouseY;
+                this.lastMouseX = e.clientX;
+                this.lastMouseY = e.clientY;
+                this._updateCanvasTransform();
+            }
+
+            handleMouseUp() {
+                this.isDragging = false;
+                this.imageContainer.classList.remove('dragging');
+            }
+
+            // --- Drag and Drop Handlers ---
+            handleDragOver(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            handleDragEnter(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.dragCounter++;
+                if (this.dragCounter === 1) {
+                    this.imageContainer.classList.add('drag-over');
+                    const noData = this.imageContainer.querySelector('.no-data');
+                    if (noData) {
+                        noData.classList.add('drag-over');
+                        noData.innerHTML = '<span>📂</span>Drop JSON file here';
+                    }
+                }
+            }
+
+            handleDragLeave(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.dragCounter--;
+                if (this.dragCounter === 0) {
+                    this.imageContainer.classList.remove('drag-over');
+                    const noData = this.imageContainer.querySelector('.no-data');
+                    if (noData) {
+                        noData.classList.remove('drag-over');
+                        noData.innerHTML = '<span>📤</span>Please drag and drop a JSON data file to start';
+                    }
+                }
+            }
+
+            handleDrop(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.dragCounter = 0;
+                this.imageContainer.classList.remove('drag-over');
+                const noData = this.imageContainer.querySelector('.no-data');
+                if (noData) {
+                    noData.classList.remove('drag-over');
+                }
+
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    const file = files[0];
+                    if (file.name.toLowerCase().endsWith('.json')) {
+                        this.processDroppedFile(file);
+                    } else {
+                        alert('Please drop a JSON file (.json)');
+                    }
+                }
+            }
+
+            async processDroppedFile(file) {
+                this._showLoading(true);
+                try {
+                    const text = await file.text();
+                    this.data = JSON.parse(text);
+                    this.bounds = this._calculateBounds(this.data);
+                    this._updateFilters();
+                    this.resetView();
+                } catch (error) {
+                    alert('Error reading JSON file: ' + error.message);
+                } finally {
+                    this._showLoading(false);
+                }
+            }
+
+            // --- Tooltip Methods ---
+            showTooltip(obj, event) {
+                const tooltipText = this._generateTooltipText(obj);
+                this.tooltip.textContent = tooltipText;
+                this.tooltip.classList.add('show');
+                
+                // Force reflow để lấy kích thước thực tế
+                this.tooltip.offsetHeight;
+                
+                this._positionTooltip(event);
+            }
+
+            hideTooltip() {
+                this.tooltip.classList.remove('show');
+            }
+
+            _generateTooltipText(obj) {
+                let text = `Shape: ${obj.shape_name}\n`;
+                text += `Pipe ID: ${Array.isArray(obj.pipe_id) ? obj.pipe_id.join(', ') : obj.pipe_id}\n`;
+                
+                if (obj.DN && Array.isArray(obj.DN) && obj.DN.length > 0) {
+                    text += `DN: ${obj.DN.join(', ')}\n`;
+                }
+                
+                // Thêm hiển thị type nếu có (đặc biệt cho Sprinkler)
+                if (obj.type) {
+                    text += `Type: ${obj.type}\n`;
+                }
+                
+                text += `Vertices: ${obj.vertices.length}`;
+                if (obj.vertices.length <= 4) {
+                    text += `\n${obj.vertices.map((v, i) => `  [${i+1}] (${v[0].toFixed(1)}, ${v[1].toFixed(1)})`).join('\n')}`;
+                } else {
+                    text += ` (too many to display)`;
+                }
+                
+                return text;
+            }
+
+            _positionTooltip(event) {
+                const tooltipRect = this.tooltip.getBoundingClientRect();
+                let x = event.clientX + 15;
+                let y = event.clientY + 15;
+                
+                // Đảm bảo tooltip không ra ngoài viewport
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+                
+                if (x + tooltipRect.width > viewportWidth) {
+                    x = event.clientX - tooltipRect.width - 15;
+                }
+                
+                if (y + tooltipRect.height > viewportHeight) {
+                    y = event.clientY - tooltipRect.height - 15;
+                }
+                
+                this.tooltip.style.left = `${x}px`;
+                this.tooltip.style.top = `${y}px`;
+            }
+
+            // --- Core Logic ---
+            async handleJsonUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                this._showLoading(true);
+                try {
+                    const text = await file.text();
+                    this.data = JSON.parse(text);
+                    this.bounds = this._calculateBounds(this.data);
+                    this._updateFilters();
+                    this.resetView();
+                } catch (error) {
+                    alert('Error reading JSON file: ' + error.message);
+                } finally {
+                    this._showLoading(false);
+                }
+            }
+
+            getFilteredData() {
+                if (!this.data) return [];
+                return this.data;
+            }
+
+            // --- Visualization & Rendering ---
+            updateVisualization() {
+                const canvas = document.getElementById('imageCanvas');
+                if (!this.data || !this.bounds) {
+                    canvas.innerHTML = `<div class="no-data"><span>📤</span>Please drag and drop a JSON data file to start</div>`;
+                    return;
+                }
+
+                const container = this.imageContainer;
+                const containerRect = container.getBoundingClientRect();
+                const containerW = containerRect.width;
+                const containerH = containerRect.height;
+
+                const dataW = this.bounds.width;
+                const dataH = this.bounds.height;
+                const dataAspect = dataW / dataH;
+                const containerAspect = containerW / containerH;
+
+                let fitW, fitH;
+                const padding = 40;
+                if (containerAspect > dataAspect) {
+                    fitH = containerH - padding;
+                    fitW = fitH * dataAspect;
+                } else {
+                    fitW = containerW - padding;
+                    fitH = fitW / dataAspect;
+                }
+
+                canvas.innerHTML = `<div class="canvas-container" style="width: ${fitW}px; height: ${fitH}px;"></div>`;
+                this.canvasContainer = canvas.querySelector('.canvas-container');
+
+                const svg = this._createSvgElement('svg', {
+                    width: '100%',
+                    height: '100%',
+                    viewBox: `${this.bounds.minX} ${this.bounds.minY} ${this.bounds.width} ${this.bounds.height}`
+                });
+
+                this._renderObjects(svg, this.getFilteredData());
+                this.canvasContainer.appendChild(svg);
+
+                this._updateCanvasTransform();
+                this._updateLegend();
+                this._updateInfoPanel();
+            }
+
+            _renderObjects(svg, filteredData) {
+                const pipeFilter = document.getElementById('pipeFilter').value;
+                const dnFilter = document.getElementById('dnFilter').value;
+                const shapeFilter = document.getElementById('shapeFilter').value;
+                const typeFilter = document.getElementById('typeFilter').value;
+                const showBorders = document.getElementById('showBorders').checked;
+                
+                filteredData.forEach((obj) => {
+                    // THAY ĐỔI: Chỉnh sửa logic highlight để xử lý mảng pipe_id và DN
+                    let pipeMatch = false;
+                    if (pipeFilter !== 'all') {
+                        const currentPipeId = obj.pipe_id;
+                        if (Array.isArray(currentPipeId)) {
+                            // Nếu pipe_id của đối tượng là mảng, kiểm tra xem filter có nằm trong mảng không
+                            pipeMatch = currentPipeId.includes(Number(pipeFilter));
+                        } else {
+                            // So sánh như cũ nếu pipe_id là một số
+                            pipeMatch = String(currentPipeId) === String(pipeFilter);
+                        }
+                    }
+
+                    let dnMatch = false;
+                    if (dnFilter !== 'all') {
+                        const currentDN = obj.DN;
+                        if (Array.isArray(currentDN)) {
+                            // Nếu DN là mảng, kiểm tra xem filter có nằm trong mảng không
+                            dnMatch = currentDN.includes(Number(dnFilter));
+                        } else {
+                            // So sánh như cũ nếu DN là một số
+                            dnMatch = String(currentDN) === String(dnFilter);
+                        }
+                    }
+
+                    let shapeMatch = false;
+                    if (shapeFilter !== 'all') {
+                        shapeMatch = obj.shape_name === shapeFilter;
+                    }
+
+                    let typeMatch = false;
+                    if (typeFilter !== 'all') {
+                        typeMatch = obj.type === typeFilter;
+                    }
+
+                    const shouldHighlight = (pipeFilter === 'all' || pipeMatch) && (dnFilter === 'all' || dnMatch) && (shapeFilter === 'all' || shapeMatch) && (typeFilter === 'all' || typeMatch);
+                    // Kết thúc thay đổi
+
+                    const points = obj.vertices.map(p => p.join(',')).join(' ');
+                    const color = this._getColorForShape(obj.shape_name, obj.type);
+                    const opacity = shouldHighlight ? this.HIGHLIGHT_OPACITY : this.NORMAL_OPACITY;
+
+                    // THAY ĐỔI: Xử lý riêng cho Tee và Elbow với 1 điểm
+                    if ((obj.shape_name.startsWith('Tee') || obj.shape_name.startsWith('Elbow')) && obj.vertices.length === 1) {
+                        // Render Tee hoặc Elbow như một circle lớn
+                        const [x, y] = obj.vertices[0];
+                        const radius = shouldHighlight ? 1.5 : 1; // Bán kính nhỏ hơn
+                        
+                        // Thêm invisible overlay để tăng hit area
+                        const hitArea = this._createSvgElement('circle', {
+                            cx: x, cy: y, r: radius + 5, fill: 'transparent', opacity: '0',
+                            style: 'pointer-events: all; cursor: pointer;'
+                        });
+                        hitArea.addEventListener('click', () => this.selectObject(obj));
+                        hitArea.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
+                        hitArea.addEventListener('mouseout', () => this.hideTooltip());
+                        svg.appendChild(hitArea);
+
+                        const circle = this._createSvgElement('circle', {
+                            cx: x, cy: y, r: radius, fill: color, opacity: opacity,
+                            class: 'color-overlay' + (shouldHighlight ? ' highlighted' : ''),
+                            style: 'pointer-events: none;' // Disable pointer events
+                        });
+                        circle.addEventListener('click', () => this.selectObject(obj));
+                        circle.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
+                        circle.addEventListener('mouseout', () => this.hideTooltip());
+                        svg.appendChild(circle);
+
+                        if (showBorders) {
+                            const circleBorder = this._createSvgElement('circle', {
+                                cx: x, cy: y, r: radius, fill: 'none', stroke: this._darkenColor(color),
+                                'stroke-width': shouldHighlight ? this.HIGHLIGHT_STROKE_WIDTH : this.NORMAL_STROKE_WIDTH,
+                                opacity: opacity, class: 'bbox' + (shouldHighlight ? ' highlighted' : ''),
+                                style: 'pointer-events: none;' // Disable pointer events
+                            });
+                            circleBorder.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
+                            circleBorder.addEventListener('mouseout', () => this.hideTooltip());
+                            svg.appendChild(circleBorder);
+                        }
+                    } else {
+                        // Render bình thường cho Line và Sprinkler
+                        // Thêm invisible overlay để tăng hit area cho click events
+                        const hitArea = this._createSvgElement('polygon', {
+                            points: points, fill: 'none', stroke: 'transparent',
+                            'stroke-width': '10', opacity: '0',
+                            style: 'pointer-events: all; cursor: pointer;'
+                        });
+                        hitArea.addEventListener('click', () => this.selectObject(obj));
+                        hitArea.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
+                        hitArea.addEventListener('mouseout', () => this.hideTooltip());
+                        svg.appendChild(hitArea);
+
+                        const polyFill = this._createSvgElement('polygon', {
+                            points: points, fill: color, opacity: opacity,
+                            class: 'color-overlay' + (shouldHighlight ? ' highlighted' : ''),
+                            style: 'pointer-events: none;' // Disable pointer events để hit area phía dưới capture
+                        });
+                        polyFill.addEventListener('click', () => this.selectObject(obj));
+                        polyFill.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
+                        polyFill.addEventListener('mouseout', () => this.hideTooltip());
+                        svg.appendChild(polyFill);
+
+                        if (showBorders) {
+                            const polyBorder = this._createSvgElement('polygon', {
+                                points: points, fill: 'none', stroke: this._darkenColor(color),
+                                'stroke-width': shouldHighlight ? this.HIGHLIGHT_STROKE_WIDTH : this.NORMAL_STROKE_WIDTH,
+                                 opacity: opacity, class: 'bbox' + (shouldHighlight ? ' highlighted' : ''),
+                                 style: 'pointer-events: none;' // Disable pointer events
+                            });
+                            polyBorder.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
+                            polyBorder.addEventListener('mouseout', () => this.hideTooltip());
+                            svg.appendChild(polyBorder);
+                        }
+                    }
+                });
+            }
+
+            selectObject(obj) {
+                if (!obj || obj.pipe_id === null || obj.pipe_id === undefined) return;
+                
+                const pipeFilter = document.getElementById('pipeFilter');
+                const dnFilter = document.getElementById('dnFilter');
+                
+                // Nếu pipe_id là mảng, chọn phần tử đầu tiên để hiển thị trên filter
+                const targetPipeId = Array.isArray(obj.pipe_id) ? obj.pipe_id[0] : obj.pipe_id;
+
+                // Chỉ set pipe_id filter, reset DN filter về all để hiển thị tất cả DN trong cùng pipe
+                if (String(pipeFilter.value) !== String(targetPipeId)) {
+                    pipeFilter.value = targetPipeId;
+                }
+                // Reset DN filter để hiển thị tất cả ống cùng pipe_id bất kể DN
+                dnFilter.value = 'all';
+                
+                this.updateVisualization();
+            }
+            
+            // --- Zoom & Pan ---
+            zoomIn() { this._zoomAtPoint(this.ZOOM_FACTOR); }
+            zoomOut() { this._zoomAtPoint(1 / this.ZOOM_FACTOR); }
+            
+            resetView() {
+                this.currentZoom = 1;
+                this.panX = 0;
+                this.panY = 0;
+                document.getElementById('pipeFilter').value = 'all';
+                document.getElementById('dnFilter').value = 'all';
+                document.getElementById('shapeFilter').value = 'all';
+                document.getElementById('typeFilter').value = 'all';
+                this.updateVisualization();
+            }
+
+            // --- Private Helper Functions ---
+            _zoomAtPoint(zoomMultiplier, mouseX = null, mouseY = null) {
+                if (!this.canvasContainer) return;
+                const containerRect = this.imageContainer.getBoundingClientRect();
+                if (mouseX === null) mouseX = containerRect.left + containerRect.width / 2;
+                if (mouseY === null) mouseY = containerRect.top + containerRect.height / 2;
+
+                const oldZoom = this.currentZoom;
+                const newZoom = Math.max(this.MIN_ZOOM, Math.min(this.MAX_ZOOM, oldZoom * zoomMultiplier));
+                
+                if (newZoom === oldZoom) return;
+
+                if (newZoom === this.MIN_ZOOM) {
+                    this.panX = 0;
+                    this.panY = 0;
+                } else {
+                    const mousePointX = mouseX - containerRect.left;
+                    const mousePointY = mouseY - containerRect.top;
+                    const zoomRatio = newZoom / oldZoom;
+                    this.panX = mousePointX - (mousePointX - this.panX) * zoomRatio;
+                    this.panY = mousePointY - (mousePointY - this.panY) * zoomRatio;
+                }
+                this.currentZoom = newZoom;
+                
+                this._updateCanvasTransform();
+                this._updateInfoPanel();
+            }
+
+            _updateCanvasTransform() {
+                if (this.canvasContainer) {
+                    this.canvasContainer.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.currentZoom})`;
+                }
+            }
+
+            _updateFilters() {
+                // THAY ĐỔI: Dùng flatMap để lấy tất cả các pipe_id từ mảng và số đơn
+                const pipes = [...new Set(this.data.flatMap(o => o.pipe_id).filter(id => id !== null && id !== undefined))].sort((a, b) => a - b);
+                const shapes = [...new Set(this.data.map(o => o.shape_name))].sort();
+                const dns = [...new Set(this.data.flatMap(o => o.DN || []).filter(dn => dn !== null && dn !== undefined))].sort((a, b) => a - b);
+                const types = [...new Set(this.data.map(o => o.type).filter(type => type !== null && type !== undefined))].sort();
+
+                this._populateSelect('pipeFilter', pipes, 'Pipe');
+                this._populateSelect('dnFilter', dns, 'DN');
+                this._populateSelect('shapeFilter', shapes);
+                this._populateSelect('typeFilter', types, 'Type');
+            }
+
+            _populateSelect(id, items, prefix = '') {
+                const select = document.getElementById(id);
+                select.innerHTML = `<option value="all">All ${prefix || id.replace('Filter', '')}s</option>`;
+                items.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = item;
+                    option.textContent = `${prefix} ${item}`.trim();
+                    select.appendChild(option);
+                });
+            }
+            
+            _updateLegend() {
+                const filteredData = this.getFilteredData();
+                const shapeGroups = {};
+                
+                filteredData.forEach(obj => {
+                    let key = obj.shape_name;
+                    if (obj.shape_name === 'Sprinkler' && obj.type) {
+                        key = `${obj.shape_name} (${obj.type})`;
+                    }
+                    if (!shapeGroups[key]) {
+                        shapeGroups[key] = { count: 0, color: this._getColorForShape(obj.shape_name, obj.type) };
+                    }
+                    shapeGroups[key].count++;
+                });
+                
+                const container = document.getElementById('legendContainer');
+                
+                container.innerHTML = Object.keys(shapeGroups).sort().map(key => {
+                    const { count, color } = shapeGroups[key];
+                    return `
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: ${color}"></div>
+                            <span>${key} (${count})</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            getVisibleCount() {
+                if (!this.data) return 0;
+                const pipeFilter = document.getElementById('pipeFilter').value;
+                const dnFilter = document.getElementById('dnFilter').value;
+                const shapeFilter = document.getElementById('shapeFilter').value;
+                const typeFilter = document.getElementById('typeFilter').value;
+                return this.data.filter(obj => {
+                    let pipeMatch = pipeFilter === 'all';
+                    if (!pipeMatch) {
+                        const currentPipeId = obj.pipe_id;
+                        if (Array.isArray(currentPipeId)) {
+                            pipeMatch = currentPipeId.includes(Number(pipeFilter));
+                        } else {
+                            pipeMatch = String(currentPipeId) === String(pipeFilter);
+                        }
+                    }
+                    let dnMatch = dnFilter === 'all';
+                    if (!dnMatch) {
+                        const currentDN = obj.DN;
+                        if (Array.isArray(currentDN)) {
+                            dnMatch = currentDN.includes(Number(dnFilter));
+                        } else {
+                            dnMatch = String(currentDN) === String(dnFilter);
+                        }
+                    }
+                    let shapeMatch = shapeFilter === 'all';
+                    if (!shapeMatch) {
+                        shapeMatch = obj.shape_name === shapeFilter;
+                    }
+                    let typeMatch = typeFilter === 'all';
+                    if (!typeMatch) {
+                        typeMatch = obj.type === typeFilter;
+                    }
+                    return pipeMatch && dnMatch && shapeMatch && typeMatch;
+                }).length;
+            }
+
+            _updateInfoPanel() {
+                if (!this.data) return;
+                document.getElementById('viewportInfo').textContent = `Objects: ${this.getVisibleCount()}/${this.data.length}`;
+                document.getElementById('zoomInfo').textContent = `Zoom: ${Math.round(this.currentZoom * 100)}%`;
+            }
+
+            _calculateBounds(data) {
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                data.forEach(obj => obj.vertices.forEach(([x, y]) => {
+                    minX = Math.min(minX, x); minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+                }));
+                const paddingX = (maxX - minX) * 0.05;
+                const paddingY = (maxY - minY) * 0.05;
+                return {
+                    minX: minX - paddingX, minY: minY - paddingY,
+                    width: (maxX - minX) + 2 * paddingX, height: (maxY - minY) + 2 * paddingY
+                };
+            }
+
+            _createSvgElement(type, attributes) {
+                const el = document.createElementNS('http://www.w3.org/2000/svg', type);
+                for (const key in attributes) {
+                    el.setAttribute(key, attributes[key]);
+                }
+                return el;
+            }
+
+            generateColors() {
+                this.colorPalette = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#0080FF', '#FFA500', '#800080', '#FFC0CB', '#A52A2A', '#808000', '#000080', '#008000', '#FF4500', '#DA70D6'];
+            }
+            _getColorForShape(shapeName, type = null) {
+                if (shapeName === 'Sprinkler' && type) {
+                    if (type === 'end') {
+                        return '#FF6B6B'; // Màu đỏ nhạt cho end
+                    } else if (type === 'center') {
+                        return '#4ECDC4'; // Màu xanh ngọc cho center
+                    }
+                }
+                
+                if (!this.shapeColors[shapeName]) {
+                    this.shapeColors[shapeName] = this.colorPalette[Object.keys(this.shapeColors).length % this.colorPalette.length];
+                }
+                return this.shapeColors[shapeName];
+            }
+            _darkenColor(hex) {
+                let [r, g, b] = hex.match(/\w\w/g).map(x => parseInt(x, 16));
+                const factor = 0.7;
+                r = Math.floor(r * factor); g = Math.floor(g * factor); b = Math.floor(b * factor);
+                return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+            }
+            _showLoading(show) { document.getElementById('loading').style.display = show ? 'block' : 'none'; }
+        }
+
+        const app = new PipeVisualization();
+    </script>
+</body>
+</html>

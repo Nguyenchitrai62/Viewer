@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Viewer - Dashboard</title>
+    <link rel="shortcut icon" type="image/png" href="Image/LOGO.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-dark: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 80% 70%, rgba(139, 92, 246, 0.15) 0%, transparent 40%);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden; /* Giữ mọi thứ trong 1 màn hình */
+        }
+
+        .container {
+            width: 95%;
+            max-width: 1400px;
+            padding: 20px;
+            text-align: center;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100%;
+        }
+
+        header {
+            margin-bottom: 30px; /* Giảm từ 60px */
+            animation: fadeInDown 0.8s ease-out;
+        }
+
+        h1 {
+            font-size: 2.2rem; /* Giảm từ 3rem */
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            background-clip: text; /* Thêm dòng này để fix lỗi compatibility */
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.01em;
+        }
+
+        p.subtitle {
+            color: var(--text-dim);
+            font-size: 0.95rem; /* Giảm từ 1.1rem */
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .viewer-grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px; /* Giảm từ 25px */
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .viewer-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 30px 20px;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            animation: fadeInUp 0.6s ease-out both;
+            flex: 1 1 180px;
+            max-width: 220px;
+            height: 200px;
+        }
+
+        .viewer-card:hover {
+            transform: translateY(-8px);
+            background: rgba(45, 55, 72, 0.8);
+            border-color: var(--primary);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+        }
+
+        .icon-box {
+            width: 56px;
+            height: 56px;
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            color: var(--primary);
+            transition: all 0.3s ease;
+        }
+
+        .viewer-card:hover .icon-box {
+            background: var(--primary);
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .viewer-card h3 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 5px;
+        }
+
+        .viewer-card .arrow {
+            margin-top: 10px;
+            opacity: 0;
+            transform: translateX(-5px);
+            transition: all 0.3s ease;
+        }
+
+        .viewer-card:hover .arrow {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Staggered animation delay */
+        .viewer-card:nth-child(1) { animation-delay: 0.1s; }
+        .viewer-card:nth-child(2) { animation-delay: 0.15s; }
+        .viewer-card:nth-child(3) { animation-delay: 0.2s; }
+        .viewer-card:nth-child(4) { animation-delay: 0.25s; }
+        .viewer-card:nth-child(5) { animation-delay: 0.3s; }
+        .viewer-card:nth-child(6) { animation-delay: 0.35s; }
+        .viewer-card:nth-child(7) { animation-delay: 0.4s; }
+
+        /* Icon SVG Style */
+        svg { width: 24px; height: 24px; fill: currentColor; }
+
+        footer {
+            margin-top: 20px;
+            padding: 20px;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>Hệ Thống Viewer</h1>
+            <p class="subtitle">Bộ công cụ hỗ trợ AI Pipeline - Tối ưu hóa việc debug dữ liệu JSON & Trực quan hóa kết quả mô hình.</p>
+        </header>
+
+        <div class="viewer-grid">
+            <a href="View/visual_pipeline.html" class="viewer-card">
+                <div class="icon-box">
+                    <svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M15,11H13V7H11V11H9V13H11V17H13V13H15V11Z"/></svg>
+                </div>
+                <h3>Pipeline Viewer</h3>
+                <div class="arrow">
+                    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
+                </div>
+            </a>
+
+            <a href="View/visual_pipeline_fire.html" class="viewer-card">
+                <div class="icon-box">
+                    <svg viewBox="0 0 24 24"><path d="M17.66,11.2C17.43,10.9 17.15,10.64 16.89,10.38C16.22,9.78 15.46,9.35 14.82,8.72C13.33,7.26 13,4.85 13.95,3C13,3.23 12.17,3.75 11.46,4.32C8.96,6.4 7.92,10.07 9.12,13.22C9.13,13.23 9.13,13.24 9.12,13.25C9.1,13.27 9.07,13.28 9.04,13.28C9,13.28 8.96,13.27 8.93,13.25C8.8,13.05 8.7,12.81 8.64,12.55C8.36,11.53 8.35,10.46 8.61,9.42C8.61,9.41 8.6,9.39 8.59,9.38C8.57,9.37 8.54,9.36 8.51,9.37C6.06,10.96 4.96,14.07 5.86,16.85C6.46,18.69 7.9,20.21 9.77,20.81C10.5,21.05 11.27,21.14 12.04,21.14C12.39,21.14 12.75,21.11 13.1,21.05C15.2,20.66 17,19.2 17.89,17.27C18.68,15.55 18.64,13.56 17.81,11.9L17.66,11.2M12,19.5A5.5,5.5 0 0,1 12,8.5A5.5,5.5 0 0,1 12,19.5Z"/></svg>
+                </div>
+                <h3>Pipeline Fire</h3>
+                <div class="arrow">
+                    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
+                </div>
+            </a>
+
+            <a href="View/visual_pdf_object.html" class="viewer-card">
+                <div class="icon-box">
+                    <svg viewBox="0 0 24 24"><path d="M14,2L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2H14M18,20V9H13V4H6V20H18M13.5,12.5V14.5H11.5V12.5H13.5M13.5,15.5V17.5H11.5V15.5H13.5Z"/></svg>
+                </div>
+                <h3>PDF Object</h3>
+                <div class="arrow">
+                    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
+                </div>
+            </a>
+
+            <a href="View/visual_floor_plan_3D.html" class="viewer-card">
+                <div class="icon-box">
+                    <svg viewBox="0 0 24 24"><path d="M12,3L2,12H5V20H19V12H22L12,3M12,7.7C14.1,7.7 15.8,9.4 15.8,11.5C15.8,13.6 14.1,15.3 12,15.3C9.9,15.3 8.2,13.6 8.2,11.5C8.2,9.4 9.9,7.7 12,7.7M12,11.5A1.5,1.5 0 0,0 10.5,13A1.5,1.5 0 0,0 12,14.5A1.5,1.5 0 0,0 13.5,13A1.5,1.5 0 0,0 12,11.5Z"/></svg>
+                </div>
+                <h3>Floor Plan 3D</h3>
+                <div class="arrow">
+                    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
+                </div>
+            </a>
+
+            <a href="View/revit_viewer.html" class="viewer-card">
+                <div class="icon-box">
+                    <svg viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z"/></svg>
+                </div>
+                <h3>Revit Viewer</h3>
+                <div class="arrow">
+                    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
+                </div>
+            </a>
+
+            <a href="View/visual_dxf.html" class="viewer-card">
+                <div class="icon-box">
+                    <svg viewBox="0 0 24 24"><path d="M20,2H4C2.9,2 2,2.9 2,4V20C2,21.1 2.9,22 4,22H20C21.1,22 22,21.1 22,20V4C22,2.9 21.1,2 20,2M15,13V15H9V13H15M15,9V11H9V9H15M15,5V7H9V5H15Z"/></svg>
+                </div>
+                <h3>Visual DXF</h3>
+                <div class="arrow">
+                    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
+                </div>
+            </a>
+
+            <a href="View/mcp.html" class="viewer-card">
+                <div class="icon-box">
+                    <svg viewBox="0 0 24 24"><path d="M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.11,3 19,3Z"/></svg>
+                </div>
+                <h3>MCP Viewer</h3>
+                <div class="arrow">
+                    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
+                </div>
+            </a>
+        </div>
+    </div>
+
+</body>
+</html>
