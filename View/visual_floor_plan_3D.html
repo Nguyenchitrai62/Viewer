@@ -1,84 +1,298 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Floor Plan Viewer - Realtime Minimap</title>
     <style>
         /* --- GIỮ NGUYÊN CSS CƠ BẢN --- */
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #1a1a2e; overflow: hidden; color: #333; }
-        #container { width: 100vw; height: 100vh; position: relative; }
-        
-        #canvas-container { width: 100%; height: 100%; cursor: default; background: #f0f2f5; }
-        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background: #1a1a2e;
+            overflow: hidden;
+            color: #333;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            cursor: default;
+            background: #f0f2f5;
+        }
+
         #drop-zone {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 450px; padding: 50px; background: rgba(255, 255, 255, 0.95);
-            border-radius: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); text-align: center;
-            border: 2px dashed #667eea; transition: all 0.3s; z-index: 2000;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 450px;
+            padding: 50px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            border: 2px dashed #667eea;
+            transition: all 0.3s;
+            z-index: 2000;
         }
-        #drop-zone.drag-over { background: #eef2ff; border-color: #2d55ff; transform: translate(-50%, -50%) scale(1.02); }
-        #drop-zone.hidden { opacity: 0; pointer-events: none; transform: translate(-50%, -50%) scale(0.9); }
-        #drop-zone h2 { color: #333; margin-bottom: 10px; }
-        #drop-zone .icon { font-size: 50px; margin-bottom: 20px; display: block; }
-        
+
+        #drop-zone.drag-over {
+            background: #eef2ff;
+            border-color: #2d55ff;
+            transform: translate(-50%, -50%) scale(1.02);
+        }
+
+        #drop-zone.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-50%, -50%) scale(0.9);
+        }
+
+        #drop-zone h2 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        #drop-zone .icon {
+            font-size: 50px;
+            margin-bottom: 20px;
+            display: block;
+        }
+
         #main-panel {
-            position: absolute; top: 20px; left: 20px; width: 300px;
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
-            border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            z-index: 1000; display: none; flex-direction: column;
-            transition: width 0.3s ease; max-height: 90vh;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 300px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            transition: width 0.3s ease;
+            max-height: 90vh;
         }
+
         .panel-header {
-            padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 12px 12px 0 0; display: flex; justify-content: space-between;
-            align-items: center; cursor: pointer; user-select: none;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
         }
-        .panel-header h3 { color: white; font-size: 16px; margin: 0; font-weight: 600; }
+
+        .panel-header h3 {
+            color: white;
+            font-size: 16px;
+            margin: 0;
+            font-weight: 600;
+        }
+
         .toggle-btn {
-            background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px;
-            border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;
-            font-size: 18px; line-height: 1; transition: background 0.2s;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            line-height: 1;
+            transition: background 0.2s;
         }
-        .toggle-btn:hover { background: rgba(255,255,255,0.4); }
-        .panel-content { padding: 10px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #cbd5e0 transparent; }
-        .panel-content::-webkit-scrollbar { width: 6px; }
-        .panel-content::-webkit-scrollbar-thumb { background-color: #cbd5e0; border-radius: 3px; }
-        #main-panel.collapsed { width: 180px; }
-        #main-panel.collapsed .panel-content { display: none; }
-        #main-panel.collapsed .panel-header { border-radius: 12px; }
-        
-        .section-title { font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: 0.5px; margin: 10px 0 8px 0; padding-bottom: 5px; border-bottom: 1px solid #eee; font-weight: 700; }
-        .section-title:first-child { margin-top: 0; }
-        .info-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 12px; color: #555; background: #f8f9fa; padding: 8px; border-radius: 8px; border: 1px solid #eee; }
-        .info-stats div strong { color: #333; }
-        
-        .control-group { margin-bottom: 8px; }
-        .control-group label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 500; margin-bottom: 3px; }
-        input[type="range"] { width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; appearance: none; outline: none; }
-        input[type="range"]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; background: #667eea; border-radius: 50%; cursor: pointer; transition: transform 0.1s; }
-        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.1); }
-        
-        .btn-group { display: flex; gap: 8px; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; }
-        button.action-btn { flex: 1; padding: 6px; background: #f0f4ff; color: #667eea; border: 1px solid #667eea; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 11px; transition: all 0.2s; }
-        button.action-btn.active { background: #667eea; color: white; box-shadow: 0 2px 5px rgba(102, 126, 234, 0.4); }
+
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        .panel-content {
+            padding: 10px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e0 transparent;
+        }
+
+        .panel-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .panel-content::-webkit-scrollbar-thumb {
+            background-color: #cbd5e0;
+            border-radius: 3px;
+        }
+
+        #main-panel.collapsed {
+            width: 180px;
+        }
+
+        #main-panel.collapsed .panel-content {
+            display: none;
+        }
+
+        #main-panel.collapsed .panel-header {
+            border-radius: 12px;
+        }
+
+        .section-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #888;
+            letter-spacing: 0.5px;
+            margin: 10px 0 8px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+            font-weight: 700;
+        }
+
+        .section-title:first-child {
+            margin-top: 0;
+        }
+
+        .info-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+            font-size: 12px;
+            color: #555;
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #eee;
+        }
+
+        .info-stats div strong {
+            color: #333;
+        }
+
+        .control-group {
+            margin-bottom: 8px;
+        }
+
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            font-weight: 500;
+            margin-bottom: 3px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            appearance: none;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+
+        button.action-btn {
+            flex: 1;
+            padding: 6px;
+            background: #f0f4ff;
+            color: #667eea;
+            border: 1px solid #667eea;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+
+        button.action-btn.active {
+            background: #667eea;
+            color: white;
+            box-shadow: 0 2px 5px rgba(102, 126, 234, 0.4);
+        }
 
         #loading-popup {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(0, 0, 0, 0.7); display: none; justify-content: center;
-            align-items: center; z-index: 3000; backdrop-filter: blur(5px);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 3000;
+            backdrop-filter: blur(5px);
         }
+
         #loading-popup .content {
-            background: white; padding: 30px; border-radius: 12px; text-align: center;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
         }
+
         #loading-popup .spinner {
-            width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea;
-            border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        #loading-popup h3 { color: #333; margin: 0; }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #loading-popup h3 {
+            color: #333;
+            margin: 0;
+        }
 
         /* --- MINI-MAP STYLES --- */
         #minimap {
@@ -90,7 +304,7 @@
             background: rgba(255, 255, 255, 0.95);
             border: 2px solid #ccc;
             border-radius: 12px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
             z-index: 1000;
             display: flex;
             justify-content: center;
@@ -98,68 +312,79 @@
             overflow: hidden;
             backdrop-filter: blur(5px);
         }
+
         #minimap svg {
             width: 100%;
             height: 100%;
             /* Lưới nền mờ */
-            background-image: 
+            background-image:
                 linear-gradient(#eee 1px, transparent 1px),
                 linear-gradient(90deg, #eee 1px, transparent 1px);
             background-size: 20px 20px;
         }
+
         .map-house-bounds {
             fill: none;
             stroke: #ddd;
             stroke-width: 1;
             stroke-dasharray: 2, 2;
         }
+
         .map-camera-line {
             stroke: #333;
             stroke-width: 2;
-            stroke-dasharray: 4, 4; 
+            stroke-dasharray: 4, 4;
         }
+
         .map-target-point {
             fill: #ff4757;
             stroke: white;
             stroke-width: 2;
         }
+
         .map-camera-icon {
             fill: #2f3542;
             stroke: white;
             stroke-width: 1;
-            filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.3));
+            filter: drop-shadow(0px 2px 2px rgba(0, 0, 0, 0.3));
         }
+
         #minimap-label {
             position: absolute;
-            bottom: 5px; right: 8px;
-            font-size: 10px; color: #888;
-            font-weight: bold; pointer-events: none;
-            background: rgba(255,255,255,0.8);
+            bottom: 5px;
+            right: 8px;
+            font-size: 10px;
+            color: #888;
+            font-weight: bold;
+            pointer-events: none;
+            background: rgba(255, 255, 255, 0.8);
             padding: 2px 4px;
             border-radius: 4px;
         }
     </style>
 </head>
+
 <body>
     <div id="container">
         <div id="canvas-container"></div>
-        
+
         <!-- --- MINI-MAP (UPDATED) --- -->
         <div id="minimap">
             <svg id="minimap-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
                 <!-- 1. Ảnh nền 2D gốc -->
                 <!-- preserveAspectRatio="none" để khớp với scale của 3D -->
-                <image id="map-image-layer" x="0" y="0" width="0" height="0" preserveAspectRatio="none" style="display: none;" />
+                <image id="map-image-layer" x="0" y="0" width="0" height="0" preserveAspectRatio="none"
+                    style="display: none;" />
 
                 <!-- 2. Khung viền (Optional) -->
                 <rect id="map-house" class="map-house-bounds" x="0" y="0" width="0" height="0" />
-                
+
                 <!-- 3. Đường nối Camera -> LookAt -->
                 <line id="map-line" class="map-camera-line" x1="100" y1="180" x2="100" y2="100" />
-                
+
                 <!-- 4. Điểm LookAt -->
                 <circle id="map-target" class="map-target-point" cx="100" cy="100" r="4" />
-                
+
                 <!-- 5. Icon Camera -->
                 <g id="map-cam-group" transform="translate(100, 180)">
                     <path class="map-camera-icon" d="M-8,5 L8,5 L10,-4 L-10,-4 Z M-4,-4 L0,-10 L4,-4" />
@@ -174,13 +399,13 @@
             <p>Drag & drop a file here or click to choose</p>
             <input type="file" id="file-input" accept=".json,image/*" style="display: none;">
         </div>
-        
+
         <div id="main-panel">
             <div class="panel-header" id="panel-header">
                 <h3>🎛️ Control Panel</h3>
                 <button class="toggle-btn" id="toggle-btn" title="Collapse/Expand">−</button>
             </div>
-            
+
             <div class="panel-content">
                 <div class="section-title">File Info</div>
                 <div id="stats-content" class="info-stats">
@@ -233,29 +458,30 @@
         </div>
     </div>
 
+    <script src="./env.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         let scene, camera, renderer;
         let gridHelper;
-        
+
         let meshes = {
             wall: null,
             opening: null,
             unknown: null,
             rooms: null
         };
-        let doorObjects = [];   
-        let windowObjects = []; 
-        
-        let imageMesh = null; 
+        let doorObjects = [];
+        let windowObjects = [];
+
+        let imageMesh = null;
         let jsonData = null;
-        let target = new THREE.Vector3(0, 0, 0); 
-        
+        let target = new THREE.Vector3(0, 0, 0);
+
         let rootGroup;
         let raycaster = new THREE.Raycaster();
         let outlineMesh;
         let lookAtMarker;
-        
+
         // Camera tween state for smooth transitions
         let cameraTween = null; // { start, duration, fromPos, toPos, fromTarget, toTarget }
 
@@ -274,8 +500,8 @@
                 toTarget: toTarget.clone()
             };
         }
-        const TARGET_SIZE = 1000; 
-        let processingTime = null; 
+        const TARGET_SIZE = 1000;
+        let processingTime = null;
 
         // --- MINI-MAP CONFIG ---
         let mapParams = {
@@ -290,7 +516,7 @@
 
         function debounce(func, wait) {
             let timeout;
-            return function(...args) {
+            return function (...args) {
                 const context = this;
                 clearTimeout(timeout);
                 timeout = setTimeout(() => func.apply(context, args), wait);
@@ -299,14 +525,14 @@
 
         function init() {
             const container = document.getElementById('canvas-container');
-            
+
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xf0f2f5);
-            
+
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 20000);
             camera.position.set(800, 1000, 800);
-            
-            renderer = new THREE.WebGLRenderer({ 
+
+            renderer = new THREE.WebGLRenderer({
                 antialias: true,
                 alpha: true,
                 powerPreference: "high-performance"
@@ -316,10 +542,10 @@
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
-            
+
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
             scene.add(ambientLight);
-            
+
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
             dirLight.position.set(500, 1000, 500);
             dirLight.castShadow = true;
@@ -330,14 +556,14 @@
             dirLight.shadow.camera.top = 1500;
             dirLight.shadow.camera.bottom = -1500;
             scene.add(dirLight);
-            
+
             gridHelper = new THREE.GridHelper(2000, 40, 0xbdc3c7, 0xe0e0e0);
             scene.add(gridHelper);
             gridHelper.visible = false;
-            
+
             rootGroup = new THREE.Group();
             scene.add(rootGroup);
-            
+
             outlineMesh = new THREE.Mesh(
                 new THREE.BoxGeometry(1, 1, 1),
                 new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true, transparent: true, opacity: 0.8 })
@@ -345,7 +571,7 @@
             outlineMesh.visible = false;
             outlineMesh.matrixAutoUpdate = false;
             scene.add(outlineMesh);
-            
+
             // Add LookAt Marker (Red Sphere)
             const markerGeo = new THREE.SphereGeometry(2, 12, 12);
             const markerMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8, depthTest: false });
@@ -356,7 +582,7 @@
 
             setupMouseControls();
             window.addEventListener('resize', onWindowResize);
-            
+
             updateMapBounds(null); // Init map
             animate();
         }
@@ -366,38 +592,38 @@
             const svg = document.getElementById('minimap-svg');
             const houseRect = document.getElementById('map-house');
             const mapImage = document.getElementById('map-image-layer');
-            
+
             // 1. Xác định vùng bao (Bounding Box) của dữ liệu 3D
             if (!data) {
-                mapParams.minX = -TARGET_SIZE/2; mapParams.maxX = TARGET_SIZE/2;
-                mapParams.minZ = -TARGET_SIZE/2; mapParams.maxZ = TARGET_SIZE/2;
+                mapParams.minX = -TARGET_SIZE / 2; mapParams.maxX = TARGET_SIZE / 2;
+                mapParams.minZ = -TARGET_SIZE / 2; mapParams.maxZ = TARGET_SIZE / 2;
                 mapImage.style.display = 'none';
             } else {
                 // Nếu có imageMesh, dùng kích thước của nó để làm chuẩn
                 if (imageMesh) {
-                     const w = imageMesh.geometry.parameters.width * imageMesh.scale.x;
-                     const h = imageMesh.geometry.parameters.height * imageMesh.scale.y;
-                     // imageMesh được đặt ở vị trí xác định bởi buildFloorPlan, nhưng thường là centered nếu ta set position
-                     // Trong buildFloorPlan, imageMesh.position được set.
-                     const centerX = imageMesh.position.x;
-                     const centerZ = imageMesh.position.z;
+                    const w = imageMesh.geometry.parameters.width * imageMesh.scale.x;
+                    const h = imageMesh.geometry.parameters.height * imageMesh.scale.y;
+                    // imageMesh được đặt ở vị trí xác định bởi buildFloorPlan, nhưng thường là centered nếu ta set position
+                    // Trong buildFloorPlan, imageMesh.position được set.
+                    const centerX = imageMesh.position.x;
+                    const centerZ = imageMesh.position.z;
 
-                     mapParams.minX = centerX - w/2; 
-                     mapParams.maxX = centerX + w/2;
-                     mapParams.minZ = centerZ - h/2; 
-                     mapParams.maxZ = centerZ + h/2;
+                    mapParams.minX = centerX - w / 2;
+                    mapParams.maxX = centerX + w / 2;
+                    mapParams.minZ = centerZ - h / 2;
+                    mapParams.maxZ = centerZ + h / 2;
 
-                     // Lấy source ảnh từ texture để hiển thị lên SVG
-                     if(imageMesh.material.map && imageMesh.material.map.image) {
+                    // Lấy source ảnh từ texture để hiển thị lên SVG
+                    if (imageMesh.material.map && imageMesh.material.map.image) {
                         mapImage.setAttribute('href', imageMesh.material.map.image.src);
                         mapImage.style.display = 'block';
-                     }
+                    }
                 } else {
                     // Nếu không có ảnh, dùng mặc định
-                    mapParams.minX = -TARGET_SIZE/2;
-                    mapParams.maxX = TARGET_SIZE/2;
-                    mapParams.minZ = -TARGET_SIZE/2;
-                    mapParams.maxZ = TARGET_SIZE/2;
+                    mapParams.minX = -TARGET_SIZE / 2;
+                    mapParams.maxX = TARGET_SIZE / 2;
+                    mapParams.minZ = -TARGET_SIZE / 2;
+                    mapParams.maxZ = TARGET_SIZE / 2;
                     mapImage.style.display = 'none';
                 }
             }
@@ -406,7 +632,7 @@
             const worldW = mapParams.maxX - mapParams.minX;
             const worldH = mapParams.maxZ - mapParams.minZ;
             const maxDim = Math.max(worldW, worldH) || 1000;
-            
+
             const availSize = mapParams.svgSize - mapParams.padding * 2;
             mapParams.scale = availSize / maxDim;
 
@@ -415,7 +641,7 @@
             const rectH = worldH * mapParams.scale;
             const rectX = (mapParams.svgSize - rectW) / 2;
             const rectY = (mapParams.svgSize - rectH) / 2;
-            
+
             // Offset này dùng để mapping tọa độ từ 3D (World) -> SVG
             // Công thức: SVG_X = (World_X - minX) * scale + rectX
             // => SVG_X = World_X * scale + (rectX - minX * scale)
@@ -444,7 +670,7 @@
             // Chuyển tọa độ 3D -> 2D SVG
             const cx = camera.position.x * mapParams.scale + mapParams.offsetX;
             const cy = camera.position.z * mapParams.scale + mapParams.offsetY;
-            
+
             const tx = target.x * mapParams.scale + mapParams.offsetX;
             const ty = target.z * mapParams.scale + mapParams.offsetY;
 
@@ -452,9 +678,9 @@
             const camGroup = document.getElementById('map-cam-group');
             const dx = tx - cx;
             const dy = ty - cy;
-            const angle = Math.atan2(dy, dx) * (180 / Math.PI); 
+            const angle = Math.atan2(dy, dx) * (180 / Math.PI);
             // +90 độ vì icon vẽ hướng lên trên (trục Y âm)
-            const rotation = angle + 90; 
+            const rotation = angle + 90;
 
             camGroup.setAttribute('transform', `translate(${cx}, ${cy}) rotate(${rotation})`);
 
@@ -473,13 +699,13 @@
 
         function setupMouseControls() {
             let isDragging = false;
-            let mouseButton = -1; 
+            let mouseButton = -1;
             let previousMouse = { x: 0, y: 0 };
             let hoveredRoom = null; // Track currently hovered room
             const canvasContainer = document.getElementById('canvas-container');
 
             renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
-            
+
             canvasContainer.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 isDragging = true;
@@ -500,22 +726,22 @@
                     }
                 }
             });
-            
+
             window.addEventListener('mousemove', (e) => {
                 if (!isDragging) {
                     const mouse = new THREE.Vector2();
                     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
                     mouse.y = - (e.clientY / window.innerHeight) * 2 + 1;
-                    
+
                     raycaster.setFromCamera(mouse, camera);
-                    
+
                     let checkObjects = [];
-                    Object.values(meshes).forEach(m => { if(m && m.visible) checkObjects.push(m); });
+                    Object.values(meshes).forEach(m => { if (m && m.visible) checkObjects.push(m); });
                     if (document.getElementById('toggle-doors').classList.contains('active')) checkObjects.push(...doorObjects);
                     if (document.getElementById('toggle-windows').classList.contains('active')) checkObjects.push(...windowObjects);
 
                     const intersects = raycaster.intersectObjects(checkObjects, true);
-                    
+
                     if (intersects.length > 0) {
                         const hit = intersects[0];
                         const obj = hit.object;
@@ -538,7 +764,7 @@
                                 hoveredRoom.material.color.setHex(0x66ff66); // Highlight color
                                 hoveredRoom.material.needsUpdate = true;
                             }
-                        } 
+                        }
                         // --- HANDLE WALL/DOOR/WINDOW HOVER ---
                         else {
                             // Reset room if we moved away
@@ -557,13 +783,13 @@
                                 outlineMesh.visible = true;
                             } else {
                                 let container = obj;
-                                while(container.parent && container.parent !== rootGroup) container = container.parent;
+                                while (container.parent && container.parent !== rootGroup) container = container.parent;
                                 if (container.userData && container.userData.width) {
                                     const { width, height, depth } = container.userData;
                                     const dummy = new THREE.Object3D();
                                     dummy.position.copy(container.position);
                                     dummy.rotation.copy(container.rotation);
-                                    dummy.translateY(height / 2); 
+                                    dummy.translateY(height / 2);
                                     dummy.scale.set(width, height, depth);
                                     dummy.updateMatrix();
                                     const finalMatrix = dummy.matrix.clone();
@@ -587,12 +813,12 @@
                         }
                     }
                 }
-                
+
                 if (!isDragging) return;
-                
+
                 const deltaX = e.clientX - previousMouse.x;
                 const deltaY = e.clientY - previousMouse.y;
-                
+
                 if (mouseButton === 0) {
                     const offset = new THREE.Vector3().subVectors(camera.position, target);
                     const radius = offset.length();
@@ -612,7 +838,7 @@
                     const up = new THREE.Vector3();
                     camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
                     const panOffset = new THREE.Vector3().addScaledVector(right, -deltaX * panSpeed).addScaledVector(up, deltaY * panSpeed);
-                    panOffset.y = 0; 
+                    panOffset.y = 0;
                     target.add(panOffset);
                     camera.position.add(panOffset);
                     // If a lookAt marker is visible, update its position to follow the new target
@@ -622,14 +848,14 @@
                 }
                 previousMouse = { x: e.clientX, y: e.clientY };
             });
-            
-            window.addEventListener('mouseup', () => { 
-                isDragging = false; 
+
+            window.addEventListener('mouseup', () => {
+                isDragging = false;
                 mouseButton = -1;
-                canvasContainer.style.cursor = 'default'; 
-                if(lookAtMarker) lookAtMarker.visible = false;
+                canvasContainer.style.cursor = 'default';
+                if (lookAtMarker) lookAtMarker.visible = false;
             });
-            
+
             renderer.domElement.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 const scale = e.deltaY > 0 ? 1.1 : 0.9;
@@ -697,21 +923,21 @@
         function createDoorGroup(width, height, thickness, wallHeight) {
             const group = new THREE.Group();
             group.userData = { width: width, height: height, depth: thickness };
-            const matFrame = new THREE.MeshPhongMaterial({ color: 0x4E342E, transparent: true, opacity: 1.0 }); 
-            const matLeaf = new THREE.MeshPhongMaterial({ color: 0x8D6E63, transparent: true, opacity: 1.0 }); 
-            const frameW = 4; 
+            const matFrame = new THREE.MeshPhongMaterial({ color: 0x4E342E, transparent: true, opacity: 1.0 });
+            const matLeaf = new THREE.MeshPhongMaterial({ color: 0x8D6E63, transparent: true, opacity: 1.0 });
+            const frameW = 4;
             const leftPost = new THREE.Mesh(new THREE.BoxGeometry(frameW, height, thickness), matFrame);
-            leftPost.position.set(-width/2 + frameW/2, height/2, 0);
+            leftPost.position.set(-width / 2 + frameW / 2, height / 2, 0);
             const rightPost = new THREE.Mesh(new THREE.BoxGeometry(frameW, height, thickness), matFrame);
-            rightPost.position.set(width/2 - frameW/2, height/2, 0);
+            rightPost.position.set(width / 2 - frameW / 2, height / 2, 0);
             const topHeader = new THREE.Mesh(new THREE.BoxGeometry(width, frameW, thickness), matFrame);
-            topHeader.position.set(0, height - frameW/2, 0);
+            topHeader.position.set(0, height - frameW / 2, 0);
             group.add(leftPost, rightPost, topHeader);
-            const leafW = width - frameW*2;
+            const leafW = width - frameW * 2;
             const leafH = height - frameW;
             const leafThick = 4;
             const leaf = new THREE.Mesh(new THREE.BoxGeometry(leafW, leafH, leafThick), matLeaf);
-            leaf.position.set(0, leafH/2, 0);
+            leaf.position.set(0, leafH / 2, 0);
             group.add(leaf);
 
             // Add wall header above door
@@ -723,7 +949,7 @@
                 group.add(header);
             }
 
-            group.traverse(obj => { if(obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
+            group.traverse(obj => { if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
             return group;
         }
 
@@ -732,20 +958,20 @@
             group.userData = { width: width, height: height, depth: thickness };
             const matFrame = new THREE.MeshPhongMaterial({ color: 0x3E2723, transparent: true, opacity: 1.0 }); // Darker frame
             const matPanel = new THREE.MeshPhongMaterial({ color: 0xD7CCC8, transparent: true, opacity: 1.0 }); // Lighter panel
-            
+
             const frameW = 4;
-            
+
             // 1. Outer Frame (Jambs)
             const leftJamb = new THREE.Mesh(new THREE.BoxGeometry(frameW, height, thickness), matFrame);
-            leftJamb.position.set(-width/2 + frameW/2, height/2, 0);
+            leftJamb.position.set(-width / 2 + frameW / 2, height / 2, 0);
             const rightJamb = new THREE.Mesh(new THREE.BoxGeometry(frameW, height, thickness), matFrame);
-            rightJamb.position.set(width/2 - frameW/2, height/2, 0);
+            rightJamb.position.set(width / 2 - frameW / 2, height / 2, 0);
             group.add(leftJamb, rightJamb);
 
             // 2. Top Track / Header
             const trackH = 6;
             const topTrack = new THREE.Mesh(new THREE.BoxGeometry(width, trackH, thickness + 2), matFrame);
-            topTrack.position.set(0, height - trackH/2, 0);
+            topTrack.position.set(0, height - trackH / 2, 0);
             group.add(topTrack);
 
             // 3. Bottom Track
@@ -754,28 +980,28 @@
             group.add(bottomTrack);
 
             // 4. Panels
-            const panelW = (width - frameW*2) / 2 + 2; // Slight overlap
+            const panelW = (width - frameW * 2) / 2 + 2; // Slight overlap
             const panelH = height - trackH - 2;
-            
+
             // Fixed panel (back)
             const fixedPanelGroup = new THREE.Group();
             const fixedPanel = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, 4), matPanel);
             const fixedBorder = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, 2), matFrame); // Border
             fixedPanelGroup.add(fixedPanel, fixedBorder);
-            fixedPanelGroup.position.set(-width/4 + frameW/2, panelH/2 + 2, -2);
-            
+            fixedPanelGroup.position.set(-width / 4 + frameW / 2, panelH / 2 + 2, -2);
+
             // Sliding panel (front)
             const slidePanelGroup = new THREE.Group();
             const slidePanel = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, 4), matPanel);
             const slideBorder = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, 2), matFrame);
-            
+
             // Vertical handle bar
             const handleH = panelH * 0.4;
             const handle = new THREE.Mesh(new THREE.BoxGeometry(2, handleH, 6), matFrame);
-            handle.position.set(panelW/2 - 4, 0, 2); // Relative to group center
-            
+            handle.position.set(panelW / 2 - 4, 0, 2); // Relative to group center
+
             slidePanelGroup.add(slidePanel, slideBorder, handle);
-            slidePanelGroup.position.set(width/4 - frameW/2, panelH/2 + 2, 2);
+            slidePanelGroup.position.set(width / 4 - frameW / 2, panelH / 2 + 2, 2);
 
             group.add(fixedPanelGroup, slidePanelGroup);
 
@@ -787,8 +1013,8 @@
                 header.position.set(0, height + headerH / 2, 0);
                 group.add(header);
             }
-            
-            group.traverse(obj => { if(obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
+
+            group.traverse(obj => { if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
             return group;
         }
 
@@ -798,56 +1024,56 @@
             const matFrame = new THREE.MeshPhongMaterial({ color: 0x3E2723, transparent: true, opacity: 1.0 }); // Dark wood
             const matLeaf = new THREE.MeshPhongMaterial({ color: 0x5D4037, transparent: true, opacity: 1.0 }); // Medium wood
             const matPanel = new THREE.MeshPhongMaterial({ color: 0x8D6E63, transparent: true, opacity: 1.0 }); // Lighter wood for panel
-            
+
             const frameW = 4;
             // Frame posts
             const leftPost = new THREE.Mesh(new THREE.BoxGeometry(frameW, height, thickness), matFrame);
-            leftPost.position.set(-width/2 + frameW/2, height/2, 0);
+            leftPost.position.set(-width / 2 + frameW / 2, height / 2, 0);
             const rightPost = new THREE.Mesh(new THREE.BoxGeometry(frameW, height, thickness), matFrame);
-            rightPost.position.set(width/2 - frameW/2, height/2, 0);
+            rightPost.position.set(width / 2 - frameW / 2, height / 2, 0);
             const topHeader = new THREE.Mesh(new THREE.BoxGeometry(width, frameW, thickness), matFrame);
-            topHeader.position.set(0, height - frameW/2, 0);
+            topHeader.position.set(0, height - frameW / 2, 0);
             group.add(leftPost, rightPost, topHeader);
 
             // Leaves
-            const leafW = (width - frameW*2) / 2 - 0.5; // Small gap in middle
+            const leafW = (width - frameW * 2) / 2 - 0.5; // Small gap in middle
             const leafH = height - frameW;
             const leafThick = 4;
-            
+
             function createLeaf(xPos) {
                 const leafGroup = new THREE.Group();
-                
+
                 // Stiles and Rails (Border)
                 const stileW = leafW * 0.25;
                 const railH = leafH * 0.15;
-                
+
                 // Vertical Stiles
                 const leftStile = new THREE.Mesh(new THREE.BoxGeometry(stileW, leafH, leafThick), matLeaf);
-                leftStile.position.set(-leafW/2 + stileW/2, 0, 0);
-                
+                leftStile.position.set(-leafW / 2 + stileW / 2, 0, 0);
+
                 const rightStile = new THREE.Mesh(new THREE.BoxGeometry(stileW, leafH, leafThick), matLeaf);
-                rightStile.position.set(leafW/2 - stileW/2, 0, 0);
-                
+                rightStile.position.set(leafW / 2 - stileW / 2, 0, 0);
+
                 // Horizontal Rails
-                const topRail = new THREE.Mesh(new THREE.BoxGeometry(leafW - 2*stileW, railH, leafThick), matLeaf);
-                topRail.position.set(0, leafH/2 - railH/2, 0);
-                
-                const bottomRail = new THREE.Mesh(new THREE.BoxGeometry(leafW - 2*stileW, railH, leafThick), matLeaf);
-                bottomRail.position.set(0, -leafH/2 + railH/2, 0);
-                
+                const topRail = new THREE.Mesh(new THREE.BoxGeometry(leafW - 2 * stileW, railH, leafThick), matLeaf);
+                topRail.position.set(0, leafH / 2 - railH / 2, 0);
+
+                const bottomRail = new THREE.Mesh(new THREE.BoxGeometry(leafW - 2 * stileW, railH, leafThick), matLeaf);
+                bottomRail.position.set(0, -leafH / 2 + railH / 2, 0);
+
                 // Center Panel (thinner)
-                const panelW = leafW - 2*stileW;
-                const panelH = leafH - 2*railH;
+                const panelW = leafW - 2 * stileW;
+                const panelH = leafH - 2 * railH;
                 const panel = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, leafThick * 0.4), matPanel);
                 panel.position.set(0, 0, 0);
-                
+
                 leafGroup.add(leftStile, rightStile, topRail, bottomRail, panel);
-                leafGroup.position.set(xPos, leafH/2, 0);
+                leafGroup.position.set(xPos, leafH / 2, 0);
                 return leafGroup;
             }
 
-            const leftLeaf = createLeaf(-leafW/2 - 0.25);
-            const rightLeaf = createLeaf(leafW/2 + 0.25);
+            const leftLeaf = createLeaf(-leafW / 2 - 0.25);
+            const rightLeaf = createLeaf(leafW / 2 + 0.25);
 
             group.add(leftLeaf, rightLeaf);
 
@@ -859,17 +1085,17 @@
                 header.position.set(0, height + headerH / 2, 0);
                 group.add(header);
             }
-            
-            group.traverse(obj => { if(obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
+
+            group.traverse(obj => { if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
             return group;
         }
 
         function createWindowGroup(width, height, thickness, wallHeight) {
             const group = new THREE.Group();
             group.userData = { width: width, height: wallHeight, depth: thickness };
-            const matFrame = new THREE.MeshPhongMaterial({ color: 0xFFFFFF, transparent: true, opacity: 1.0 }); 
+            const matFrame = new THREE.MeshPhongMaterial({ color: 0xFFFFFF, transparent: true, opacity: 1.0 });
             const matGlass = new THREE.MeshPhongMaterial({ color: 0x87CEEB, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
-            const matWall = new THREE.MeshPhongMaterial({ color: 0x808080, transparent: true, opacity: 1.0 }); 
+            const matWall = new THREE.MeshPhongMaterial({ color: 0x808080, transparent: true, opacity: 1.0 });
             const frameW = 3;
             const bottomHeight = (wallHeight - height) / 2;
             if (bottomHeight > 0) {
@@ -883,16 +1109,16 @@
                 topWall.position.set(0, wallHeight - topHeight / 2, 0);
                 group.add(topWall);
             }
-            const windowY = wallHeight / 2; 
+            const windowY = wallHeight / 2;
             const vGeo = new THREE.BoxGeometry(frameW, height, thickness);
             const hGeo = new THREE.BoxGeometry(width, frameW, thickness);
-            const left = new THREE.Mesh(vGeo, matFrame); left.position.set(-width/2 + frameW/2, windowY, 0);
-            const right = new THREE.Mesh(vGeo, matFrame); right.position.set(width/2 - frameW/2, windowY, 0);
-            const topFrame = new THREE.Mesh(hGeo, matFrame); topFrame.position.set(0, windowY + height/2 - frameW/2, 0);
-            const botFrame = new THREE.Mesh(hGeo, matFrame); botFrame.position.set(0, windowY - height/2 + frameW/2, 0);
+            const left = new THREE.Mesh(vGeo, matFrame); left.position.set(-width / 2 + frameW / 2, windowY, 0);
+            const right = new THREE.Mesh(vGeo, matFrame); right.position.set(width / 2 - frameW / 2, windowY, 0);
+            const topFrame = new THREE.Mesh(hGeo, matFrame); topFrame.position.set(0, windowY + height / 2 - frameW / 2, 0);
+            const botFrame = new THREE.Mesh(hGeo, matFrame); botFrame.position.set(0, windowY - height / 2 + frameW / 2, 0);
             group.add(left, right, topFrame, botFrame);
-            const glassW = width - frameW*2;
-            const glassH = height - frameW*2;
+            const glassW = width - frameW * 2;
+            const glassH = height - frameW * 2;
             const glass = new THREE.Mesh(new THREE.BoxGeometry(glassW, glassH, 2), matGlass);
             glass.position.set(0, windowY, 0);
             group.add(glass);
@@ -902,7 +1128,7 @@
             const hMul = new THREE.Mesh(new THREE.BoxGeometry(glassW, mulThick, thickness), matFrame);
             hMul.position.set(0, windowY, 0);
             group.add(vMul, hMul);
-            group.traverse(obj => { if(obj.isMesh) { obj.castShadow = true; if (!obj.material.transparent) obj.receiveShadow = true; } });
+            group.traverse(obj => { if (obj.isMesh) { obj.castShadow = true; if (!obj.material.transparent) obj.receiveShadow = true; } });
             return group;
         }
 
@@ -937,7 +1163,7 @@
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
             let hasData = false;
             let counts = { wall: 0, door: 0, slide_door: 0, double_door: 0, window: 0, opening: 0, unknown: 0 };
-            
+
             data.shapes.forEach(s => {
                 if (s.items && s.items[0] && s.items[0].length >= 3) {
                     const [x1, y1] = s.items[0][1];
@@ -978,11 +1204,11 @@
                         shape.lineTo(px, pz);
                     }
                     shape.closePath();
-                    
+
                     const geometry = new THREE.ShapeGeometry(shape);
                     // Room visual: transparent (invisible) but interactive
-                    const material = new THREE.MeshBasicMaterial({ 
-                        color: 0xffffff, 
+                    const material = new THREE.MeshBasicMaterial({
+                        color: 0xffffff,
                         side: THREE.DoubleSide,
                         transparent: true,
                         opacity: 0.0,
@@ -990,7 +1216,7 @@
                     });
                     const mesh = new THREE.Mesh(geometry, material);
                     mesh.userData = { isRoom: true };
-                    mesh.rotation.x = Math.PI / 2; 
+                    mesh.rotation.x = Math.PI / 2;
                     mesh.position.y = 1.0; // Lift up to avoid z-fighting with image
                     mesh.renderOrder = 10; // Ensure rendered after image
                     meshes.rooms.add(mesh);
@@ -1002,8 +1228,8 @@
                 const imgW = imageMesh.geometry.parameters.width;
                 const imgH = imageMesh.geometry.parameters.height;
                 imageMesh.scale.set(scaleFactor, scaleFactor, 1);
-                imageMesh.rotation.x = -Math.PI / 2; 
-                imageMesh.position.set((imgW/2 - centerX) * scaleFactor, -1, (imgH/2 - centerY) * scaleFactor);
+                imageMesh.rotation.x = -Math.PI / 2;
+                imageMesh.position.set((imgW / 2 - centerX) * scaleFactor, -1, (imgH / 2 - centerY) * scaleFactor);
                 const btn = document.getElementById('toggle-image');
                 btn.disabled = false;
                 btn.classList.add('active');
@@ -1015,7 +1241,7 @@
             const cWall = "#808080";
 
             const geometry = new THREE.BoxGeometry(1, 1, 1);
-            
+
             if (counts.wall > 0 || counts.opening > 0) {
                 const mat = new THREE.MeshPhongMaterial({ color: cWall, transparent: true, opacity: 1.0 });
                 meshes.wall = new THREE.InstancedMesh(geometry, mat, counts.wall + counts.opening);
@@ -1044,21 +1270,21 @@
                 const sz = (y1 - centerY) * scaleFactor;
                 const ex = (x2 - centerX) * scaleFactor;
                 const ez = (y2 - centerY) * scaleFactor;
-                const len = Math.sqrt((ex - sx)**2 + (ez - sz)**2);
+                const len = Math.sqrt((ex - sx) ** 2 + (ez - sz) ** 2);
                 if (len < 0.1) return;
                 const angle = Math.atan2(ez - sz, ex - sx);
-                const midX = (sx + ex)/2;
-                const midZ = (sz + ez)/2;
+                const midX = (sx + ex) / 2;
+                const midZ = (sz + ez) / 2;
                 let type = (shape.type || shape.className || 'unknown').toLowerCase().trim().replace(/\s+/g, '');
 
                 if (type === 'wall') {
-                    dummy.position.set(midX, hWall/2, midZ);
+                    dummy.position.set(midX, hWall / 2, midZ);
                     dummy.rotation.set(0, -angle, 0);
                     dummy.scale.set(len, hWall, tWall);
                     dummy.updateMatrix();
                     meshes.wall.setMatrixAt(idx.wall++, dummy.matrix);
                 } else if (type === 'door') {
-                    const hDoor = hWall * 0.85; 
+                    const hDoor = hWall * 0.85;
                     const doorThickness = 4;
                     const doorGroup = createDoorGroup(len, hDoor, doorThickness, hWall);
                     doorGroup.position.set(midX, 0, midZ);
@@ -1093,7 +1319,7 @@
                     const hHeader = hWall - hOpening;
 
                     // Opening part (wireframe)
-                    dummy.position.set(midX, hOpening/2, midZ);
+                    dummy.position.set(midX, hOpening / 2, midZ);
                     dummy.rotation.set(0, -angle, 0);
                     dummy.scale.set(len, hOpening, tWall * 0.5);
                     dummy.updateMatrix();
@@ -1101,7 +1327,7 @@
 
                     // Header part (wall)
                     if (meshes.wall) {
-                        dummy.position.set(midX, hOpening + hHeader/2, midZ);
+                        dummy.position.set(midX, hOpening + hHeader / 2, midZ);
                         dummy.rotation.set(0, -angle, 0);
                         dummy.scale.set(len, hHeader, tWall);
                         dummy.updateMatrix();
@@ -1116,9 +1342,9 @@
                 }
             });
 
-            if(meshes.wall) meshes.wall.instanceMatrix.needsUpdate = true;
-            if(meshes.opening) meshes.opening.instanceMatrix.needsUpdate = true;
-            if(meshes.unknown) meshes.unknown.instanceMatrix.needsUpdate = true;
+            if (meshes.wall) meshes.wall.instanceMatrix.needsUpdate = true;
+            if (meshes.opening) meshes.opening.instanceMatrix.needsUpdate = true;
+            if (meshes.unknown) meshes.unknown.instanceMatrix.needsUpdate = true;
 
             update3DOpacity(document.getElementById('3d-opacity').value / 100);
 
@@ -1129,10 +1355,10 @@
                 <div><strong>Double Doors:</strong> ${counts.double_door}</div>
                 <div><strong>Windows:</strong> ${counts.window}</div>
                 <div><strong>Openings:</strong> ${counts.opening}</div>
-                <div><strong>Scale:</strong> ${(1/scaleFactor).toFixed(2)}x</div>
+                <div><strong>Scale:</strong> ${(1 / scaleFactor).toFixed(2)}x</div>
                 ${processingTime !== null ? `<div><strong>Time:</strong> ${processingTime}ms</div>` : ''}
             `;
-            
+
             // --- CẬP NHẬT MINI-MAP SAU KHI BUILD XONG ---
             updateMapBounds(data);
         }
@@ -1154,7 +1380,7 @@
             const dz = document.getElementById('drop-zone');
             const originalText = dz.querySelector('h2').innerText;
             dz.querySelector('h2').innerText = "Processing image...";
-            
+
             const base64 = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
@@ -1167,14 +1393,14 @@
             const startTime = Date.now();
 
             try {
-                const response = await fetch('https://api.nguyenchitrai.id.vn/process_floor_plan_image', {
+                const response = await fetch(`${ENV.FLOOR_PLAN_BASE_URL}/process_floor_plan_image`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ files: [base64] }),
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);
-                
+
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
                 processingTime = Date.now() - startTime;
@@ -1182,7 +1408,7 @@
                 if (data.results && data.results.length > 0) {
                     jsonData = data.results[0];
                     const loader = new THREE.TextureLoader();
-                    
+
                     if (imageMesh) {
                         rootGroup.remove(imageMesh);
                         imageMesh.geometry.dispose();
@@ -1217,8 +1443,8 @@
                 if (error.name === 'AbortError') alert("Request timed out.");
                 else alert("API error: " + error.message);
             } finally {
-                 dz.querySelector('h2').innerText = originalText;
-                 hideLoading();
+                dz.querySelector('h2').innerText = originalText;
+                hideLoading();
             }
         }
 
@@ -1283,13 +1509,13 @@
                 if (isLoading) return;
                 if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
             });
-            
+
             const dz = document.getElementById('drop-zone');
             const finput = document.getElementById('file-input');
             dz.onclick = () => { if (!isLoading) finput.click(); };
             finput.onchange = (e) => { if (!isLoading && e.target.files[0]) handleFile(e.target.files[0]); };
 
-            const refresh = () => { if(jsonData) buildFloorPlan(jsonData); };
+            const refresh = () => { if (jsonData) buildFloorPlan(jsonData); };
             const debouncedRefresh = debounce(refresh, 50);
 
             ['wall-height', 'wall-thickness'].forEach(id => {
@@ -1313,25 +1539,25 @@
             document.getElementById('toggle-walls').onclick = () => toggleState('toggle-walls', meshes.wall);
             document.getElementById('toggle-doors').onclick = () => {
                 toggleState('toggle-doors', doorObjects);
-                if(meshes.unknown) meshes.unknown.visible = document.getElementById('toggle-doors').classList.contains('active');
+                if (meshes.unknown) meshes.unknown.visible = document.getElementById('toggle-doors').classList.contains('active');
             };
             document.getElementById('toggle-windows').onclick = () => toggleState('toggle-windows', windowObjects);
             document.getElementById('toggle-skeleton').onclick = () => toggleState('toggle-skeleton', meshes.opening);
-            
+
             document.getElementById('toggle-grid').onclick = () => {
                 const btn = document.getElementById('toggle-grid');
                 gridHelper.visible = btn.classList.toggle('active');
             };
-            
+
             document.getElementById('toggle-image').onclick = () => {
                 const btn = document.getElementById('toggle-image');
-                if(imageMesh) imageMesh.visible = btn.classList.toggle('active');
+                if (imageMesh) imageMesh.visible = btn.classList.toggle('active');
             };
 
             document.getElementById('image-opacity').addEventListener('input', (e) => {
                 const val = e.target.value;
                 document.getElementById('val-image-opacity').textContent = val;
-                if(imageMesh) imageMesh.material.opacity = val / 100;
+                if (imageMesh) imageMesh.material.opacity = val / 100;
             });
 
             document.getElementById('3d-opacity').addEventListener('input', (e) => {
@@ -1358,4 +1584,5 @@
         setupUI();
     </script>
 </body>
+
 </html>

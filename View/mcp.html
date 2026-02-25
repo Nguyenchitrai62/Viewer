@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,8 +8,10 @@
     <!-- Google Fonts for Premium Typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
     <style>
         :root {
             /* Premium Dark Theme Palette */
@@ -27,7 +30,11 @@
             --font-code: 'JetBrains Mono', monospace;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
         body {
             font-family: var(--font-main);
@@ -36,7 +43,7 @@
             height: 100vh;
             display: flex;
             overflow: hidden;
-            background-image: 
+            background-image:
                 radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 25%),
                 radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.08) 0%, transparent 25%);
         }
@@ -49,10 +56,22 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        .scroll-bar::-webkit-scrollbar { width: 6px; }
-        .scroll-bar::-webkit-scrollbar-track { background: transparent; }
-        .scroll-bar::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-        .scroll-bar::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+        .scroll-bar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scroll-bar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .scroll-bar::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .scroll-bar::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
 
         /* Sidebar */
         aside {
@@ -67,16 +86,27 @@
 
         /* Modal Styles */
         .modal-overlay {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(4px);
             z-index: 1000;
-            display: flex; align-items: center; justify-content: center;
-            opacity: 0; pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
             transition: opacity 0.2s;
         }
-        .modal-overlay.open { opacity: 1; pointer-events: auto; }
-        
+
+        .modal-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
         .modal {
             background: #1e293b;
             border: 1px solid var(--border-color);
@@ -87,20 +117,42 @@
             transform: scale(0.95);
             transition: transform 0.2s;
         }
-        .modal-overlay.open .modal { transform: scale(1); }
-        
+
+        .modal-overlay.open .modal {
+            transform: scale(1);
+        }
+
         .modal-header {
             padding: 16px 20px;
             border-bottom: 1px solid var(--border-color);
-            display: flex; justify-content: space-between; align-items: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .modal-title { font-weight: 600; color: var(--text-primary); }
-        .modal-close { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1.2rem; }
-        .modal-body { padding: 20px; }
+
+        .modal-title {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
         .modal-footer {
             padding: 16px 20px;
             border-top: 1px solid var(--border-color);
-            display: flex; justify-content: flex-end; gap: 10px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
         }
 
         aside header {
@@ -139,7 +191,8 @@
             letter-spacing: 0.05em;
         }
 
-        input[type="text"], input[type="password"] {
+        input[type="text"],
+        input[type="password"] {
             width: 100%;
             padding: 10px 12px;
             background: var(--bg-secondary);
@@ -151,7 +204,8 @@
             transition: all 0.2s ease;
         }
 
-        input:focus, textarea:focus {
+        input:focus,
+        textarea:focus {
             outline: none;
             border-color: var(--accent-primary);
             box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
@@ -216,11 +270,24 @@
             background: var(--text-secondary);
         }
 
-        .status-badge.connected .status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
-        .status-badge.connected { color: var(--success); background: rgba(16, 185, 129, 0.1); }
-        
-        .status-badge.error .status-dot { background: var(--error); }
-        .status-badge.error { color: var(--error); background: rgba(239, 68, 68, 0.1); }
+        .status-badge.connected .status-dot {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .status-badge.connected {
+            color: var(--success);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .status-badge.error .status-dot {
+            background: var(--error);
+        }
+
+        .status-badge.error {
+            color: var(--error);
+            background: rgba(239, 68, 68, 0.1);
+        }
 
         /* Right Sidebar */
         .right-sidebar {
@@ -284,9 +351,9 @@
         }
 
         .tool-call-summary.active-selection {
-             background: rgba(59, 130, 246, 0.2); 
-             border-color: var(--accent-primary);
-             box-shadow: 0 0 10px rgba(59, 130, 246, 0.2);
+            background: rgba(59, 130, 246, 0.2);
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.2);
         }
 
 
@@ -322,7 +389,10 @@
             color: var(--text-primary);
         }
 
-        .tool-icon { margin-right: 8px; font-size: 1rem; }
+        .tool-icon {
+            margin-right: 8px;
+            font-size: 1rem;
+        }
 
         /* Custom Select Style */
         select {
@@ -342,7 +412,7 @@
 
         /* MCP URL Tags */
         .mcp-tag {
-            background: rgba(255,255,255,0.05);
+            background: rgba(255, 255, 255, 0.05);
             padding: 6px 10px;
             border-radius: 6px;
             font-size: 0.75rem;
@@ -354,11 +424,13 @@
             margin-bottom: 4px;
             width: 100%;
         }
+
         .mcp-tag span {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+
         .mcp-tag button {
             background: none;
             border: none;
@@ -371,6 +443,7 @@
             padding: 2px;
             border-radius: 4px;
         }
+
         .mcp-tag button:hover {
             color: var(--error);
             background: rgba(239, 68, 68, 0.1);
@@ -402,8 +475,15 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .message-header {
@@ -427,9 +507,20 @@
             font-size: 0.8rem;
         }
 
-        .message.user .avatar { background: var(--accent-primary); color: white; }
-        .message.ai .avatar { background: linear-gradient(135deg, #c084fc, #ec4899); color: white; }
-        .message.system .avatar { background: var(--border-color); color: var(--text-secondary); }
+        .message.user .avatar {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .message.ai .avatar {
+            background: linear-gradient(135deg, #c084fc, #ec4899);
+            color: white;
+        }
+
+        .message.system .avatar {
+            background: var(--border-color);
+            color: var(--text-secondary);
+        }
 
         .message-content {
             padding: 16px 20px;
@@ -440,7 +531,8 @@
             font-size: 0.95rem;
             color: var(--text-primary);
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            white-space: pre-wrap; /* Preserve newlines */
+            white-space: pre-wrap;
+            /* Preserve newlines */
         }
 
         .message.user .message-content {
@@ -456,7 +548,7 @@
         }
 
 
-        
+
         .tool-content {
             padding: 8px 12px;
             background: rgba(0, 0, 0, 0.3);
@@ -464,7 +556,7 @@
             font-size: 0.85rem;
             margin-top: 8px;
         }
-        
+
         .json-block {
             background: #0d1117;
             padding: 12px;
@@ -474,10 +566,10 @@
             color: #e6edf3;
             margin-top: 6px;
             white-space: pre-wrap;
-            border: 1px solid rgba(255,255,255,0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
 
         }
-        
+
         .label-text {
             font-weight: 600;
             color: var(--text-secondary);
@@ -495,8 +587,24 @@
         }
 
         /* Status Animations */
-        @keyframes pulse-dot { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
-        .status-computing { animation: pulse-dot 1.5s infinite; color: var(--accent-primary); }
+        @keyframes pulse-dot {
+            0% {
+                opacity: 0.4;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.4;
+            }
+        }
+
+        .status-computing {
+            animation: pulse-dot 1.5s infinite;
+            color: var(--accent-primary);
+        }
 
 
         .tool-call {
@@ -518,7 +626,12 @@
             color: var(--accent-secondary);
         }
 
-        .tool-call-body { padding: 12px; color: #ccc; white-space: pre-wrap; }
+        .tool-call-body {
+            padding: 12px;
+            color: #ccc;
+            white-space: pre-wrap;
+        }
+
         .tool-call-result {
             padding: 12px;
             background: #0d121c;
@@ -567,7 +680,9 @@
             border-radius: 12px;
         }
 
-        textarea:focus { outline: none; }
+        textarea:focus {
+            outline: none;
+        }
 
         .send-btn {
             position: absolute;
@@ -586,8 +701,15 @@
             transition: all 0.2s;
         }
 
-        .send-btn:hover { background: #2563eb; transform: scale(1.05); }
-        .send-btn:disabled { background: #475569; cursor: not-allowed; }
+        .send-btn:hover {
+            background: #2563eb;
+            transform: scale(1.05);
+        }
+
+        .send-btn:disabled {
+            background: #475569;
+            cursor: not-allowed;
+        }
 
         /* Loading Indicator */
         .typing-indicator {
@@ -595,6 +717,7 @@
             gap: 4px;
             padding: 4px 8px;
         }
+
         .dot {
             width: 4px;
             height: 4px;
@@ -602,617 +725,679 @@
             border-radius: 50%;
             animation: bounce 1.4s infinite ease-in-out both;
         }
-        .dot:nth-child(1) { animation-delay: -0.32s; }
-        .dot:nth-child(2) { animation-delay: -0.16s; }
-        
-        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+        .dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            80%,
+            100% {
+                transform: scale(0);
+            }
+
+            40% {
+                transform: scale(1);
+            }
+        }
 
         /* Markdown Styles */
-        .markdown-body pre { background: #111; padding: 12px; border-radius: 8px; overflow-x: auto; font-family: var(--font-code); font-size: 0.85em; }
-        .markdown-body code { background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px; font-family: var(--font-code); font-size: 0.9em; }
-        .markdown-body p { margin-bottom: 1em; }
+        .markdown-body pre {
+            background: #111;
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: var(--font-code);
+            font-size: 0.85em;
+        }
+
+        .markdown-body code {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: var(--font-code);
+            font-size: 0.9em;
+        }
+
+        .markdown-body p {
+            margin-bottom: 1em;
+        }
 
         .notification {
-            position: fixed; top: 20px; right: 20px;
+            position: fixed;
+            top: 20px;
+            right: 20px;
             padding: 12px 20px;
             border-radius: 8px;
             background: #1e293b;
             border: 1px solid #334155;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             z-index: 100;
-            display: flex; align-items: center; gap: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
             transform: translateX(120%);
             transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
-        .notification.show { transform: translateX(0); }
-        .notification.success { border-left: 4px solid var(--success); }
-        .notification.error { border-left: 4px solid var(--error); }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            border-left: 4px solid var(--success);
+        }
+
+        .notification.error {
+            border-left: 4px solid var(--error);
+        }
     </style>
 </head>
+
 <body>
 
-<aside class="scroll-bar">
-    <header>
-        <div style="margin-bottom: 16px;">
-            <h1>MCP Client</h1>
-        </div>
-        <button id="settings-btn" class="secondary-btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;">
-            <span>⚙️</span> LLM Configuration
-        </button>
-    </header>
-
-    <div class="config-section">
-        <div class="input-group">
-            <label>MCP Server URLs</label>
-            <div style="display: flex; gap: 6px; margin-bottom: 12px;">
-                <input type="text" id="new-mcp-url" placeholder="Add URL..." style="flex:1; min-width: 0;">
-                <button id="add-mcp-btn" class="secondary-btn" style="width: auto; margin:0; padding: 0 12px; background: var(--bg-secondary);">+</button>
+    <aside class="scroll-bar">
+        <header>
+            <div style="margin-bottom: 16px;">
+                <h1>MCP Client</h1>
             </div>
-            <div id="mcp-list" style="display: flex; flex-direction: column; gap: 6px;">
-                <!-- Tags will go here -->
-            </div>
-        </div>
-
-        <!-- Backend URL is hardcoded -->
-        <!-- <button class="primary-btn" id="connect-btn">Update Config</button> -->
-    </div>
-</aside>
-
-<main>
-    <div class="chat-container scroll-bar" id="chat-stream">
-
-    </div>
-
-    <div class="input-area">
-        <div class="chat-input-wrapper">
-            <textarea id="user-input" placeholder="Ask something..." rows="1" disabled></textarea>
-            <button id="send-btn" class="send-btn" disabled>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            <button id="settings-btn" class="secondary-btn"
+                style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;">
+                <span>⚙️</span> LLM Configuration
             </button>
-        </div>
-    </div>
-</main>
+        </header>
 
-<aside class="right-sidebar" id="tool-details-sidebar">
-    <div class="right-sidebar-header">
-        <h2>Tool Details</h2>
-        <div style="font-size: 0.8rem; color: var(--text-secondary);">Select a tool call to view details</div>
-    </div>
-    <div id="tool-details-content" class="tool-details-panel">
-        <div style="text-align: center; color: var(--text-secondary); margin-top: 40px; font-size: 0.9rem;">
-            No tool selected
-        </div>
-    </div>
-</aside>
-
-
-<div id="notification-area"></div>
-
-<!-- Settings Modal -->
-<div class="modal-overlay" id="settings-modal">
-    <div class="modal">
-        <div class="modal-header">
-            <div class="modal-title">LLM Configuration</div>
-            <button class="modal-close" id="close-modal">×</button>
-        </div>
-        <div class="modal-body">
+        <div class="config-section">
             <div class="input-group">
-                <label>Provider</label>
-                <div style="position: relative;">
-                    <select id="modal-provider" style="width: 100%; padding: 12px; background: #0f172a; border: 1px solid var(--accent-primary); border-radius: 8px; color: var(--text-primary); font-size: 1rem; font-weight: 500; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-                        <option value="openai" style="background: #1e293b; color: #f8fafc; padding: 10px;">OpenAI</option>
-                        <option value="gemini" style="background: #1e293b; color: #f8fafc; padding: 10px;">Google Gemini</option>
-                        <option value="groq" style="background: #1e293b; color: #f8fafc; padding: 10px;" selected>Groq</option>
-                    </select>
+                <label>MCP Server URLs</label>
+                <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+                    <input type="text" id="new-mcp-url" placeholder="Add URL..." style="flex:1; min-width: 0;">
+                    <button id="add-mcp-btn" class="secondary-btn"
+                        style="width: auto; margin:0; padding: 0 12px; background: var(--bg-secondary);">+</button>
+                </div>
+                <div id="mcp-list" style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Tags will go here -->
                 </div>
             </div>
-            
-            <div class="input-group">
-                <label>API Key <span style="font-weight:400; text-transform:none; color:var(--text-secondary);">(Optional if Base URL set)</span></label>
-                <input type="password" id="modal-api-key" placeholder="sk-..." autocomplete="off">
-            </div>
-            
-            <div class="input-group">
-                <label>Base URL <span style="font-weight:400; text-transform:none; color:var(--text-secondary);">(Optional)</span></label>
-                <input type="text" id="modal-base-url" placeholder="e.g. http://localhost:11434/v1">
-            </div>
 
-            <div class="input-group">
-                <label>Model Name</label>
-                <input type="text" id="modal-model" value="gemini-2.5-flash" placeholder="gemini-2.5-flash">
+            <!-- Backend URL is hardcoded -->
+            <!-- <button class="primary-btn" id="connect-btn">Update Config</button> -->
+        </div>
+    </aside>
+
+    <main>
+        <div class="chat-container scroll-bar" id="chat-stream">
+
+        </div>
+
+        <div class="input-area">
+            <div class="chat-input-wrapper">
+                <textarea id="user-input" placeholder="Ask something..." rows="1" disabled></textarea>
+                <button id="send-btn" class="send-btn" disabled>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
             </div>
         </div>
-        <div class="modal-footer">
-            <button class="secondary-btn" id="cancel-settings" style="width: auto;">Cancel</button>
-            <button class="primary-btn" id="save-settings" style="width: auto; padding: 8px 20px;">Save</button>
+    </main>
+
+    <aside class="right-sidebar" id="tool-details-sidebar">
+        <div class="right-sidebar-header">
+            <h2>Tool Details</h2>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">Select a tool call to view details</div>
+        </div>
+        <div id="tool-details-content" class="tool-details-panel">
+            <div style="text-align: center; color: var(--text-secondary); margin-top: 40px; font-size: 0.9rem;">
+                No tool selected
+            </div>
+        </div>
+    </aside>
+
+
+    <div id="notification-area"></div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">LLM Configuration</div>
+                <button class="modal-close" id="close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <label>Provider</label>
+                    <div style="position: relative;">
+                        <select id="modal-provider"
+                            style="width: 100%; padding: 12px; background: #0f172a; border: 1px solid var(--accent-primary); border-radius: 8px; color: var(--text-primary); font-size: 1rem; font-weight: 500; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                            <option value="openai" style="background: #1e293b; color: #f8fafc; padding: 10px;">OpenAI
+                            </option>
+                            <option value="gemini" style="background: #1e293b; color: #f8fafc; padding: 10px;">Google
+                                Gemini</option>
+                            <option value="groq" style="background: #1e293b; color: #f8fafc; padding: 10px;" selected>
+                                Groq</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>API Key <span
+                            style="font-weight:400; text-transform:none; color:var(--text-secondary);">(Optional if Base
+                            URL set)</span></label>
+                    <input type="password" id="modal-api-key" placeholder="sk-..." autocomplete="off">
+                </div>
+
+                <div class="input-group">
+                    <label>Base URL <span
+                            style="font-weight:400; text-transform:none; color:var(--text-secondary);">(Optional)</span></label>
+                    <input type="text" id="modal-base-url" placeholder="e.g. http://localhost:11434/v1">
+                </div>
+
+                <div class="input-group">
+                    <label>Model Name</label>
+                    <input type="text" id="modal-model" value="gemini-2.5-flash" placeholder="gemini-2.5-flash">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-btn" id="cancel-settings" style="width: auto;">Cancel</button>
+                <button class="primary-btn" id="save-settings" style="width: auto; padding: 8px 20px;">Save</button>
+            </div>
         </div>
     </div>
-</div>
 
-<!-- Logic -->
-<script>
-    // --- Selectors ---
-    // --- Selectors ---
-    const els = {
-        settingsBtn: document.getElementById('settings-btn'),
-        modal: document.getElementById('settings-modal'),
-        closeModalBtn: document.getElementById('close-modal'),
-        cancelSettingsBtn: document.getElementById('cancel-settings'),
-        saveSettingsBtn: document.getElementById('save-settings'),
-        
-        // Modal Inputs
-        idxProvider: document.getElementById('modal-provider'),
-        idxApiKey: document.getElementById('modal-api-key'),
-        idxBaseUrl: document.getElementById('modal-base-url'),
-        idxModel: document.getElementById('modal-model'),
-        
-        newMcpUrl: document.getElementById('new-mcp-url'),
-        addMcpBtn: document.getElementById('add-mcp-btn'),
-        mcpList: document.getElementById('mcp-list'),
-        
-        chatStream: document.getElementById('chat-stream'),
-        userInput: document.getElementById('user-input'),
-        sendBtn: document.getElementById('send-btn'),
-        
-        toolDetailsSidebar: document.getElementById('tool-details-sidebar'),
-        toolDetailsContent: document.getElementById('tool-details-content'),
-    };
+    <!-- Logic -->
+    <script src="./env.js"></script>
+    <script>
+        // --- Selectors ---
+        // --- Selectors ---
+        const els = {
+            settingsBtn: document.getElementById('settings-btn'),
+            modal: document.getElementById('settings-modal'),
+            closeModalBtn: document.getElementById('close-modal'),
+            cancelSettingsBtn: document.getElementById('cancel-settings'),
+            saveSettingsBtn: document.getElementById('save-settings'),
 
-    // --- State ---
-    const BACKEND_URL = "https://mcp-server-9zc1.onrender.com/chat";
-    let mcpUrls = ["https://api.nguyenchitrai.id.vn/sse"];
-    
-    // Default Settings
-    // Default Settings
-    let llmConfig = {
-        provider: "groq",
-        apiKey: "",
-        baseUrl: "",
-        model: "moonshotai/kimi-k2-instruct"
-    };
-    
-    let isProcessing = false;
-    let activeToolId = null; // Track current tool call ID
-    let toolCallsData = {}; // Store data for tool calls: { id: { name, args, result, status } }
-    let toolCallCounter = 0; // Simple ID generator if needed
-    let mcpStatuses = {};
+            // Modal Inputs
+            idxProvider: document.getElementById('modal-provider'),
+            idxApiKey: document.getElementById('modal-api-key'),
+            idxBaseUrl: document.getElementById('modal-base-url'),
+            idxModel: document.getElementById('modal-model'),
 
-    // --- MCP List Management ---
-    function renderMcpList() {
-        els.mcpList.innerHTML = '';
-        mcpUrls.forEach((url, index) => {
-            const div = document.createElement('div');
-            div.className = 'mcp-tag';
-            // Show only part of URL if too long? For now just show full but with ellipsis
-            div.title = url;
-            const displayUrl = url.replace(/^https?:\/\//, '');
-            
-            // Status dot
-            let statusColor = 'var(--text-secondary)'; // default/loading
-            let statusTitle = 'Checking...';
-            
-            if (mcpStatuses[url] === true) {
-                statusColor = 'var(--success)';
-                statusTitle = 'Connected';
-            } else if (mcpStatuses[url] === false) {
-                statusColor = 'var(--error)';
-                statusTitle = 'Connection Failed';
-            }
+            newMcpUrl: document.getElementById('new-mcp-url'),
+            addMcpBtn: document.getElementById('add-mcp-btn'),
+            mcpList: document.getElementById('mcp-list'),
 
-            div.innerHTML = `
+            chatStream: document.getElementById('chat-stream'),
+            userInput: document.getElementById('user-input'),
+            sendBtn: document.getElementById('send-btn'),
+
+            toolDetailsSidebar: document.getElementById('tool-details-sidebar'),
+            toolDetailsContent: document.getElementById('tool-details-content'),
+        };
+
+        // --- State ---
+        const BACKEND_URL = `${ENV.MCP_SERVER_URL}/chat`;
+        let mcpUrls = ["https://api.nguyenchitrai.id.vn/sse"];
+
+        // Default Settings
+        // Default Settings
+        let llmConfig = {
+            provider: "groq",
+            apiKey: "",
+            baseUrl: "",
+            model: "moonshotai/kimi-k2-instruct"
+        };
+
+        let isProcessing = false;
+        let activeToolId = null; // Track current tool call ID
+        let toolCallsData = {}; // Store data for tool calls: { id: { name, args, result, status } }
+        let toolCallCounter = 0; // Simple ID generator if needed
+        let mcpStatuses = {};
+
+        // --- MCP List Management ---
+        function renderMcpList() {
+            els.mcpList.innerHTML = '';
+            mcpUrls.forEach((url, index) => {
+                const div = document.createElement('div');
+                div.className = 'mcp-tag';
+                // Show only part of URL if too long? For now just show full but with ellipsis
+                div.title = url;
+                const displayUrl = url.replace(/^https?:\/\//, '');
+
+                // Status dot
+                let statusColor = 'var(--text-secondary)'; // default/loading
+                let statusTitle = 'Checking...';
+
+                if (mcpStatuses[url] === true) {
+                    statusColor = 'var(--success)';
+                    statusTitle = 'Connected';
+                } else if (mcpStatuses[url] === false) {
+                    statusColor = 'var(--error)';
+                    statusTitle = 'Connection Failed';
+                }
+
+                div.innerHTML = `
                 <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
                     <span id="status-${index}" style="width:8px; height:8px; border-radius:50%; background:${statusColor}; flex-shrink:0;" title="${statusTitle}"></span>
                     <span style="font-family: var(--font-code); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${displayUrl}</span>
                 </div>
                 <button onclick="removeMcpUrl(${index})">×</button>
             `;
-            els.mcpList.appendChild(div);
-        });
-    }
-
-    async function checkMcpStatus(url) {
-        try {
-            // Use Backend API to verify connection
-            // Assuming BACKEND_URL is like ".../chat", we want ".../check-mcp"
-            const checkUrl = BACKEND_URL.replace(/\/chat\/?$/, "/check-mcp");
-            
-            const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), 10000); // 10s wait for backend
-            
-            const res = await fetch(checkUrl, { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url }),
-                signal: controller.signal 
+                els.mcpList.appendChild(div);
             });
-            clearTimeout(id);
-            
-            if (!res.ok) {
-                 throw new Error(`Backend Status ${res.status}`);
-            }
-            
-            const data = await res.json();
-            if (data.status === 'connected') {
-                mcpStatuses[url] = true;
-            } else {
-                console.warn("Backend check returned error", data);
+        }
+
+        async function checkMcpStatus(url) {
+            try {
+                // Use Backend API to verify connection
+                // Assuming BACKEND_URL is like ".../chat", we want ".../check-mcp"
+                const checkUrl = BACKEND_URL.replace(/\/chat\/?$/, "/check-mcp");
+
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort(), 10000); // 10s wait for backend
+
+                const res = await fetch(checkUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url }),
+                    signal: controller.signal
+                });
+                clearTimeout(id);
+
+                if (!res.ok) {
+                    throw new Error(`Backend Status ${res.status}`);
+                }
+
+                const data = await res.json();
+                if (data.status === 'connected') {
+                    mcpStatuses[url] = true;
+                } else {
+                    console.warn("Backend check returned error", data);
+                    mcpStatuses[url] = false;
+                }
+            } catch (e) {
+                console.warn("Check failed via backend", url, e);
                 mcpStatuses[url] = false;
             }
-        } catch (e) {
-            console.warn("Check failed via backend", url, e);
-            mcpStatuses[url] = false;
+            renderMcpList();
         }
-        renderMcpList();
-    }
 
-    function checkAllMcpStatus() {
-        mcpUrls.forEach((url) => {
-             if (mcpStatuses[url] === undefined) mcpStatuses[url] = null; 
-             checkMcpStatus(url);
+        function checkAllMcpStatus() {
+            mcpUrls.forEach((url) => {
+                if (mcpStatuses[url] === undefined) mcpStatuses[url] = null;
+                checkMcpStatus(url);
+            });
+            renderMcpList();
+        }
+
+        function addMcpUrl() {
+            let url = els.newMcpUrl.value.trim();
+
+            if (url) {
+                // Check for protocol, default to http:// if missing
+                if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    url = 'http://' + url;
+                }
+
+                if (!mcpUrls.includes(url)) {
+                    mcpUrls.push(url);
+                    els.newMcpUrl.value = '';
+                    checkMcpStatus(url); // Check the new one
+                    renderMcpList();
+                }
+            }
+        }
+
+        function removeMcpUrl(index) {
+            const urlObj = mcpUrls[index];
+            mcpUrls.splice(index, 1);
+            if (urlObj && typeof urlObj === 'string') delete mcpStatuses[urlObj];
+            renderMcpList();
+        }
+
+        // Allow adding by pressing Enter in input
+        els.newMcpUrl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addMcpUrl();
+            }
         });
-        renderMcpList(); 
-    }
 
-    function addMcpUrl() {
-        let url = els.newMcpUrl.value.trim();
-        
-        if (url) {
-            // Check for protocol, default to http:// if missing
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                url = 'http://' + url;
-            }
+        els.addMcpBtn.addEventListener('click', addMcpUrl);
 
-            if (!mcpUrls.includes(url)) {
-                mcpUrls.push(url);
-                els.newMcpUrl.value = '';
-                checkMcpStatus(url); // Check the new one
-                renderMcpList();
-            }
-        }
-    }
-
-    function removeMcpUrl(index) {
-        const urlObj = mcpUrls[index];
-        mcpUrls.splice(index, 1);
-        if (urlObj && typeof urlObj === 'string') delete mcpStatuses[urlObj];
+        // Initial Render
         renderMcpList();
-    }
-    
-    // Allow adding by pressing Enter in input
-    els.newMcpUrl.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            addMcpUrl();
-        }
-    });
+        checkAllMcpStatus();
 
-    els.addMcpBtn.addEventListener('click', addMcpUrl);
-    
-    // Initial Render
-    renderMcpList();
-    checkAllMcpStatus();
-    
-    // --- Modal Logic ---
-    function openModal() {
-        // Load current state into inputs
-        els.idxProvider.value = llmConfig.provider;
-        els.idxApiKey.value = llmConfig.apiKey;
-        els.idxBaseUrl.value = llmConfig.baseUrl;
-        els.idxModel.value = llmConfig.model;
-        
-        els.modal.classList.add('open');
-    }
-    
-    function closeModal() {
-        els.modal.classList.remove('open');
-    }
-    
-    function saveSettings() {
-        llmConfig = {
-            provider: els.idxProvider.value,
-            apiKey: els.idxApiKey.value,
-            baseUrl: els.idxBaseUrl.value.trim(),
-            model: els.idxModel.value.trim()
-        };
-        closeModal();
-        logEvent("Settings saved.");
-    }
-    
-    
-    els.settingsBtn.addEventListener('click', openModal);
-    els.closeModalBtn.addEventListener('click', closeModal);
-    els.cancelSettingsBtn.addEventListener('click', closeModal);
-    els.saveSettingsBtn.addEventListener('click', saveSettings);
-    
-    // Auto-fill defaults on provider change
-    els.idxProvider.addEventListener('change', () => {
-        const provider = els.idxProvider.value;
-        if (provider === 'openai') {
-            els.idxBaseUrl.value = "http://54.213.248.28:8233/v1";
-            els.idxModel.value = "qwen/qwen3-30b-a3b-2507";
-        } else if (provider === 'gemini') {
-            els.idxBaseUrl.value = "";
-            els.idxModel.value = "gemini-2.5-flash";
-        }
-    });
+        // --- Modal Logic ---
+        function openModal() {
+            // Load current state into inputs
+            els.idxProvider.value = llmConfig.provider;
+            els.idxApiKey.value = llmConfig.apiKey;
+            els.idxBaseUrl.value = llmConfig.baseUrl;
+            els.idxModel.value = llmConfig.model;
 
-    
-    // --- UI Helpers ---
-    function logEvent(msg) {
-        console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
-    }
-    
-    function addMessage(role, text, modelName) {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `message ${role}`;
-        
-        const avatar = role === 'user' ? '👤' : (role === 'ai' ? '🤖' : '⚙️');
-        let name = role === 'user' ? 'YOU' : (role === 'ai' ? 'ASSISTANT' : 'SYSTEM');
-        
-        if (role === 'ai' && modelName) {
-            name += ` <span style="font-size: 0.8em; color: var(--text-secondary); margin-left:8px; font-weight:400;">(${modelName})</span>`;
+            els.modal.classList.add('open');
         }
-        
-        msgDiv.innerHTML = `
+
+        function closeModal() {
+            els.modal.classList.remove('open');
+        }
+
+        function saveSettings() {
+            llmConfig = {
+                provider: els.idxProvider.value,
+                apiKey: els.idxApiKey.value,
+                baseUrl: els.idxBaseUrl.value.trim(),
+                model: els.idxModel.value.trim()
+            };
+            closeModal();
+            logEvent("Settings saved.");
+        }
+
+
+        els.settingsBtn.addEventListener('click', openModal);
+        els.closeModalBtn.addEventListener('click', closeModal);
+        els.cancelSettingsBtn.addEventListener('click', closeModal);
+        els.saveSettingsBtn.addEventListener('click', saveSettings);
+
+        // Auto-fill defaults on provider change
+        els.idxProvider.addEventListener('change', () => {
+            const provider = els.idxProvider.value;
+            if (provider === 'openai') {
+                els.idxBaseUrl.value = "http://54.213.248.28:8233/v1";
+                els.idxModel.value = "qwen/qwen3-30b-a3b-2507";
+            } else if (provider === 'gemini') {
+                els.idxBaseUrl.value = "";
+                els.idxModel.value = "gemini-2.5-flash";
+            }
+        });
+
+
+        // --- UI Helpers ---
+        function logEvent(msg) {
+            console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
+        }
+
+        function addMessage(role, text, modelName) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${role}`;
+
+            const avatar = role === 'user' ? '👤' : (role === 'ai' ? '🤖' : '⚙️');
+            let name = role === 'user' ? 'YOU' : (role === 'ai' ? 'ASSISTANT' : 'SYSTEM');
+
+            if (role === 'ai' && modelName) {
+                name += ` <span style="font-size: 0.8em; color: var(--text-secondary); margin-left:8px; font-weight:400;">(${modelName})</span>`;
+            }
+
+            msgDiv.innerHTML = `
             <div class="message-header"> <div class="avatar">${avatar}</div> ${name} </div>
             <div class="message-content">${text}</div>
         `;
-        
-        els.chatStream.appendChild(msgDiv);
-        els.chatStream.scrollTop = els.chatStream.scrollHeight;
-        
-        return msgDiv.querySelector('.message-content');
-    }
 
-    // --- Interaction ---
-    els.userInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
+            els.chatStream.appendChild(msgDiv);
+            els.chatStream.scrollTop = els.chatStream.scrollHeight;
+
+            return msgDiv.querySelector('.message-content');
         }
-    });
 
-    els.sendBtn.addEventListener('click', handleSend);
-    
-    // Enable input immediately
-    els.userInput.disabled = false;
-    els.sendBtn.disabled = false;
-    
-    // Auto-resize textarea
-    els.userInput.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = (this.scrollHeight) + 'px';
-        if(this.value === '') this.style.height = '52px';
-    });
+        // --- Interaction ---
+        els.userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+            }
+        });
 
-    async function handleSend() {
-        if (isProcessing) return;
-        
-        const text = els.userInput.value.trim();
-        if (!text) return;
-        
-        // Reset Input
-        els.userInput.value = '';
-        els.userInput.style.height = '52px';
-        
-        addMessage("user", text);
-        
-        const aiMsgContent = addMessage("ai", "", llmConfig.model); 
-        activeToolElement = null; // Reset tool state for new turn
-        
-        isProcessing = true;
-        els.userInput.disabled = true;
-        els.sendBtn.disabled = true;
-        
-        try {
-            logEvent("Sending request to Backend...");
-            
-            const response = await fetch(BACKEND_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    message: text,
-                    mcp_urls: mcpUrls,
-                    provider: llmConfig.provider,
-                    api_key: llmConfig.apiKey,
-                    base_url: llmConfig.baseUrl,
-                    model: llmConfig.model
-                })
-            });
-            
-            if (!response.ok) throw new Error(`Backend Error ${response.status}`);
-            
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
+        els.sendBtn.addEventListener('click', handleSend);
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                
-                buffer += decoder.decode(value, { stream: true });
-                
-                // Parse lines (SSE format: "data: ...\n\n")
-                const lines = buffer.split("\n\n");
-                buffer = lines.pop(); // Keep the last partial chunk
-                
-                for (const line of lines) {
-                    if (line.startsWith("data: ")) {
-                        const jsonStr = line.replace("data: ", "").trim();
-                        if (!jsonStr) continue;
-                        if (jsonStr === "[DONE]") continue;
+        // Enable input immediately
+        els.userInput.disabled = false;
+        els.sendBtn.disabled = false;
 
-                        try {
-                            const data = JSON.parse(jsonStr);
-                            handleEvent(data, aiMsgContent);
-                        } catch (e) {
-                            console.error("JSON Parse Error", e, jsonStr);
+        // Auto-resize textarea
+        els.userInput.addEventListener('input', function () {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+            if (this.value === '') this.style.height = '52px';
+        });
+
+        async function handleSend() {
+            if (isProcessing) return;
+
+            const text = els.userInput.value.trim();
+            if (!text) return;
+
+            // Reset Input
+            els.userInput.value = '';
+            els.userInput.style.height = '52px';
+
+            addMessage("user", text);
+
+            const aiMsgContent = addMessage("ai", "", llmConfig.model);
+            activeToolElement = null; // Reset tool state for new turn
+
+            isProcessing = true;
+            els.userInput.disabled = true;
+            els.sendBtn.disabled = true;
+
+            try {
+                logEvent("Sending request to Backend...");
+
+                const response = await fetch(BACKEND_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        message: text,
+                        mcp_urls: mcpUrls,
+                        provider: llmConfig.provider,
+                        api_key: llmConfig.apiKey,
+                        base_url: llmConfig.baseUrl,
+                        model: llmConfig.model
+                    })
+                });
+
+                if (!response.ok) throw new Error(`Backend Error ${response.status}`);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Parse lines (SSE format: "data: ...\n\n")
+                    const lines = buffer.split("\n\n");
+                    buffer = lines.pop(); // Keep the last partial chunk
+
+                    for (const line of lines) {
+                        if (line.startsWith("data: ")) {
+                            const jsonStr = line.replace("data: ", "").trim();
+                            if (!jsonStr) continue;
+                            if (jsonStr === "[DONE]") continue;
+
+                            try {
+                                const data = JSON.parse(jsonStr);
+                                handleEvent(data, aiMsgContent);
+                            } catch (e) {
+                                console.error("JSON Parse Error", e, jsonStr);
+                            }
                         }
                     }
                 }
+                logEvent("Stream Complete.");
+
+            } catch (err) {
+                logEvent(`Error: ${err.message}`);
+                aiMsgContent.innerHTML += `<br><span style="color:var(--error)">Error: ${err.message}</span>`;
+            } finally {
+                isProcessing = false;
+                els.userInput.disabled = false;
+                els.sendBtn.disabled = false;
+                els.userInput.focus();
             }
-            logEvent("Stream Complete.");
-            
-        } catch (err) {
-            logEvent(`Error: ${err.message}`);
-            aiMsgContent.innerHTML += `<br><span style="color:var(--error)">Error: ${err.message}</span>`;
-        } finally {
-            isProcessing = false;
-            els.userInput.disabled = false;
-            els.sendBtn.disabled = false;
-            els.userInput.focus();
         }
-    }
-    
-    function handleEvent(data, container) {
-        if (data.type === 'text_chunk') {
-            const lastNode = container.lastChild;
-            if (lastNode && lastNode.nodeType === Node.TEXT_NODE) {
-                lastNode.textContent += data.content;
-            } else {
-                container.appendChild(document.createTextNode(data.content));
-            }
-            
-        } else if (data.type === 'tool_call') {
-            logEvent(`Tool Call: ${data.name}`);
-            
-            // Generate a unique ID for this tool call
-            const toolId = `tool-${Date.now()}-${toolCallCounter++}`;
-            activeToolId = toolId;
-            
-            // Store data
-            toolCallsData[toolId] = {
-                id: toolId,
-                name: data.name,
-                args: data.args,
-                status: 'running',
-                result: null
-            };
-            
-            // Create Summary UI in Chat
-            const summaryDiv = document.createElement('div');
-            summaryDiv.className = "tool-call-summary active";
-            summaryDiv.dataset.toolId = toolId;
-            summaryDiv.innerHTML = `
+
+        function handleEvent(data, container) {
+            if (data.type === 'text_chunk') {
+                const lastNode = container.lastChild;
+                if (lastNode && lastNode.nodeType === Node.TEXT_NODE) {
+                    lastNode.textContent += data.content;
+                } else {
+                    container.appendChild(document.createTextNode(data.content));
+                }
+
+            } else if (data.type === 'tool_call') {
+                logEvent(`Tool Call: ${data.name}`);
+
+                // Generate a unique ID for this tool call
+                const toolId = `tool-${Date.now()}-${toolCallCounter++}`;
+                activeToolId = toolId;
+
+                // Store data
+                toolCallsData[toolId] = {
+                    id: toolId,
+                    name: data.name,
+                    args: data.args,
+                    status: 'running',
+                    result: null
+                };
+
+                // Create Summary UI in Chat
+                const summaryDiv = document.createElement('div');
+                summaryDiv.className = "tool-call-summary active";
+                summaryDiv.dataset.toolId = toolId;
+                summaryDiv.innerHTML = `
                 <div class="tool-badge">
                     <span>Used Tool: <b style="color:var(--accent-secondary)">${data.name}</b></span>
                 </div>
                 <div class="status-indicator status-computing">Running...</div>
             `;
-            
-            summaryDiv.addEventListener('click', () => showToolDetails(toolId));
-            
-            container.appendChild(summaryDiv);
-            
-            // Automatically show details
-            showToolDetails(toolId);
-            
-        } else if (data.type === 'tool_result') {
-             logEvent(`Tool Result: ${data.name}`);
-             
-             // Update Data
-             // We assume the result belongs to the active tool call (sequential assumption)
-             // or we need to find the last running tool with this name?
-             // Since we have activeToolId, we use it. 
-             // Ideally backend should provide ID, but we are using local state.
-             
-             if (activeToolId && toolCallsData[activeToolId].name === data.name) {
-                 const toolData = toolCallsData[activeToolId];
-                 toolData.result = data.result;
-                 toolData.status = 'completed';
-                 
-                 // Update Chat Summary UI
-                 const summaryDiv = document.querySelector(`.tool-call-summary[data-tool-id="${activeToolId}"]`);
-                 if (summaryDiv) {
-                     summaryDiv.classList.remove('active');
-                     const statusInd = summaryDiv.querySelector('.status-indicator');
-                     statusInd.textContent = "Completed";
-                     statusInd.className = "status-indicator"; 
-                     statusInd.style.color = "var(--success)";
-                     summaryDiv.style.borderLeftColor = "var(--success)";
-                 }
-                 
-                 // Refresh Sidebar if viewing this tool
-                 const currentViewId = els.toolDetailsContent.dataset.viewingId;
-                 if (currentViewId === activeToolId) {
-                     renderToolDetails(activeToolId);
-                 }
-                 
-                 activeToolId = null; // Clear active
-             } else {
-                 // Fallback if matching fails
-                 console.warn("Could not match tool result to call", data);
-             }
-             
-        } else if (data.type === 'status') {
-            logEvent(`Status: ${data.content}`);
-        } else if (data.type === 'error') {
-            logEvent(`Error: ${data.content}`);
-            const errDiv = document.createElement('div');
-            errDiv.style.color = "var(--error)";
-            errDiv.textContent = `\nError: ${data.content}`;
-            container.appendChild(errDiv);
-            
-             // Mark active tool as error if exists
-             if (activeToolId) {
-                 toolCallsData[activeToolId].status = 'error';
-                 const summaryDiv = document.querySelector(`.tool-call-summary[data-tool-id="${activeToolId}"]`);
-                 if (summaryDiv) {
-                     const statusInd = summaryDiv.querySelector('.status-indicator');
-                     statusInd.textContent = "Error";
-                     statusInd.className = "status-indicator";
-                     statusInd.style.color = "var(--error)";
-                     summaryDiv.style.borderLeftColor = "var(--error)";
-                 }
-                 if (els.toolDetailsContent.dataset.viewingId === activeToolId) {
-                     renderToolDetails(activeToolId);
-                 }
-                 activeToolId = null;
-             }
-        }
-        
-        // Auto Scroll
-        const chatContainer = els.chatStream;
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
 
-    function showToolDetails(toolId) {
-        // Highlight selected summary
-        document.querySelectorAll('.tool-call-summary').forEach(el => el.classList.remove('active-selection'));
-        const summary = document.querySelector(`.tool-call-summary[data-tool-id="${toolId}"]`);
-        if (summary) summary.classList.add('active-selection'); // We need CSS for this or reuse 'active' which I used for running state. 
-        // Let's rely on .active for running and add a border or background for selection?
-        // Actually, let's keep it simple. Just render.
-        
-        renderToolDetails(toolId);
-    }
+                summaryDiv.addEventListener('click', () => showToolDetails(toolId));
 
-    function renderToolDetails(toolId) {
-        const data = toolCallsData[toolId];
-        if (!data) return;
-        
-        els.toolDetailsContent.dataset.viewingId = toolId;
-        
-        // Format Args
-        const argsStr = JSON.stringify(data.args, null, 2);
-        
-        // Format Result
-        let resultStr = "Waiting for output...";
-        if (data.status === 'completed' || data.status === 'error') {
-            try {
-                 let obj = data.result;
-                 if (typeof data.result === 'string') {
-                     if (data.result.trim().startsWith('{') || data.result.trim().startsWith('[')) {
-                        obj = JSON.parse(data.result);
-                     }
-                 }
-                 resultStr = JSON.stringify(obj, null, 2);
-            } catch (e) {
-                resultStr = String(data.result);
+                container.appendChild(summaryDiv);
+
+                // Automatically show details
+                showToolDetails(toolId);
+
+            } else if (data.type === 'tool_result') {
+                logEvent(`Tool Result: ${data.name}`);
+
+                // Update Data
+                // We assume the result belongs to the active tool call (sequential assumption)
+                // or we need to find the last running tool with this name?
+                // Since we have activeToolId, we use it. 
+                // Ideally backend should provide ID, but we are using local state.
+
+                if (activeToolId && toolCallsData[activeToolId].name === data.name) {
+                    const toolData = toolCallsData[activeToolId];
+                    toolData.result = data.result;
+                    toolData.status = 'completed';
+
+                    // Update Chat Summary UI
+                    const summaryDiv = document.querySelector(`.tool-call-summary[data-tool-id="${activeToolId}"]`);
+                    if (summaryDiv) {
+                        summaryDiv.classList.remove('active');
+                        const statusInd = summaryDiv.querySelector('.status-indicator');
+                        statusInd.textContent = "Completed";
+                        statusInd.className = "status-indicator";
+                        statusInd.style.color = "var(--success)";
+                        summaryDiv.style.borderLeftColor = "var(--success)";
+                    }
+
+                    // Refresh Sidebar if viewing this tool
+                    const currentViewId = els.toolDetailsContent.dataset.viewingId;
+                    if (currentViewId === activeToolId) {
+                        renderToolDetails(activeToolId);
+                    }
+
+                    activeToolId = null; // Clear active
+                } else {
+                    // Fallback if matching fails
+                    console.warn("Could not match tool result to call", data);
+                }
+
+            } else if (data.type === 'status') {
+                logEvent(`Status: ${data.content}`);
+            } else if (data.type === 'error') {
+                logEvent(`Error: ${data.content}`);
+                const errDiv = document.createElement('div');
+                errDiv.style.color = "var(--error)";
+                errDiv.textContent = `\nError: ${data.content}`;
+                container.appendChild(errDiv);
+
+                // Mark active tool as error if exists
+                if (activeToolId) {
+                    toolCallsData[activeToolId].status = 'error';
+                    const summaryDiv = document.querySelector(`.tool-call-summary[data-tool-id="${activeToolId}"]`);
+                    if (summaryDiv) {
+                        const statusInd = summaryDiv.querySelector('.status-indicator');
+                        statusInd.textContent = "Error";
+                        statusInd.className = "status-indicator";
+                        statusInd.style.color = "var(--error)";
+                        summaryDiv.style.borderLeftColor = "var(--error)";
+                    }
+                    if (els.toolDetailsContent.dataset.viewingId === activeToolId) {
+                        renderToolDetails(activeToolId);
+                    }
+                    activeToolId = null;
+                }
             }
+
+            // Auto Scroll
+            const chatContainer = els.chatStream;
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
-        
-        els.toolDetailsContent.innerHTML = `
+
+        function showToolDetails(toolId) {
+            // Highlight selected summary
+            document.querySelectorAll('.tool-call-summary').forEach(el => el.classList.remove('active-selection'));
+            const summary = document.querySelector(`.tool-call-summary[data-tool-id="${toolId}"]`);
+            if (summary) summary.classList.add('active-selection'); // We need CSS for this or reuse 'active' which I used for running state. 
+            // Let's rely on .active for running and add a border or background for selection?
+            // Actually, let's keep it simple. Just render.
+
+            renderToolDetails(toolId);
+        }
+
+        function renderToolDetails(toolId) {
+            const data = toolCallsData[toolId];
+            if (!data) return;
+
+            els.toolDetailsContent.dataset.viewingId = toolId;
+
+            // Format Args
+            const argsStr = JSON.stringify(data.args, null, 2);
+
+            // Format Result
+            let resultStr = "Waiting for output...";
+            if (data.status === 'completed' || data.status === 'error') {
+                try {
+                    let obj = data.result;
+                    if (typeof data.result === 'string') {
+                        if (data.result.trim().startsWith('{') || data.result.trim().startsWith('[')) {
+                            obj = JSON.parse(data.result);
+                        }
+                    }
+                    resultStr = JSON.stringify(obj, null, 2);
+                } catch (e) {
+                    resultStr = String(data.result);
+                }
+            }
+
+            els.toolDetailsContent.innerHTML = `
             <div class="tool-detail-section">
                 <span class="label-text" style="color:var(--accent-primary); font-size:0.9rem;">${data.name}</span>
                 <div class="status-badge ${data.status === 'completed' ? 'connected' : (data.status === 'error' ? 'error' : '')}" style="margin-top:0;">
@@ -1227,27 +1412,28 @@
             
             <div class="tool-detail-section">
                 <span class="label-text">Result</span>
-                <div class="json-block" style="color: ${data.status==='error'?'var(--error)':'#e6edf3'}">${resultStr}</div>
+                <div class="json-block" style="color: ${data.status === 'error' ? 'var(--error)' : '#e6edf3'}">${resultStr}</div>
             </div>
         `;
-    }
+        }
 
-    // Provider Change Handler
-    if (els.idxProvider) {
-        els.idxProvider.addEventListener('change', (e) => {
-            const provider = e.target.value;
-            if (provider === 'groq') {
-                els.idxModel.value = 'moonshotai/kimi-k2-instruct'; 
-                els.idxBaseUrl.value = '';
-            } else if (provider === 'openai') {
-                els.idxModel.value = 'qwen/qwen3-30b-a3b-2507';
-                els.idxBaseUrl.value = 'http://54.213.248.28:8233/v1';
-            } else if (provider === 'gemini') {
-                els.idxModel.value = 'gemini-2.5-flash';
-                els.idxBaseUrl.value = '';
-            }
-        });
-    }
-</script>
+        // Provider Change Handler
+        if (els.idxProvider) {
+            els.idxProvider.addEventListener('change', (e) => {
+                const provider = e.target.value;
+                if (provider === 'groq') {
+                    els.idxModel.value = 'moonshotai/kimi-k2-instruct';
+                    els.idxBaseUrl.value = '';
+                } else if (provider === 'openai') {
+                    els.idxModel.value = 'qwen/qwen3-30b-a3b-2507';
+                    els.idxBaseUrl.value = 'http://54.213.248.28:8233/v1';
+                } else if (provider === 'gemini') {
+                    els.idxModel.value = 'gemini-2.5-flash';
+                    els.idxBaseUrl.value = '';
+                }
+            });
+        }
+    </script>
 </body>
+
 </html>

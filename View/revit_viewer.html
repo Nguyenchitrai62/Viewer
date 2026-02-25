@@ -582,8 +582,8 @@
 
     <!-- DROP OVERLAY -->
     <div id="drop-overlay">
-        <div style="font-size: 64px; color: white; margin-bottom: 20px;">📂</div>
-        <div style="font-size: 32px; font-weight: bold; color: white;">Release to Import</div>
+        <div style="font-size: 64px; color: white; margin-bottom: 20px; pointer-events: none;">📂</div>
+        <div style="font-size: 32px; font-weight: bold; color: white; pointer-events: none;">Release to Import</div>
     </div>
 
     <!-- WIDGETS -->
@@ -719,19 +719,6 @@
             const welcomeDropZone = document.getElementById('welcome-drop-zone');
             const viewport = document.getElementById('three-container'); // Use three-container as viewport trigger is better coverage
 
-            // Welcome Zone Events
-            welcomeDropZone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                welcomeDropZone.classList.add('drag-over');
-            });
-            welcomeDropZone.addEventListener('dragleave', () => {
-                welcomeDropZone.classList.remove('drag-over');
-            });
-            welcomeDropZone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                welcomeDropZone.classList.remove('drag-over');
-                if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
-            });
             welcomeDropZone.addEventListener('click', () => {
                 document.getElementById('file-input').click();
             });
@@ -739,9 +726,7 @@
             // Global Drop Events
             window.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                if (document.getElementById('welcome-screen').style.display === 'none') {
-                    document.getElementById('drop-overlay').classList.add('active');
-                }
+                document.getElementById('drop-overlay').classList.add('active');
             });
 
             document.getElementById('drop-overlay').addEventListener('dragleave', (e) => {
@@ -752,6 +737,12 @@
                 e.preventDefault();
                 document.getElementById('drop-overlay').classList.remove('active');
                 if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+            });
+
+            // Fallback to prevent default browser file opening
+            window.addEventListener('drop', (e) => {
+                e.preventDefault();
+                document.getElementById('drop-overlay').classList.remove('active');
             });
 
             // Three Interaction
@@ -822,7 +813,82 @@
                 if (state.gridHelper) state.gridHelper.position.z = avgZ;
             }
 
-            if (data.Pipes) data.Pipes.forEach((pipe, index) => createPipe(pipe, index));
+            // Build fitting lookup with actual geometry endpoints in world space
+            const fittingEndpoints = []; // Array of {origin, endpoints: [worldPos, ...]}
+            if (data.Fittings && Array.isArray(data.Fittings)) {
+                data.Fittings.forEach(fitting => {
+                    const t = fitting.Transform;
+                    const s = state.feetToUnit;
+                    const origin = new THREE.Vector3(
+                        parseFloat(t.Origin.X) * s,
+                        parseFloat(t.Origin.Y) * s,
+                        parseFloat(t.Origin.Z) * s
+                    );
+
+                    let connDiams = [0.1];
+                    if (fitting.Connectors?.length > 0) {
+                        connDiams = fitting.Connectors.map(c => parseFloat(c.Diameter || 0) * s);
+                    }
+                    const maxDiam = Math.max(...connDiams);
+                    const minDiam = Math.min(...connDiams);
+                    const radius = maxDiam / 2;
+                    const smallRadius = minDiam / 2;
+
+                    const familyName = (fitting.FamilyName || '').toLowerCase();
+
+                    // Compute local-space endpoints of fitting geometry
+                    const localEndpoints = [];
+                    if (familyName.includes('elbow')) {
+                        const arcRadius = radius * 1.5;
+                        // Elbow curve: from (-arcRadius, 0, 0) to (0, arcRadius, 0)
+                        localEndpoints.push(new THREE.Vector3(-arcRadius, 0, 0));
+                        localEndpoints.push(new THREE.Vector3(0, arcRadius, 0));
+                    } else if (familyName.includes('tee')) {
+                        const halfRun = radius * 2; // runLength/2
+                        const branchEnd = radius * 2.5; // branchLength
+                        // Run along X (after rotation z=PI/2, cylinder axis becomes X)
+                        localEndpoints.push(new THREE.Vector3(-halfRun, 0, 0));
+                        localEndpoints.push(new THREE.Vector3(halfRun, 0, 0));
+                        // Branch along -Y
+                        localEndpoints.push(new THREE.Vector3(0, -branchEnd, 0));
+                    } else {
+                        // Default box: half size
+                        const halfSize = maxDiam * 1.2 / 2;
+                        // Use 6 face centers as endpoints to handle any pipe direction
+                        localEndpoints.push(new THREE.Vector3(halfSize, 0, 0));
+                        localEndpoints.push(new THREE.Vector3(-halfSize, 0, 0));
+                        localEndpoints.push(new THREE.Vector3(0, halfSize, 0));
+                        localEndpoints.push(new THREE.Vector3(0, -halfSize, 0));
+                        localEndpoints.push(new THREE.Vector3(0, 0, halfSize));
+                        localEndpoints.push(new THREE.Vector3(0, 0, -halfSize));
+                    }
+
+                    // Build transform matrix (same logic as createFitting)
+                    const matrix = new THREE.Matrix4();
+                    if (familyName.includes('tee')) {
+                        const xVal = parseFloat(t.BasisX.X);
+                        const yVal = parseFloat(t.BasisX.Y);
+                        const angle = Math.atan2(yVal, xVal);
+                        const rotMat = new THREE.Matrix4().makeRotationZ(angle);
+                        const posMat = new THREE.Matrix4().makeTranslation(origin.x, origin.y, origin.z);
+                        matrix.multiplyMatrices(posMat, rotMat);
+                    } else {
+                        matrix.set(
+                            parseFloat(t.BasisX.X), parseFloat(t.BasisY.X), parseFloat(t.BasisZ.X), origin.x,
+                            parseFloat(t.BasisX.Y), parseFloat(t.BasisY.Y), parseFloat(t.BasisZ.Y), origin.y,
+                            parseFloat(t.BasisX.Z), parseFloat(t.BasisY.Z), parseFloat(t.BasisZ.Z), origin.z,
+                            0, 0, 0, 1
+                        );
+                    }
+
+                    // Transform local endpoints to world space
+                    const worldEndpoints = localEndpoints.map(lp => lp.clone().applyMatrix4(matrix));
+
+                    fittingEndpoints.push({ origin, endpoints: worldEndpoints });
+                });
+            }
+
+            if (data.Pipes) data.Pipes.forEach((pipe, index) => createPipe(pipe, index, fittingEndpoints));
             if (data.Fittings) data.Fittings.forEach((fitting, index) => createFitting(fitting, index));
 
             updateProjectBrowser();
@@ -840,7 +906,7 @@
         }
 
         // ==================== 3D RENDERING ====================
-        function createPipe(pipe) {
+        function createPipe(pipe, index, fittingEndpoints) {
             const scale = state.feetToUnit;
 
             const start = new THREE.Vector3(
@@ -853,6 +919,49 @@
                 parseFloat(pipe.EndPoint.Y) * scale,
                 parseFloat(pipe.EndPoint.Z) * scale
             );
+
+            // Shorten pipe ends to match fitting geometry endpoints
+            if (fittingEndpoints && fittingEndpoints.length > 0) {
+                const originTolerance = 0.001;
+                const pipeDir = new THREE.Vector3().subVectors(end, start).normalize();
+
+                for (const fit of fittingEndpoints) {
+                    // Check if pipe START matches a fitting origin
+                    if (start.distanceTo(fit.origin) < originTolerance) {
+                        // Find the fitting endpoint most aligned with the pipe direction
+                        let bestEp = null;
+                        let bestDot = -Infinity;
+                        for (const ep of fit.endpoints) {
+                            const toEp = new THREE.Vector3().subVectors(ep, fit.origin).normalize();
+                            const dot = toEp.dot(pipeDir);
+                            if (dot > bestDot) {
+                                bestDot = dot;
+                                bestEp = ep;
+                            }
+                        }
+                        if (bestEp && bestDot > 0.5) {
+                            start.copy(bestEp);
+                        }
+                    }
+                    // Check if pipe END matches a fitting origin
+                    if (end.distanceTo(fit.origin) < originTolerance) {
+                        const reversePipeDir = pipeDir.clone().negate();
+                        let bestEp = null;
+                        let bestDot = -Infinity;
+                        for (const ep of fit.endpoints) {
+                            const toEp = new THREE.Vector3().subVectors(ep, fit.origin).normalize();
+                            const dot = toEp.dot(reversePipeDir);
+                            if (dot > bestDot) {
+                                bestDot = dot;
+                                bestEp = ep;
+                            }
+                        }
+                        if (bestEp && bestDot > 0.5) {
+                            end.copy(bestEp);
+                        }
+                    }
+                }
+            }
 
             const diameter = parseFloat(pipe.Diameter) * scale;
             const radius = diameter / 2;
@@ -1194,9 +1303,15 @@
             const emissiveColor = 0x0078d4;
 
             if (object.isGroup) {
+                // First pass: save original colors before any mutation happens
                 object.children.forEach(child => {
                     if (child.isMesh) {
                         if (!child.userData.originalColor) child.userData.originalColor = child.material.color.clone();
+                    }
+                });
+                // Second pass: apply highlighting
+                object.children.forEach(child => {
+                    if (child.isMesh) {
                         child.material.emissive.setHex(emissiveColor);
                         child.material.color.setHex(highlightColor);
                     }
@@ -1285,15 +1400,32 @@
         function toggleWireframe() {
             state.wireframe = !state.wireframe;
             document.getElementById('wireframe-btn').classList.toggle('active', state.wireframe);
-            state.objects.forEach(obj => obj.material.wireframe = state.wireframe);
+            state.objects.forEach(obj => {
+                if (obj.isGroup) {
+                    obj.children.forEach(child => {
+                        if (child.isMesh) child.material.wireframe = state.wireframe;
+                    });
+                } else if (obj.isMesh) {
+                    obj.material.wireframe = state.wireframe;
+                }
+            });
         }
 
         function toggleTransparency() {
             state.xray = !state.xray;
             document.getElementById('xray-btn').classList.toggle('active', state.xray);
             state.objects.forEach(obj => {
-                obj.material.transparent = state.xray;
-                obj.material.opacity = state.xray ? 0.5 : 1.0;
+                if (obj.isGroup) {
+                    obj.children.forEach(child => {
+                        if (child.isMesh) {
+                            child.material.transparent = state.xray;
+                            child.material.opacity = state.xray ? 0.5 : 1.0;
+                        }
+                    });
+                } else if (obj.isMesh) {
+                    obj.material.transparent = state.xray;
+                    obj.material.opacity = state.xray ? 0.5 : 1.0;
+                }
             });
         }
 

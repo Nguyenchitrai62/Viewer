@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,27 +10,36 @@
     <link rel="apple-touch-icon" sizes="180x180" href="./images/LOGO.png">
     <style>
         :root {
-            --background-main: #f4f6f9; /* Nền xám nhạt cho toàn bộ trang */
-            --background-panel: #ffffff; /* Nền trắng cho panel điều khiển */
-            --background-canvas: #ffffff; /* Nền trắng cho canvas vẽ */
-            --background-hover: #f0f5ff; /* Nền khi di chuột */
+            --background-main: #f4f6f9;
+            /* Nền xám nhạt cho toàn bộ trang */
+            --background-panel: #ffffff;
+            /* Nền trắng cho panel điều khiển */
+            --background-canvas: #ffffff;
+            /* Nền trắng cho canvas vẽ */
+            --background-hover: #f0f5ff;
+            /* Nền khi di chuột */
             --background-button: #f8f9fa;
             --background-button-hover: #e9ecef;
             --border-color-light: #e9ecef;
             --border-color-dark: #dee2e6;
             --text-color-primary: #212529;
             --text-color-secondary: #6c757d;
-            --accent-color: #007bff; /* Màu nhấn chính (xanh dương) */
-            --success-color: #28a745; /* Màu cho hành động thành công (xuất file) */
-            --danger-color: #dc3545; /* Màu cho hành động hủy/cảnh báo */
+            --accent-color: #007bff;
+            /* Màu nhấn chính (xanh dương) */
+            --success-color: #28a745;
+            /* Màu cho hành động thành công (xuất file) */
+            --danger-color: #dc3545;
+            /* Màu cho hành động hủy/cảnh báo */
             --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
             --border-radius: 8px;
         }
+
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
         }
+
         html,
         body {
             width: 100%;
@@ -42,11 +52,67 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }
+
         #main-container {
             display: flex;
             width: 100%;
             height: 100%;
         }
+
+        /* Sidebar bên phải cho preview trang */
+        #page-preview-sidebar {
+            width: 200px;
+            height: 100%;
+            background-color: var(--background-panel);
+            border-left: 1px solid var(--border-color-light);
+            padding: 20px;
+            overflow-y: auto;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #page-preview-sidebar h3 {
+            margin: 0 0 15px 0;
+            border-bottom: 1px solid var(--border-color-light);
+            padding-bottom: 15px;
+            color: var(--text-color-primary);
+            font-size: 1.2em;
+            font-weight: 600;
+        }
+
+        .page-thumbnail {
+            margin-bottom: 10px;
+            border: 1px solid var(--border-color-light);
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .page-thumbnail:hover {
+            border-color: var(--accent-color);
+        }
+
+        .page-thumbnail.selected {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+        }
+
+        .page-thumbnail canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .page-number {
+            padding: 5px;
+            background-color: var(--background-button);
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-color-primary);
+        }
+
         /* Bảng điều khiển bên trái */
         #layer-controls {
             width: 320px;
@@ -60,6 +126,7 @@
             flex-direction: column;
             transition: width 0.3s ease;
         }
+
         #layer-controls h3 {
             margin: 0 0 15px 0;
             border-bottom: 1px solid var(--border-color-light);
@@ -68,6 +135,7 @@
             font-size: 1.2em;
             font-weight: 600;
         }
+
         /* Các nút hành động */
         #layer-actions {
             display: grid;
@@ -75,7 +143,10 @@
             gap: 10px;
             margin-bottom: 20px;
         }
-        #layer-actions button, .crop-toolbar button, #btn-export-svg {
+
+        #layer-actions button,
+        .crop-toolbar button,
+        #btn-export-svg {
             padding: 10px;
             font-size: 14px;
             font-weight: 500;
@@ -86,43 +157,54 @@
             transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
             text-align: center;
         }
-        #layer-actions button:hover, .crop-toolbar button:hover {
+
+        #layer-actions button:hover,
+        .crop-toolbar button:hover {
             background-color: var(--background-button-hover);
             border-color: #b6bec6;
         }
+
         .crop-toolbar button.active {
             background-color: #28a745;
             border-color: #28a745;
             color: white;
         }
+
         #btn-draw-rect {
             background-color: white;
             color: black;
             border-color: var(--accent-color);
         }
+
         #btn-draw-rect:hover {
-             background-color: #f8f9fa;
-             border-color: #0062cc;
+            background-color: #f8f9fa;
+            border-color: #0062cc;
         }
+
         #btn-draw-rect.active {
             background-color: #dc3545;
             border-color: #dc3545;
         }
+
         #btn-export-svg {
             width: 100%;
             background-color: var(--success-color);
             color: white;
             border: none;
         }
+
         #btn-export-svg:hover {
             background-color: #218838;
         }
+
         /* Danh sách Layer */
         #layer-list {
             flex-grow: 1;
             overflow-y: auto;
-            margin: 0 -10px; /* Bù trừ padding cho item */
+            margin: 0 -10px;
+            /* Bù trừ padding cho item */
         }
+
         .layer-item {
             display: flex;
             align-items: center;
@@ -133,15 +215,18 @@
             cursor: pointer;
             user-select: none;
         }
+
         .layer-item:hover {
             background-color: var(--background-hover);
         }
+
         .layer-item input[type="checkbox"] {
-           margin-right: 12px;
-           width: 16px;
-           height: 16px;
-           cursor: pointer;
+            margin-right: 12px;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
         }
+
         .layer-item label {
             flex-grow: 1;
             white-space: nowrap;
@@ -150,6 +235,7 @@
             color: var(--text-color-primary);
             cursor: pointer;
         }
+
         .color-swatch {
             width: 18px;
             height: 18px;
@@ -158,6 +244,7 @@
             flex-shrink: 0;
             border-radius: 4px;
         }
+
         .layer-icon {
             margin-right: 10px;
             width: 20px;
@@ -168,23 +255,29 @@
             justify-content: center;
             color: var(--text-color-secondary);
         }
+
         .layer-icon svg {
             width: 18px;
             height: 18px;
         }
+
         /* Vùng hiển thị Canvas */
         #canvas-container {
             flex-grow: 1;
             position: relative;
-            background-color: var(--background-main); /* Nền xung quanh canvas */
+            background-color: var(--background-main);
+            /* Nền xung quanh canvas */
             display: flex;
             justify-content: center;
             align-items: center;
         }
+
         #drawing-canvas {
-            background-color: var(--background-canvas); /* Nền trắng của canvas */
+            background-color: var(--background-canvas);
+            /* Nền trắng của canvas */
             box-shadow: var(--shadow);
         }
+
         /* Vùng kéo thả file */
         #drop-zone {
             position: absolute;
@@ -203,19 +296,23 @@
             z-index: 10;
             transition: background-color 0.3s ease, border-color 0.3s ease;
         }
+
         #drop-zone.drag-over {
             background-color: rgba(0, 123, 255, 0.1);
             border-color: var(--accent-color);
         }
+
         #drop-zone.hidden {
             display: none;
         }
+
         .info-panel {
             padding: 20px;
             color: var(--text-color-secondary);
             text-align: center;
             font-style: italic;
         }
+
         /* Modal dialog */
         .modal {
             display: none;
@@ -229,7 +326,17 @@
             backdrop-filter: blur(4px);
             animation: fadeIn 0.3s;
         }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
         .modal-content {
             background-color: var(--background-panel);
             padding: 25px;
@@ -244,7 +351,19 @@
             transform: translate(-50%, -50%);
             animation: slideIn 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
-        @keyframes slideIn { from { top: 40%; opacity: 0; } to { top: 50%; opacity: 1; } }
+
+        @keyframes slideIn {
+            from {
+                top: 40%;
+                opacity: 0;
+            }
+
+            to {
+                top: 50%;
+                opacity: 1;
+            }
+        }
+
         .close {
             color: var(--text-color-secondary);
             position: absolute;
@@ -255,34 +374,43 @@
             cursor: pointer;
             transition: color 0.2s;
         }
+
         .close:hover {
             color: var(--text-color-primary);
         }
+
         #crop-canvas {
             border: 1px solid var(--border-color-light);
             margin: 15px 0;
             border-radius: 4px;
             background-color: #fafafa;
         }
+
         #search-summary {
-            margin-top: auto; /* Đẩy xuống cuối */
+            margin-top: auto;
+            /* Đẩy xuống cuối */
             padding-top: 15px;
             border-top: 1px solid var(--border-color-light);
             display: none;
         }
+
         #search-summary table {
             width: 100%;
             border-collapse: collapse;
             font-size: 12px;
         }
-        #search-summary th, #search-summary td {
+
+        #search-summary th,
+        #search-summary td {
             border: 1px solid var(--border-color-light);
             padding: 6px 8px;
             text-align: left;
         }
+
         #search-summary thead {
-             background-color: #f8f9fa;
+            background-color: #f8f9fa;
         }
+
         #found-count {
             margin-top: 15px;
             text-align: center;
@@ -291,6 +419,7 @@
             color: var(--accent-color);
             display: none;
         }
+
         #btn-export-svg-container {
             margin-top: 20px;
             padding-top: 20px;
@@ -298,6 +427,7 @@
         }
     </style>
 </head>
+
 <body>
     <div id="main-container">
         <div id="layer-controls">
@@ -306,14 +436,18 @@
                 <button id="btn-draw-rect">Draw BBox to Find</button>
                 <button id="btn-reset-filter">Reset Filter</button>
             </div>
-            <div id="search-info"
-                style="margin-bottom: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px; font-size: 12px; display: none;">
-                <div id="similar-count"></div>
-                <div style="font-style: italic; color: #666; margin-top: 4px;">Auto-search after crop</div>
-            </div>
+
             <div id="layer-list">
                 <div class="info-panel">
                     <p>Drag <code>layered_drawings.json</code> into the canvas area to start.</p>
+                </div>
+            </div>
+            <div id="saved-patterns-section"
+                style="margin-top: 20px; border-top: 1px solid var(--border-color-light); padding-top: 15px;">
+                <h3 style="border:none; padding-bottom:10px; font-size:1.1em; color:#333;">Saved Patterns</h3>
+                <div id="saved-patterns-list" style="max-height: 150px; overflow-y: auto;">
+                    <div class="info-panel" style="padding: 10px; font-size: 12px; font-style: italic;">No saved
+                        patterns</div>
                 </div>
             </div>
             <div id="search-summary" style="display: none;">
@@ -336,48 +470,107 @@
         </div>
         <div id="canvas-container">
             <canvas id="drawing-canvas"></canvas>
+            <div id="pdf-preview"
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; background: white; z-index: 1;">
+            </div>
             <div id="svg-text-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:5;"></div>
             <div id="svg-graphic-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:4;"></div>
             <div id="drop-zone">
-                <p>Drop JSON file here</p>
+                <p>Drop PDF or JSON file here</p>
             </div>
 
-            
+
+        </div>
+        <div id="page-preview-sidebar">
+            <h3>Page Previews</h3>
+            <div id="page-thumbnails"></div>
         </div>
     </div>
     <div id="crop-modal" class="modal">
         <div class="modal-content" style="display: flex; gap: 20px;">
-             <span class="close">&times;</span>
+            <span class="close">&times;</span>
             <div class="crop-main" style="flex: 1; padding: 10px;">
                 <h3>Crop Region</h3>
-                <p id="rect-coords" style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 10px;"></p>
+                <p id="rect-coords" style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 10px;">
+                </p>
                 <canvas id="crop-canvas" width="500" height="400"></canvas>
             </div>
-            <div class="crop-sidebar" style="width: 250px; padding: 10px; border-left: 1px solid var(--border-color-light); display: flex; flex-direction: column; gap: 10px;">
-                 <h4>Selection Options</h4>
-                 <div class="crop-toolbar" style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="crop-sidebar"
+                style="width: 250px; padding: 10px; border-left: 1px solid var(--border-color-light); display: flex; flex-direction: column; gap: 10px;">
+                <h4>Selection Options</h4>
+                <div class="crop-toolbar" style="display: flex; flex-direction: column; gap: 10px;">
                     <button id="btn-hide-mode">Hide on hover</button>
                     <button id="btn-show-mode">Show on hover</button>
                 </div>
+                <h4 style="margin-top: 15px;">Color Filter</h4>
+                <div id="crop-color-filters"
+                    style="display: flex; flex-direction: column; gap: 5px; max-height: 150px; overflow-y: auto;">
+                </div>
                 <h4 style="margin-top: 15px;">Command Stats</h4>
-                <ul id="command-count" style="list-style-type: none; font-size: 13px; color: var(--text-color-secondary); max-height: 250px; overflow-y: auto; "></ul>
+                <ul id="command-count"
+                    style="list-style-type: none; font-size: 13px; color: var(--text-color-secondary); max-height: 250px; overflow-y: auto; ">
+                </ul>
                 <div style="display:flex; gap:8px; margin-top:8px;">
-                    <button id="btn-search-now" style="flex:1; background-color:var(--accent-color); color:white; border:none; padding:8px; border-radius:6px;">Search</button>
-                    <button id="btn-cancel-search" style="flex:1; background-color:var(--background-button); padding:8px; border:1px solid var(--border-color-dark); border-radius:6px;">Cancel</button>
+                    <button id="btn-save-pattern"
+                        style="flex:1; background-color:var(--background-button); color:var(--text-color-primary); border:1px solid var(--border-color-dark); padding:8px; border-radius:6px;">Save
+                        Pattern</button>
+                    <button id="btn-search-now"
+                        style="flex:1; background-color:var(--accent-color); color:white; border:none; padding:8px; border-radius:6px;">Search</button>
+                    <button id="btn-cancel-search"
+                        style="flex:1; background-color:var(--background-button); padding:8px; border:1px solid var(--border-color-dark); border-radius:6px;">Cancel</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Blocking processing overlay -->
-    <div id="loading-popup" style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:2000; align-items:center; justify-content:center;">
-        <div style="background:white; padding:24px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.3); text-align:center;">
-            <div style="width:40px;height:40px;border:4px solid #f3f3f3;border-top-color:var(--accent-color);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px"></div>
+    <div id="loading-popup"
+        style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:2000; align-items:center; justify-content:center;">
+        <div
+            style="background:white; padding:24px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.3); text-align:center;">
+            <div
+                style="width:40px;height:40px;border:4px solid #f3f3f3;border-top-color:var(--accent-color);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px">
+            </div>
             <div style="font-weight:600;color:#333;">Processing...</div>
         </div>
     </div>
-    <style>@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style>
 
+    <!-- Batch processing progress overlay -->
+    <div id="batch-progress-overlay"
+        style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:3000; align-items:center; justify-content:center;">
+        <div
+            style="background:white; padding:30px 40px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.3); text-align:center; min-width:420px;">
+            <div style="font-weight:700; font-size:18px; color:#333; margin-bottom:6px;">Processing PDF Pages</div>
+            <div id="batch-progress-subtitle" style="font-size:13px; color:#888; margin-bottom:16px;">Preparing...</div>
+            <div
+                style="background:#e9ecef; border-radius:8px; height:22px; overflow:hidden; margin-bottom:12px; position:relative;">
+                <div id="batch-progress-bar"
+                    style="background:linear-gradient(90deg, #2563eb, #1d4ed8); height:100%; width:0%; transition:width 0.3s ease; border-radius:8px;">
+                </div>
+            </div>
+            <div id="batch-progress-text" style="font-size:14px; color:#555; font-weight:500;">0 / 0 pages</div>
+            <div id="batch-progress-size" style="font-size:12px; color:#999; margin-top:4px;"></div>
+        </div>
+    </div>
+
+    <style>
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg)
+            }
+
+            100% {
+                transform: rotate(360deg)
+            }
+        }
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Configure PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <script src="./env.js"></script>
     <script>
         // Config
         const CONFIG = {
@@ -408,9 +601,8 @@
         const btnDrawBbox = document.getElementById('btn-draw-rect');
         const btnResetFilter = document.getElementById('btn-reset-filter');
         const btnExportSvg = document.getElementById('btn-export-svg');
-        const searchInfo = document.getElementById('search-info');
-        const similarCount = document.getElementById('similar-count');
-        
+
+
         let jsonData = null;
         let jsonShapes = null;
         let svgData = null;
@@ -418,11 +610,14 @@
         let layerVisibility = {};
         let sortedLayerKeys = [];
         let totalCommands = {};
+        let currentPdfFile = null;
         let zoom = CONFIG.INITIAL_ZOOM;
+        let min_zoom = CONFIG.INITIAL_ZOOM;
         let offsetX = 0, offsetY = 0;
         let isDragging = false;
         let lastX = 0, lastY = 0;
         let isDrawingBbox = false;
+        let isApplyingSavedPattern = false; // New flag to track if we are using a saved pattern
         let bboxStart = null;
         let currentBbox = null;
         let mouseX = 0, mouseY = 0;
@@ -449,6 +644,8 @@
         let cropPreviewTransform = null;
         let selectionMode = 'hide';
         let dragSelecting = false;
+        let cachedPages = {}; // page_num -> base64 gzip data
+        let currentThumbnailTaskId = 0; // Fixed: Global variable to cancel ongoing thumbnails task
 
         // FIXED: Tách biến seqnoToIds thành 2 biến riêng biệt để tránh xung đột
         let globalSeqnoToIds = {}; // Dùng cho hover trên main canvas
@@ -503,7 +700,7 @@
             const last3 = arr.slice(-3).map(l => l.toFixed(2)).join(', ');
             return `${first3} ... ${last3}`;
         }
-        
+
         // FIXED: Sử dụng globalSeqnoToIds
         function getSeqnoStartEnd(seqno) {
             const ids = globalSeqnoToIds[seqno];
@@ -527,7 +724,7 @@
             }
             return [start, end];
         }
-        
+
         // FIXED: Sử dụng globalSeqnoToIds
         function linkConsecutiveSeqnos() {
             seqnoGroups = {};
@@ -612,14 +809,14 @@
             const y1 = Math.max(bbox1.y, bbox2.y);
             const x2 = Math.min(bbox1.x + bbox1.width, bbox2.x + bbox2.width);
             const y2 = Math.min(bbox1.y + bbox1.height, bbox2.y + bbox2.height);
-            
+
             if (x2 <= x1 || y2 <= y1) return 0;
-            
+
             const intersection = (x2 - x1) * (y2 - y1);
             const area1 = bbox1.width * bbox1.height;
             const area2 = bbox2.width * bbox2.height;
             const union = area1 + area2 - intersection;
-            
+
             return intersection / union;
         }
         // Hit-test & Selection
@@ -664,7 +861,7 @@
             }
             return false;
         }
-        
+
         // FIXED: Sử dụng cropSeqnoToIds (chỉ cho crop modal)
         function applySelectionAtPoint(worldX, worldY) {
             if (!cropItems.length) return;
@@ -684,6 +881,7 @@
                 }
             }
             if (changed) {
+                isApplyingSavedPattern = false; // Manual crop resets this flag
                 recomputeAnchorBboxFromSelection();
                 recomputeCropDataFromSelection();
                 const cropCanvas = document.getElementById('crop-canvas');
@@ -732,9 +930,9 @@
             if (!shape.color || shape.width <= 0 || !shape.items) return;
             targetCtx.strokeStyle = toRgbString(shape.color);
             targetCtx.lineWidth = shape.width || 1;
+            targetCtx.beginPath();
             shape.items.forEach(item => {
                 const type = item[0];
-                targetCtx.beginPath();
                 if (type === 'l') {
                     targetCtx.moveTo(item[1][0], item[1][1]);
                     targetCtx.lineTo(item[2][0], item[2][1]);
@@ -751,8 +949,8 @@
                         targetCtx.closePath();
                     }
                 }
-                targetCtx.stroke();
             });
+            targetCtx.stroke();
         }
         function drawShapeOnCtx(targetCtx, shape) {
             if (shape.fill) {
@@ -771,9 +969,9 @@
             if (!shape.color || shape.width <= 0 || !shape.items) return;
             targetCtx.strokeStyle = toRgbString(overrideColor);
             targetCtx.lineWidth = shape.width || 1;
+            targetCtx.beginPath();
             shape.items.forEach(item => {
                 const type = item[0];
-                targetCtx.beginPath();
                 if (type === 'l') {
                     targetCtx.moveTo(item[1][0], item[1][1]);
                     targetCtx.lineTo(item[2][0], item[2][1]);
@@ -790,8 +988,8 @@
                         targetCtx.closePath();
                     }
                 }
-                targetCtx.stroke();
             });
+            targetCtx.stroke();
         }
         function redrawCropPreview(previewCtx, croppedObjs, bboxRef, cropCanvas) {
             const scaleX = cropCanvas.width / bboxRef.width;
@@ -864,7 +1062,7 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.translate(offsetX, offsetY);
             ctx.scale(zoom, zoom);
-            
+
             // Draw shapes sorted by seqno
             const shapesToDraw = (allShapesSorted && allShapesSorted.length > 0) ? allShapesSorted : [];
 
@@ -877,41 +1075,54 @@
             shapesToDraw.forEach(obj => {
                 const layerName = obj.layer;
                 if (!layerVisibility[layerName]) return;
-                
+
                 // Culling check
                 if (obj.bbox) {
-                    // Add padding for line width to avoid clipping thick lines at the edge
                     const padding = (obj.width || 2);
-                    if (obj.bbox.maxX + padding < viewMinX || 
-                        obj.bbox.minX - padding > viewMaxX || 
-                        obj.bbox.maxY + padding < viewMinY || 
+                    if (obj.bbox.maxX + padding < viewMinX ||
+                        obj.bbox.minX - padding > viewMaxX ||
+                        obj.bbox.maxY + padding < viewMinY ||
                         obj.bbox.minY - padding > viewMaxY) {
                         return;
                     }
                 }
 
-                if (cropLengths && mainLayers && !mainLayers.includes(layerName)) return;
+                // FIXED: Don't hide non-main layers if we are applying a saved pattern (user wants context)
+                if (cropLengths && mainLayers && !mainLayers.includes(layerName) && !isApplyingSavedPattern) return;
+
+                // LOD Optimization for zoomed out small objects
+                if (obj.bbox) {
+                    const screenW = (obj.bbox.maxX - obj.bbox.minX) * zoom;
+                    const screenH = (obj.bbox.maxY - obj.bbox.minY) * zoom;
+                    if (screenW < 2 && screenH < 2 && !obj.fill) {
+                        ctx.fillStyle = toRgbString(obj.color || [0, 0, 0]);
+                        ctx.fillRect(obj.bbox.minX, obj.bbox.minY, Math.max(1 / zoom, obj.bbox.maxX - obj.bbox.minX), Math.max(1 / zoom, obj.bbox.maxY - obj.bbox.minY));
+                        return;
+                    }
+                }
+
                 if (cropLengths && mainLayers) {
                     drawShapeOnCtx(ctx, obj);
                 } else {
                     const filteredItems = obj.items?.filter((item, itemIndex) => {
-                        const type = item[0];
                         if (!cropLengths) return true;
-                        const currentLength = calculateLength(type, item);
+                        // Lazy compute length
+                        const type = item[0];
+                        const currentLength = getOrComputeLength(layerName, obj.id, itemIndex, type, item);
                         return cropLengths[type].some(len => Math.abs(len - currentLength) <= 1);
                     }) || [];
                     if (filteredItems.length > 0) drawShapeOnCtx(ctx, { ...obj, items: filteredItems });
                 }
             });
-            
+
             // FIXED: Tránh vẽ Bbox bị lỗi nếu width/height = 0
             if (currentBbox && currentBbox.width > 0 && currentBbox.height > 0) {
                 ctx.strokeStyle = 'red';
                 ctx.lineWidth = 2 / zoom;
                 ctx.strokeRect(currentBbox.x, currentBbox.y, currentBbox.width, currentBbox.height);
             }
-            
-            if (anchorBbox) {
+
+            if (anchorBbox && !isApplyingSavedPattern) {
                 ctx.strokeStyle = 'blue';
                 ctx.lineWidth = 2 / zoom;
                 ctx.strokeRect(anchorBbox.x, anchorBbox.y, anchorBbox.width, anchorBbox.height);
@@ -929,19 +1140,19 @@
             if (sequenceMatches?.length) {
                 sequenceMatches.forEach(m => {
                     if (CONFIG.MERGE_RESULTS) {
-                         ctx.strokeStyle = 'green';
-                         ctx.setLineDash([]);
-                         ctx.fillStyle = 'green';
+                        ctx.strokeStyle = 'green';
+                        ctx.setLineDash([]);
+                        ctx.fillStyle = 'green';
                     } else {
-                         ctx.strokeStyle = 'purple';
-                         ctx.setLineDash([3, 3]);
-                         ctx.fillStyle = 'purple';
+                        ctx.strokeStyle = 'purple';
+                        ctx.setLineDash([3, 3]);
+                        ctx.fillStyle = 'purple';
                     }
                     ctx.lineWidth = CONFIG.SIMILAR_BBOX_LINE_WIDTH / zoom;
-                    
+
                     ctx.strokeRect(m.rect.x, m.rect.y, m.rect.width, m.rect.height);
                     if (!CONFIG.MERGE_RESULTS) ctx.setLineDash([]);
-                    
+
                     // Hiển thị độ tương đồng
                     ctx.font = `${12 / zoom}px Arial`;
                     ctx.fillText(`${(m.score * 100).toFixed(0)}%`, m.rect.x, m.rect.y - 5 / zoom);
@@ -956,7 +1167,7 @@
                 ctx.beginPath(); ctx.moveTo(left, mouseY); ctx.lineTo(right, mouseY); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(mouseX, top); ctx.lineTo(mouseX, bottom); ctx.stroke();
             }
-            
+
             // Highlight hovered group in red
             // FIXED: Sử dụng globalSeqnoToIds cho highlight
             if (hoveredGroup !== null) {
@@ -980,7 +1191,7 @@
             ctx.restore();
             applySvgTransform();
         }
-        
+
         function computeShapeBbox(shape) {
             if (shape.bbox) return;
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -1037,6 +1248,7 @@
                 if (!obj.items || !Array.isArray(obj.items)) return;
                 layerIndex[layerName] ??= [];
                 const shapeObj = {
+                    id: objIndex, // Add ID for lazy caching
                     layer: layerName,
                     items: obj.items,
                     color: obj.color,
@@ -1050,7 +1262,7 @@
                 allShapesSorted.push(shapeObj);
 
                 totalCommands[layerName] = (totalCommands[layerName] || 0) + obj.items.length;
-                
+
                 // Build globalSeqnoToIds only for black shapes
                 if (obj.color && Array.isArray(obj.color) && obj.color.length >= 3 && obj.color[0] === 0 && obj.color[1] === 0 && obj.color[2] === 0) {
                     const seqno = obj.seqno || 0;
@@ -1071,22 +1283,18 @@
             }
             linkConsecutiveSeqnos();
         }
-        function precomputeAllLengths() {
-            precomputedLengths = {};
-            Object.keys(layerIndex).forEach(layerName => {
-                const list = layerIndex[layerName];
-                precomputedLengths[layerName] = {};
-                list.forEach((obj, objIndex) => {
-                    if (!obj?.items) return;
-                    precomputedLengths[layerName][objIndex] = {};
-                    obj.items.forEach((item, itemIndex) => {
-                        const type = item[0];
-                        if (type === 'l' || type === 'c' || type === 'qu') {
-                            precomputedLengths[layerName][objIndex][itemIndex] = calculateLength(type, item);
-                        }
-                    });
-                });
-            });
+
+        function getOrComputeLength(layerName, objIndex, itemIndex, type, item) {
+            if (!precomputedLengths[layerName]) precomputedLengths[layerName] = {};
+            if (!precomputedLengths[layerName][objIndex]) precomputedLengths[layerName][objIndex] = {};
+
+            if (precomputedLengths[layerName][objIndex][itemIndex] !== undefined) {
+                return precomputedLengths[layerName][objIndex][itemIndex];
+            }
+
+            const len = calculateLength(type, item);
+            precomputedLengths[layerName][objIndex][itemIndex] = len;
+            return len;
         }
         function setupVisualization() {
             canvas.style.background = 'white';
@@ -1411,17 +1619,18 @@
                     const item = obj.items[j];
                     const type = item[0];
                     if (!testLengths.hasOwnProperty(type)) continue;
-                    const length = realIndex != null ? precomputedLengths[layer]?.[realIndex]?.[j] : calculateLength(type, item);
+                    // Lazy compute
+                    const length = getOrComputeLength(layer, objIndex, j, type, item);
                     testLengths[type].push(length);
                 }
-                if (testLengths.l.length >= requiredCounts.l && 
-                    testLengths.c.length >= requiredCounts.c && 
+                if (testLengths.l.length >= requiredCounts.l &&
+                    testLengths.c.length >= requiredCounts.c &&
                     testLengths.qu.length >= requiredCounts.qu) {
                     break;
                 }
             }
-            if (testLengths.l.length < Math.ceil(requiredCounts.l * CONFIG.MIN_MATCHING_ITEMS_RATIO) || 
-                testLengths.c.length < Math.ceil(requiredCounts.c * CONFIG.MIN_MATCHING_ITEMS_RATIO) || 
+            if (testLengths.l.length < Math.ceil(requiredCounts.l * CONFIG.MIN_MATCHING_ITEMS_RATIO) ||
+                testLengths.c.length < Math.ceil(requiredCounts.c * CONFIG.MIN_MATCHING_ITEMS_RATIO) ||
                 testLengths.qu.length < Math.ceil(requiredCounts.qu * CONFIG.MIN_MATCHING_ITEMS_RATIO)) {
                 return 0;
             }
@@ -1455,24 +1664,24 @@
             const selectedBySeq = {};
             cropItems.forEach(ci => {
                 if (!cropSelectedItemIds.has(ci.id)) return;
-                selectedBySeq[ci.seqno] ??= { l:0, c:0, qu:0, lengths: [] };
+                selectedBySeq[ci.seqno] ??= { l: 0, c: 0, qu: 0, lengths: [] };
                 selectedBySeq[ci.seqno][ci.type]++;
                 selectedBySeq[ci.seqno].lengths.push(ci.length);
             });
-            let seqnos = Object.keys(selectedBySeq).map(n => parseInt(n,10)).sort((a,b)=>a-b);
+            let seqnos = Object.keys(selectedBySeq).map(n => parseInt(n, 10)).sort((a, b) => a - b);
             if (!seqnos.length) return;
-            
+
             // Tìm đoạn liên tiếp dài nhất để làm pattern chính (logic cũ)
             let bestRun = [], currentRun = [seqnos[0]];
-            for (let i=1;i<seqnos.length;i++) {
-                if (seqnos[i] === seqnos[i-1] + 1) currentRun.push(seqnos[i]);
+            for (let i = 1; i < seqnos.length; i++) {
+                if (seqnos[i] === seqnos[i - 1] + 1) currentRun.push(seqnos[i]);
                 else {
                     if (currentRun.length > bestRun.length) bestRun = currentRun.slice();
                     currentRun = [seqnos[i]];
                 }
             }
             if (currentRun.length > bestRun.length) bestRun = currentRun.slice();
-            
+
             // Nếu có đoạn liên tiếp dài >= 2, ưu tiên dùng nó
             if (bestRun.length >= 2) {
                 sequencePatternTokens = {
@@ -1492,10 +1701,10 @@
             } else {
                 // Nếu không có đoạn liên tiếp, dùng toàn bộ với gaps thực
                 const gaps = [];
-                for (let i=1; i<seqnos.length; i++) {
-                    gaps.push(seqnos[i] - seqnos[i-1]);
+                for (let i = 1; i < seqnos.length; i++) {
+                    gaps.push(seqnos[i] - seqnos[i - 1]);
                 }
-                
+
                 sequencePatternTokens = {
                     type: 'gapped',
                     seqnos: seqnos,
@@ -1517,23 +1726,23 @@
             sequenceMatches = [];
             if (!sequencePatternTokens || !sequencePatternTokens.tokens?.length || !mainLayers?.length) return;
             const t0 = performance.now();
-            
+
             // Dựng token list toàn cục theo thứ tự seqno, chỉ trên mainLayers.
             // Use allShapesSorted which is already sorted by seqno
             const globalObjs = allShapesSorted.filter(obj => mainLayers.includes(obj.layer) && obj.seqno != null)
                 .map(o => ({ obj: o, seqno: o.seqno }));
-            
+
             const globalTokens = globalObjs.map(g => {
-                const counts = { l:0, c:0, qu:0 };
-                if (g.obj.items) g.obj.items.forEach(item => { const t=item[0]; if (counts[t]!=null) counts[t]++; });
-                const parts=[]; if (counts.l) parts.push(counts.l+'l'); if (counts.c) parts.push(counts.c+'c'); if (counts.qu) parts.push(counts.qu+'q');
+                const counts = { l: 0, c: 0, qu: 0 };
+                if (g.obj.items) g.obj.items.forEach(item => { const t = item[0]; if (counts[t] != null) counts[t]++; });
+                const parts = []; if (counts.l) parts.push(counts.l + 'l'); if (counts.c) parts.push(counts.c + 'c'); if (counts.qu) parts.push(counts.qu + 'q');
                 return parts.join('');
             });
-            
+
             const patternTokens = sequencePatternTokens.tokens;
             const patternGaps = sequencePatternTokens.gaps;
             const patLen = patternTokens.length;
-            
+
             if (patLen === 1) {
                 // Trường hợp đặc biệt: chỉ có 1 token, tìm tất cả match
                 for (let i = 0; i < globalTokens.length; i++) {
@@ -1541,18 +1750,18 @@
                         let lengthsMatch = true;
                         let totalDiff = 0;
                         let totalCount = 0;
-                        
+
                         // Kiểm tra độ dài lệnh với sai lệch cho pattern 1 token
                         const expectedLengths = sequencePatternTokens.lengths[0];
                         const actualObj = globalObjs[i].obj;
-                        
+
                         if (actualObj.items) {
                             // Lấy độ dài các lệnh của object hiện tại
                             const actualLengths = actualObj.items
                                 .filter(item => ['l', 'c', 'qu'].includes(item[0]))
                                 .map(item => calculateLength(item[0], item))
                                 .sort((a, b) => a - b);
-                            
+
                             // So sánh độ dài với sai lệch cho phép
                             if (expectedLengths.length !== actualLengths.length) {
                                 lengthsMatch = false;
@@ -1568,14 +1777,14 @@
                                 }
                             }
                         }
-                        
+
                         if (!lengthsMatch) continue;
-                        
+
                         const obj = globalObjs[i].obj;
                         if (!obj.rect) continue;
-                        const [x1,y1,x2,y2] = obj.rect;
-                        const rect = { x:x1, y:y1, width:x2-x1, height:y2-y1 };
-                        
+                        const [x1, y1, x2, y2] = obj.rect;
+                        const rect = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+
                         // Đếm số lệnh l và c trong object tìm được
                         let foundL = 0, foundC = 0;
                         if (obj.items) {
@@ -1584,16 +1793,16 @@
                                 else if (item[0] === 'c') foundC++;
                             });
                         }
-                        
+
                         // Tính score dựa trên số lượng lệnh l,c tìm được so với bbox gốc
                         const expectedL = cropLengthsFull.l.length;
                         const expectedC = cropLengthsFull.c.length;
                         const totalExpected = expectedL + expectedC;
                         const totalFound = foundL + foundC;
                         let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
-                        
+
                         if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
-                             sequenceMatches.push({ rect, startSeqno: globalObjs[i].seqno, endSeqno: globalObjs[i].seqno, score });
+                            sequenceMatches.push({ rect, startSeqno: globalObjs[i].seqno, endSeqno: globalObjs[i].seqno, score });
                         }
                     }
                 }
@@ -1602,45 +1811,47 @@
                 for (let start = 0; start <= globalTokens.length - patLen; start++) {
                     // Kiểm tra seqno liên tiếp & token match.
                     let ok = true;
-                    
+
                     for (let k = 0; k < patLen; k++) {
                         const actualToken = globalTokens[start + k];
                         const expectedToken = patternTokens[k];
-                        
-                        if (actualToken !== expectedToken) { 
-                            ok = false; 
-                            break; 
+
+                        if (actualToken !== expectedToken) {
+                            ok = false;
+                            break;
                         }
                         // Kiểm tra liên tiếp seqno
-                        if (k > 0 && globalObjs[start + k].seqno !== globalObjs[start + k - 1].seqno + 1) { 
-                            ok = false; 
-                            break; 
+                        if (k > 0 && globalObjs[start + k].seqno !== globalObjs[start + k - 1].seqno + 1) {
+                            ok = false;
+                            break;
                         }
                     }
-                    
+
                     let totalDiff = 0;
                     let totalCount = 0;
 
                     // Nếu số lệnh được chọn < 20, kiểm tra thêm độ dài lệnh với sai lệch
-                    if (ok && cropSelectedItemIds.size < 20) {
+                    // Use cropLengthsFull to determine item count (works correctly with saved patterns)
+                    const totalCropItemCount = (cropLengthsFull?.l?.length || 0) + (cropLengthsFull?.c?.length || 0) + (cropLengthsFull?.qu?.length || 0);
+                    if (ok && totalCropItemCount < 20) {
                         for (let k = 0; k < patLen; k++) {
                             const expectedLengths = sequencePatternTokens.lengths[k];
                             const actualObj = globalObjs[start + k].obj;
-                            
+
                             if (!actualObj.items) continue;
-                            
+
                             // Lấy độ dài các lệnh của object hiện tại
                             const actualLengths = actualObj.items
                                 .filter(item => ['l', 'c', 'qu'].includes(item[0]))
                                 .map(item => calculateLength(item[0], item))
                                 .sort((a, b) => a - b);
-                            
+
                             // So sánh độ dài với sai lệch cho phép
                             if (expectedLengths.length !== actualLengths.length) {
                                 ok = false;
                                 break;
                             }
-                            
+
                             for (let i = 0; i < expectedLengths.length; i++) {
                                 const diff = Math.abs(expectedLengths[i] - actualLengths[i]);
                                 if (diff > CONFIG.SIMILARITY_TOLERANCE) {
@@ -1650,25 +1861,25 @@
                                 totalDiff += diff;
                                 totalCount++;
                             }
-                            
+
                             if (!ok) break;
                         }
                     }
-                    
+
                     if (!ok) continue;
-                    
+
                     // Tính rect chặt cho window
-                    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-                    for (let k=0;k<patLen;k++) {
-                        const b = globalObjs[start+k].obj.rect;
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let k = 0; k < patLen; k++) {
+                        const b = globalObjs[start + k].obj.rect;
                         if (!b) continue;
-                        minX = Math.min(minX,b[0]); minY = Math.min(minY,b[1]);
-                        maxX = Math.max(maxX,b[2]); maxY = Math.max(maxY,b[3]);
+                        minX = Math.min(minX, b[0]); minY = Math.min(minY, b[1]);
+                        maxX = Math.max(maxX, b[2]); maxY = Math.max(maxY, b[3]);
                     }
-                    if (minX===Infinity) continue;
-                    
-                    const rect = { x:minX, y:minY, width:maxX-minX, height:maxY-minY };
-                    
+                    if (minX === Infinity) continue;
+
+                    const rect = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+
                     // Đếm số lệnh l và c trong các object tìm được
                     let foundL = 0, foundC = 0;
                     for (let k = 0; k < patLen; k++) {
@@ -1680,7 +1891,7 @@
                             });
                         }
                     }
-                    
+
                     // Tính score dựa trên số lượng lệnh l,c tìm được so với bbox gốc
                     const expectedL = cropLengthsFull.l.length;
                     const expectedC = cropLengthsFull.c.length;
@@ -1689,7 +1900,7 @@
                     let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
 
                     if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
-                        sequenceMatches.push({ rect, startSeqno: globalObjs[start].seqno, endSeqno: globalObjs[start+patLen-1].seqno, score });
+                        sequenceMatches.push({ rect, startSeqno: globalObjs[start].seqno, endSeqno: globalObjs[start + patLen - 1].seqno, score });
                     }
                 }
             } else {
@@ -1704,7 +1915,7 @@
                         }
                     }
                     if (!tokensMatch) continue;
-                    
+
                     // Kiểm tra gaps (khoảng cách giữa seqno)
                     let gapsMatch = true;
                     for (let k = 0; k < patLen - 1; k++) {
@@ -1716,7 +1927,7 @@
                         }
                     }
                     if (!gapsMatch) continue;
-                    
+
                     let totalDiff = 0;
                     let totalCount = 0;
 
@@ -1726,21 +1937,21 @@
                         for (let k = 0; k < patLen; k++) {
                             const expectedLengths = sequencePatternTokens.lengths[k];
                             const actualObj = globalObjs[start + k].obj;
-                            
+
                             if (!actualObj.items) continue;
-                            
+
                             // Lấy độ dài các lệnh của object hiện tại
                             const actualLengths = actualObj.items
                                 .filter(item => ['l', 'c', 'qu'].includes(item[0]))
                                 .map(item => calculateLength(item[0], item))
                                 .sort((a, b) => a - b);
-                            
+
                             // So sánh độ dài với sai lệch cho phép
                             if (expectedLengths.length !== actualLengths.length) {
                                 lengthsMatch = false;
                                 break;
                             }
-                            
+
                             for (let i = 0; i < expectedLengths.length; i++) {
                                 const diff = Math.abs(expectedLengths[i] - actualLengths[i]);
                                 if (diff > CONFIG.SIMILARITY_TOLERANCE) {
@@ -1750,24 +1961,24 @@
                                 totalDiff += diff;
                                 totalCount++;
                             }
-                            
+
                             if (!lengthsMatch) break;
                         }
                     }
                     if (!lengthsMatch) continue;
-                    
+
                     // Tính rect chặt cho window
-                    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-                    for (let k=0;k<patLen;k++) {
-                        const b = globalObjs[start+k].obj.rect;
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let k = 0; k < patLen; k++) {
+                        const b = globalObjs[start + k].obj.rect;
                         if (!b) continue;
-                        minX = Math.min(minX,b[0]); minY = Math.min(minY,b[1]);
-                        maxX = Math.max(maxX,b[2]); maxY = Math.max(maxY,b[3]);
+                        minX = Math.min(minX, b[0]); minY = Math.min(minY, b[1]);
+                        maxX = Math.max(maxX, b[2]); maxY = Math.max(maxY, b[3]);
                     }
-                    if (minX===Infinity) continue;
-                    
-                    const rect = { x:minX, y:minY, width:maxX-minX, height:maxY-minY };
-                    
+                    if (minX === Infinity) continue;
+
+                    const rect = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+
                     // Đếm số lệnh l và c trong các object tìm được
                     let foundL = 0, foundC = 0;
                     for (let k = 0; k < patLen; k++) {
@@ -1779,7 +1990,7 @@
                             });
                         }
                     }
-                    
+
                     // Tính score dựa trên số lượng lệnh l,c tìm được so với bbox gốc
                     const expectedL = cropLengthsFull.l.length;
                     const expectedC = cropLengthsFull.c.length;
@@ -1788,11 +1999,11 @@
                     let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
 
                     if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
-                        sequenceMatches.push({ rect, startSeqno: globalObjs[start].seqno, endSeqno: globalObjs[start+patLen-1].seqno, score });
+                        sequenceMatches.push({ rect, startSeqno: globalObjs[start].seqno, endSeqno: globalObjs[start + patLen - 1].seqno, score });
                     }
                 }
             }
-            
+
             // Filter overlaps > 20% (matching Python logic)
             const filteredMatches = [];
             sequenceMatches.sort((a, b) => b.score - a.score); // Sort by score desc first
@@ -1809,13 +2020,13 @@
                 }
             }
             sequenceMatches = filteredMatches;
-            
+
             lastSequenceSearchMs = performance.now() - t0;
         }
 
         function findSimilarRegions() {
             if (!jsonData || !cropLengths || !searchBboxSize) return;
-            
+
             // 1. Run Purple Logic FIRST
             findSimilarSequencePatternMatches();
 
@@ -1942,10 +2153,9 @@
                     return true;
                 });
                 console.log(`Similar found after filter: ${similarBboxes.length}`);
-                
+
                 if (timeoutExceeded) {
                     alert(`Error: Search timed out after ${CONFIG.TIMEOUT_MS / 1000} seconds due to complexity. Search stopped.`);
-                    similarCount.textContent = `Search stopped after ${CONFIG.TIMEOUT_MS / 1000} seconds.`;
                 }
             }
 
@@ -1969,7 +2179,7 @@
             if (totalFound > 0) {
                 let msg;
                 if (CONFIG.MERGE_RESULTS) {
-                     msg = `Found ${totalFound} in ${((lastSearchMs + lastSequenceSearchMs) / 1000).toFixed(2)}s`;
+                    msg = `Found ${totalFound} in ${((lastSearchMs + lastSequenceSearchMs) / 1000).toFixed(2)}s`;
                 } else {
                     msg = `Found ${similarBboxes.length} (green) in ${(lastSearchMs / 1000).toFixed(2)}s`;
                     if (sequenceMatches && sequenceMatches.length > 0) {
@@ -1979,7 +2189,13 @@
                 foundCountDiv.textContent = msg;
                 foundCountDiv.style.display = 'block';
             } else {
-                foundCountDiv.style.display = 'none';
+                // Updated: Always show result even if 0 found for Saved Pattern, and clear loading text
+                if (isApplyingSavedPattern) {
+                    foundCountDiv.textContent = 'Found 0 objects.';
+                    foundCountDiv.style.display = 'block';
+                } else {
+                    foundCountDiv.style.display = 'none';
+                }
             }
         }
         function exportToSVG() {
@@ -2112,7 +2328,8 @@
                 obj.items.forEach((item, itemIndex) => {
                     const type = item[0];
                     if (!(type === 'l' || type === 'c' || type === 'qu')) return;
-                    const length = objIndex != null ? precomputedLengths[layer]?.[objIndex]?.[itemIndex] : calculateLength(type, item);
+                    // Lazy compute
+                    const length = getOrComputeLength(layer, objIndex, itemIndex, type, item);
                     let anchorX, anchorY;
                     if (type === 'l' || type === 'c') [anchorX, anchorY] = item[1];
                     else if (type === 'qu') {
@@ -2124,12 +2341,91 @@
                 });
             });
             cropSelectedItemIds = new Set(cropItems.map(ci => ci.id));
+            isApplyingSavedPattern = false; // Reset flag to show blue box for manual crop
 
             // FIXED: Sử dụng cropSeqnoToIds thay vì ghi đè biến global
             cropSeqnoToIds = {};
             cropItems.forEach(ci => {
                 cropSeqnoToIds[ci.seqno] ??= [];
                 cropSeqnoToIds[ci.seqno].push(ci.id);
+            });
+
+            const colorContainer = document.getElementById('crop-color-filters');
+            colorContainer.innerHTML = '';
+            const colorGroups = {};
+            cropItems.forEach(ci => {
+                const colorStr = ci.obj.color ? toRgbString(ci.obj.color) : 'rgba(0, 0, 0, 1)';
+                if (!colorGroups[colorStr]) {
+                    colorGroups[colorStr] = { count: 0, items: [] };
+                }
+                colorGroups[colorStr].count++;
+                colorGroups[colorStr].items.push(ci);
+            });
+
+            Object.entries(colorGroups).forEach(([colorStr, group]) => {
+                const label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.cursor = 'pointer';
+                label.style.fontSize = '12px';
+                label.style.marginBottom = '4px';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = true;
+                checkbox.dataset.color = colorStr;
+                checkbox.style.marginRight = '8px';
+                checkbox.style.cursor = 'pointer';
+
+                const swatch = document.createElement('div');
+                swatch.style.width = '14px';
+                swatch.style.height = '14px';
+                swatch.style.backgroundColor = colorStr;
+                swatch.style.border = '1px solid var(--border-color-dark)';
+                swatch.style.marginRight = '8px';
+                swatch.style.borderRadius = '3px';
+
+                const text = document.createElement('span');
+                text.textContent = `${colorStr} (${group.count})`;
+
+                checkbox.addEventListener('change', e => {
+                    const isChecked = e.target.checked;
+                    let changed = false;
+                    group.items.forEach(ci => {
+                        const ids = cropSeqnoToIds[ci.seqno];
+                        if (ids) {
+                            ids.forEach(id => {
+                                if (isChecked) {
+                                    if (!cropSelectedItemIds.has(id)) {
+                                        cropSelectedItemIds.add(id);
+                                        changed = true;
+                                    }
+                                } else {
+                                    if (cropSelectedItemIds.has(id)) {
+                                        cropSelectedItemIds.delete(id);
+                                        changed = true;
+                                    }
+                                }
+                            });
+                        }
+                    });
+
+                    if (changed) {
+                        isApplyingSavedPattern = false;
+                        recomputeAnchorBboxFromSelection();
+                        recomputeCropDataFromSelection();
+                        const cropCanvas = document.getElementById('crop-canvas');
+                        const ctx2 = cropCanvas.getContext('2d');
+                        ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+                        redrawCropPreview(ctx2, croppedObjs, cropPreviewBbox, cropCanvas);
+                        updateCommandCountSummary();
+                    }
+                });
+
+                label.appendChild(checkbox);
+                label.appendChild(swatch);
+                label.appendChild(text);
+                colorContainer.appendChild(label);
             });
 
             // Save current visibility and crop/search state so we can restore them after modal
@@ -2154,16 +2450,16 @@
                     });
                 }
             });
-                commandCount.innerHTML = `<li><strong>Total (within region):</strong> l=${counts.l}, c=${counts.c}, qu=${counts.qu}</li>
+            commandCount.innerHTML = `<li><strong>Total (within region):</strong> l=${counts.l}, c=${counts.c}, qu=${counts.qu}</li>
             ${displayLengths.l.length ? `<li>l lengths: ${getDisplayLengths(displayLengths.l)}</li>` : ''}
             ${displayLengths.c.length ? `<li>c lengths: ${getDisplayLengths(displayLengths.c)}</li>` : ''}
             ${displayLengths.qu.length ? `<li>qu lengths: ${getDisplayLengths(displayLengths.qu)}</li>` : ''}
             <li style='margin-top:6px;list-style:none;'><em>Hold left mouse and hover over strokes to hide/show.</em></li>`;
-            
+
             // Hiển thị sequence pattern nếu có
             if (sequencePatternTokens?.tokens?.length) {
                 const li = document.createElement('li');
-                li.style.listStyle='none';
+                li.style.listStyle = 'none';
                 const seqnos = sequencePatternTokens.seqnos.join(', ');
                 const type = sequencePatternTokens.type === 'consecutive' ? 'consecutive' : 'gapped';
                 const gaps = sequencePatternTokens.gaps.length ? ` (gaps: ${sequencePatternTokens.gaps.join(', ')})` : '';
@@ -2219,7 +2515,7 @@
                     if (cropSelectedItemIds.size > 0) {
                         // Recalculate mainLayers based on the final selection in the crop modal
                         recomputeMainLayersFromSelection();
-                        
+
                         // Show blocking overlay then run search so UI is blocked during processing
                         const popup = document.getElementById('loading-popup');
                         if (popup) popup.style.display = 'flex';
@@ -2254,8 +2550,19 @@
             // Wire the new modal buttons
             const btnSearchNow = document.getElementById('btn-search-now');
             const btnCancelSearch = document.getElementById('btn-cancel-search');
+            const btnSavePattern = document.getElementById('btn-save-pattern');
+
             btnSearchNow.onclick = () => restoreAndClose(true);
             btnCancelSearch.onclick = () => restoreAndClose(false);
+
+            if (btnSavePattern) {
+                // Remove old listeners to prevent duplicates if creating new button
+                const newBtn = btnSavePattern.cloneNode(true);
+                btnSavePattern.parentNode.replaceChild(newBtn, btnSavePattern);
+                newBtn.onclick = () => {
+                    saveCurrentPattern();
+                };
+            }
             btnHideMode.addEventListener('click', () => {
                 selectionMode = 'hide';
                 btnHideMode.classList.add('active');
@@ -2288,6 +2595,439 @@
             });
             updateCommandCountSummary();
         }
+
+        // --- New PDF Handling Functions ---
+
+        async function renderPdfPreview(file, pageNum) {
+            const pdfPreview = document.getElementById('pdf-preview');
+            pdfPreview.innerHTML = '<div style="display: flex; justify-content: center; align-items: center; height: 100%;"><div>Loading PDF preview...</div></div>';
+            pdfPreview.style.display = 'block';
+
+            // Hide drop zone while showing preview
+            dropZone.classList.add('hidden');
+
+            let pdf = null;
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const page = await pdf.getPage(pageNum);
+
+                const viewport = page.getViewport({ scale: 1 });
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+
+                // Scale to fit container
+                const containerRect = canvasContainer.getBoundingClientRect();
+                const scale = Math.min(containerRect.width / viewport.width, containerRect.height / viewport.height) * 0.9;
+                const scaledViewport = page.getViewport({ scale });
+
+                canvas.height = scaledViewport.height;
+                canvas.width = scaledViewport.width;
+
+                const renderContext = {
+                    canvasContext: context,
+                    viewport: scaledViewport
+                };
+
+                await page.render(renderContext).promise;
+
+                pdfPreview.innerHTML = '';
+                pdfPreview.appendChild(canvas);
+
+                // Center the canvas
+                canvas.style.position = 'absolute';
+                canvas.style.top = '50%';
+                canvas.style.left = '50%';
+                canvas.style.transform = 'translate(-50%, -50%)';
+
+                page.cleanup();
+
+            } catch (error) {
+                pdfPreview.innerHTML = '<div style="display: flex; justify-content: center; align-items: center; height: 100%;"><div>Error loading PDF preview</div></div>';
+                console.error('Error rendering PDF preview:', error);
+            } finally {
+                if (pdf) await pdf.destroy();
+            }
+        }
+
+        function hidePdfPreview() {
+            const pdfPreview = document.getElementById('pdf-preview');
+            pdfPreview.style.display = 'none';
+            pdfPreview.innerHTML = '';
+        }
+
+        async function createPageThumbnails(file, numPages) {
+            const thumbnailsContainer = document.getElementById('page-thumbnails');
+            thumbnailsContainer.innerHTML = '';
+
+            currentThumbnailTaskId++;
+            const taskId = currentThumbnailTaskId;
+
+            let pdf = null;
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+                for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+                    if (currentThumbnailTaskId !== taskId) {
+                        break; // Bỏ qua nếu có task render thumbnail mới
+                    }
+
+                    const page = await pdf.getPage(pageNum);
+                    const viewport = page.getViewport({ scale: 0.2 }); // Small scale for thumbnail
+
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    const renderContext = {
+                        canvasContext: context,
+                        viewport: viewport
+                    };
+
+                    await page.render(renderContext).promise;
+
+                    const thumbnailDiv = document.createElement('div');
+                    thumbnailDiv.className = 'page-thumbnail';
+                    thumbnailDiv.dataset.page = pageNum;
+                    thumbnailDiv.addEventListener('click', () => {
+                        processSelectedPage(pageNum);
+                        updateSelectedThumbnail(pageNum);
+                    });
+
+                    const pageNumberDiv = document.createElement('div');
+                    pageNumberDiv.className = 'page-number';
+                    pageNumberDiv.textContent = `Page ${pageNum}`;
+
+                    thumbnailDiv.appendChild(canvas);
+                    thumbnailDiv.appendChild(pageNumberDiv);
+                    thumbnailsContainer.appendChild(thumbnailDiv);
+
+                    // Giải phóng bộ nhớ của page
+                    page.cleanup();
+                }
+            } catch (error) {
+                console.error('Error creating thumbnails:', error);
+                thumbnailsContainer.innerHTML = '<p>Error loading thumbnails</p>';
+            } finally {
+                if (pdf) await pdf.destroy();
+            }
+        }
+
+        function updateSelectedThumbnail(selectedPage) {
+            const thumbnails = document.querySelectorAll('.page-thumbnail');
+            thumbnails.forEach(thumb => {
+                if (parseInt(thumb.dataset.page) === selectedPage) {
+                    thumb.classList.add('selected');
+                } else {
+                    thumb.classList.remove('selected');
+                }
+            });
+        }
+
+        function clearVisualization() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Clear SVG layers
+            document.getElementById('svg-text-layer').innerHTML = '';
+            document.getElementById('svg-graphic-layer').innerHTML = '';
+
+            // Reset data
+            jsonData = null;
+            jsonShapes = null;
+            svgData = null;
+            layerIndex = {};
+            layerVisibility = {};
+            sortedLayerKeys = [];
+            totalCommands = {};
+            precomputedLengths = {}; // Clear stale length cache to avoid wrong matches on new page
+
+            // Clear layer list
+            layerList.innerHTML = '';
+
+            // Show drop zone if hidden
+            dropZone.classList.remove('hidden');
+
+            // Reset zoom and offset
+            zoom = CONFIG.INITIAL_ZOOM;
+            offsetX = 0;
+            offsetY = 0;
+
+            // Clear crop data and search state
+            cropLengths = null;
+            cropLengthsFull = null;
+            cropLengthsFiltered = null;
+            mainLayers = null;
+            anchorBbox = null;
+            anchorPatterns = null; // Reset anchor patterns
+            similarBboxes = [];
+            sequenceMatches = []; // Reset sequence matches
+            sequencePatternTokens = null; // Reset sequence tokens
+            searchBboxSize = null;
+            cropItems = [];
+            cropSelectedItemIds.clear();
+            expandedNodes = {};
+
+            // clear draw bbox state
+            isDrawingBbox = false;
+            isApplyingSavedPattern = false; // Reset saved pattern flag
+            btnDrawBbox.textContent = 'Draw BBox to Find';
+            btnDrawBbox.classList.remove('active');
+            if (bboxStart) bboxStart = null;
+            if (currentBbox) currentBbox = null;
+
+            // Clear search info
+            document.getElementById('found-count').style.display = 'none';
+
+            // Reset drawing state
+            isDrawingBbox = false;
+            bboxStart = null;
+            currentBbox = null;
+            btnDrawBbox.textContent = 'Vẽ BBox để Crop';
+            btnDrawBbox.classList.remove('active');
+
+            // Clear seqno mapping
+            globalSeqnoToIds = {};
+            cropSeqnoToIds = {};
+            seqnoToLayer = {};
+            seqnoGroups = {};
+            groupToSeqnos = {};
+
+            // Clear selected thumbnail
+            document.querySelectorAll('.page-thumbnail').forEach(thumb => thumb.classList.remove('selected'));
+        }
+
+        // Decompress base64-gzipped data using DecompressionStream API
+        async function decompressGzipBase64(gzipB64) {
+            const binaryStr = atob(gzipB64);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+                bytes[i] = binaryStr.charCodeAt(i);
+            }
+            const ds = new DecompressionStream('gzip');
+            const writer = ds.writable.getWriter();
+            writer.write(bytes);
+            writer.close();
+            const reader = ds.readable.getReader();
+            const chunks = [];
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+            const combined = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                combined.set(chunk, offset);
+                offset += chunk.length;
+            }
+            return JSON.parse(new TextDecoder().decode(combined));
+        }
+
+        // Load a cached page
+        async function loadCachedPage(pageNum) {
+            const gzipB64 = cachedPages[pageNum];
+            if (!gzipB64) {
+                console.warn(`No cached data for page ${pageNum}`);
+                return;
+            }
+
+            // Optimize: Clear previous visualization (unzipped data) BEFORE decompressing new one
+            // This prevents holding two unzipped pages in memory at the same time
+            clearVisualization();
+
+            console.time(`Decompress page ${pageNum}`);
+            const responseData = await decompressGzipBase64(gzipB64);
+            console.timeEnd(`Decompress page ${pageNum}`);
+
+            jsonData = responseData;
+            jsonShapes = responseData.shapes || [];
+            svgData = responseData.svg || {};
+            console.log(`Page ${pageNum}: ${jsonShapes.length} shapes`);
+
+            buildLayerIndex();
+            // precomputeAllLengths() removed for lazy eval
+            setupVisualization();
+
+            dropZone.classList.add('hidden');
+            updateSelectedThumbnail(pageNum);
+        }
+
+        async function processSelectedPage(pageNum) {
+            // If cached, use cache (instant)
+            if (cachedPages[pageNum]) {
+                await loadCachedPage(pageNum);
+                return;
+            }
+
+            // Fallback: single page API call
+            const file = currentPdfFile;
+            if (!file) {
+                alert('No PDF file loaded.');
+                return;
+            }
+            if (!pageNum || pageNum < 1) {
+                alert('Invalid page number.');
+                return;
+            }
+            // Clear current visualization before showing preview
+            clearVisualization();
+
+            // Reset saved search state specifically
+            cropLengths = null;
+            cropLengthsFull = null;
+            cropLengthsFiltered = null;
+            mainLayers = null;
+            anchorBbox = null;
+            similarBboxes = [];
+            sequenceMatches = [];
+            sequencePatternTokens = null;
+            searchBboxSize = null;
+            expandedNodes = {};
+            document.getElementById('found-count').style.display = 'none';
+
+            // Show PDF preview while processing
+            await renderPdfPreview(file, pageNum);
+            console.time('API Call');
+            try {
+                const formData = new FormData();
+                formData.append('pdf_file', file);
+                formData.append('page_num', pageNum);
+                const response = await fetch(`${ENV.PDF_API_BASE_URL}/process_page`, {
+                    method: 'POST',
+                    body: formData
+                });
+                console.timeEnd('API Call');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const responseData = await response.json();
+                console.log('Received JSON:', responseData);
+                if (responseData.processing_time) {
+                    console.log(`API processing time: ${responseData.processing_time} seconds`);
+                }
+                if (responseData.error) {
+                    throw new Error(responseData.error);
+                }
+                // Hide preview and load visualization
+                hidePdfPreview();
+                jsonData = responseData;
+                jsonShapes = responseData.shapes || [];
+                svgData = responseData.svg || {};
+                console.log('jsonShapes length:', jsonShapes.length);
+
+                // Build index and precompute data for visualization
+                buildLayerIndex();
+                // precomputeAllLengths() removed for lazy eval
+                setupVisualization();
+                console.log('Visualization setup completed');
+                dropZone.classList.add('hidden');
+                // Update selected thumbnail
+                updateSelectedThumbnail(pageNum);
+            } catch (error) {
+                alert('Error processing PDF: ' + error.message);
+                hidePdfPreview();
+            }
+        }
+
+        // Batch process all pages via SSE and cache results
+        async function processAllPagesBatch(file) {
+            cachedPages = {};
+            const overlay = document.getElementById('batch-progress-overlay');
+            const bar = document.getElementById('batch-progress-bar');
+            const text = document.getElementById('batch-progress-text');
+            const subtitle = document.getElementById('batch-progress-subtitle');
+            const sizeText = document.getElementById('batch-progress-size');
+
+            overlay.style.display = 'flex';
+            bar.style.width = '0%';
+            text.textContent = 'Uploading PDF...';
+            subtitle.textContent = 'Starting parallel processing...';
+            sizeText.textContent = '';
+
+            const formData = new FormData();
+            formData.append('pdf_file', file);
+
+            try {
+                const response = await fetch(`${ENV.PDF_API_BASE_URL}/process_all_pages`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let totalPages = 0;
+                let totalGzipSize = 0;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Parse SSE events from buffer
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop(); // keep incomplete event
+
+                    for (const part of parts) {
+                        if (!part.trim()) continue;
+
+                        let eventType = '', eventData = '';
+                        for (const line of part.split('\n')) {
+                            if (line.startsWith('event: ')) eventType = line.slice(7);
+                            if (line.startsWith('data: ')) eventData += line.slice(6);
+                        }
+
+                        if (eventType === 'init') {
+                            const info = JSON.parse(eventData);
+                            totalPages = info.total_pages;
+                            subtitle.textContent = `Processing ${totalPages} pages in parallel...`;
+                            text.textContent = `0 / ${totalPages} pages`;
+                        } else if (eventType === 'page_data') {
+                            const { page_num, completed, gzip_size, gzip_data, time: dt } = JSON.parse(eventData);
+                            cachedPages[page_num] = gzip_data;
+                            totalGzipSize += gzip_size;
+
+                            const pct = Math.round((completed / totalPages) * 100);
+                            bar.style.width = pct + '%';
+                            text.textContent = `${completed} / ${totalPages} pages`;
+                            sizeText.textContent = `Page ${page_num} done (${(gzip_size / 1024 / 1024).toFixed(1)}MB) | Total: ${(totalGzipSize / 1024 / 1024).toFixed(1)}MB`;
+                            console.log(`Page ${page_num}: ${dt}s, gzip ${(gzip_size / 1024 / 1024).toFixed(2)}MB`);
+                        } else if (eventType === 'error') {
+                            const { page_num, error, completed } = JSON.parse(eventData);
+                            console.error(`Page ${page_num} error: ${error}`);
+                            const pct = Math.round((completed / totalPages) * 100);
+                            bar.style.width = pct + '%';
+                            text.textContent = `${completed} / ${totalPages} pages`;
+                        } else if (eventType === 'done') {
+                            const info = JSON.parse(eventData);
+                            console.log(`All pages processed in ${info.total_time}s`);
+                            subtitle.textContent = `Done in ${info.total_time}s! Loading page 1...`;
+                            bar.style.width = '100%';
+                        }
+                    }
+                }
+
+                // All done - load page 1 and hide overlay
+                overlay.style.display = 'none';
+                if (cachedPages[1]) {
+                    await loadCachedPage(1);
+                }
+            } catch (error) {
+                overlay.style.display = 'none';
+                alert('Error processing PDF: ' + error.message);
+                dropZone.classList.remove('hidden');
+            }
+        }
+
         // Events
         window.addEventListener('resize', resizeCanvas);
         dropZone.addEventListener('dragover', e => {
@@ -2295,12 +3035,39 @@
             dropZone.classList.add('drag-over');
         });
         dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-        dropZone.addEventListener('drop', e => {
+        dropZone.addEventListener('drop', async e => {
             e.preventDefault();
             dropZone.classList.add('hidden');
             dropZone.classList.remove('drag-over');
             const file = e.dataTransfer.files[0];
-            if (file && file.name.endsWith('.json')) {
+
+            if (file && file.name.toLowerCase().endsWith('.pdf')) {
+                currentPdfFile = file;
+                try {
+                    // Get page count for thumbnails
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    const response = await fetch(`${ENV.PDF_API_BASE_URL}/get_pdf_pages`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    // Create thumbnails for all pages
+                    createPageThumbnails(file, data.pages);
+                    // Start batch processing all pages
+                    clearVisualization();
+                    processAllPagesBatch(file);
+                } catch (error) {
+                    alert('Error loading PDF: ' + error.message);
+                    dropZone.classList.remove('hidden');
+                }
+            } else if (file && file.name.endsWith('.json')) {
                 const reader = new FileReader();
                 reader.onload = event => {
                     try {
@@ -2316,7 +3083,7 @@
                             throw new Error('Định dạng JSON không hợp lệ (phải là mảng hoặc object).');
                         }
                         buildLayerIndex();
-                        precomputeAllLengths();
+                        // precomputeAllLengths() removed for lazy eval
                         setupVisualization();
                     } catch (error) {
                         alert('Lỗi: Tệp JSON không hợp lệ.\n' + error);
@@ -2325,7 +3092,7 @@
                 };
                 reader.readAsText(file);
             } else {
-                alert('Vui lòng chỉ thả tệp có định dạng .json.');
+                alert('Please drop a PDF or JSON file.');
                 dropZone.classList.remove('hidden');
             }
         });
@@ -2378,9 +3145,10 @@
                             throw new Error('Định dạng JSON không hợp lệ (phải là mảng hoặc object).');
                         }
                         // Save parsed text to sessionStorage for next time
-                        try { sessionStorage.setItem(storageKey, text); } catch (e) {}
+                        try { sessionStorage.setItem(storageKey, text); } catch (e) { }
                         buildLayerIndex();
-                        precomputeAllLengths();
+                        buildLayerIndex();
+                        // precomputeAllLengths() removed for lazy eval
                         setupVisualization();
                         if (loadingPopup) loadingPopup.style.display = 'none';
                     } catch (err) {
@@ -2424,7 +3192,6 @@
                 similarBboxes = [];
                 searchBboxSize = null;
                 expandedNodes = {};
-                searchInfo.style.display = 'none';
                 scheduleDraw();
             }
         });
@@ -2439,7 +3206,6 @@
             sequencePatternTokens = null;
             searchBboxSize = null;
             expandedNodes = {};
-            searchInfo.style.display = 'none';
             document.getElementById('found-count').style.display = 'none';
             isDrawingBbox = false;
             btnDrawBbox.textContent = 'Draw BBox to Find';
@@ -2500,15 +3266,23 @@
                 // FIXED: Sử dụng globalSeqnoToIds cho main hover
                 for (const seqno in globalSeqnoToIds) {
                     const ids = globalSeqnoToIds[seqno];
+                    let groupMatch = false;
                     for (const id of ids) {
                         const [objIndex, itemIndex] = id.split('-').map(Number);
                         const obj = jsonShapes[objIndex];
+                        if (obj.bbox) {
+                            if (canvasX < obj.bbox.minX - tol || canvasX > obj.bbox.maxX + tol ||
+                                canvasY < obj.bbox.minY - tol || canvasY > obj.bbox.maxY + tol) {
+                                continue;
+                            }
+                        }
                         if (pointNearItem(canvasX, canvasY, { obj: obj, itemIndex: itemIndex }, tol)) {
                             hoveredSeqno = parseInt(seqno);
+                            groupMatch = true;
                             break;
                         }
                     }
-                    if (hoveredSeqno !== null) break;
+                    if (groupMatch) break;
                 }
                 const newHoveredGroup = hoveredSeqno !== null ? seqnoGroups[hoveredSeqno] : null;
                 if (newHoveredGroup !== hoveredGroup) {
@@ -2528,7 +3302,171 @@
             zoom = newZoom;
             scheduleDraw();
         });
+        // Saved Patterns Logic
+        let savedPatterns = [];
+
+        function renderSavedPatternsList() {
+            const container = document.getElementById('saved-patterns-list');
+            if (!container) return;
+            container.innerHTML = '';
+            if (savedPatterns.length === 0) {
+                container.innerHTML = '<div class="info-panel" style="padding: 10px; font-size: 12px;">No saved patterns</div>';
+                return;
+            }
+            // Add grid container style - responsive wrapping
+            container.style.display = 'grid';
+            container.style.gridTemplateColumns = 'repeat(auto-fill, minmax(60px, 1fr))';
+            container.style.gap = '8px';
+            container.style.padding = '4px';
+            container.style.boxSizing = 'border-box'; // Ensure padding doesn't cause overflow
+            container.style.width = '100%';
+            container.style.overflowX = 'hidden'; // Force no horizontal scroll
+
+            savedPatterns.forEach((pattern, index) => {
+                const item = document.createElement('div');
+                item.className = 'layer-item';
+                item.style.padding = '4px';
+                item.style.display = 'flex';
+                item.style.flexDirection = 'column';
+                item.style.alignItems = 'center';
+                item.style.border = '1px solid var(--border-color-light)';
+                item.style.borderRadius = '6px';
+                item.style.cursor = 'pointer';
+                item.style.backgroundColor = 'white';
+                item.style.position = 'relative';
+                item.style.transition = 'all 0.2s ease';
+
+                // Hover effect handled by CSS via class, but adding inline for specificity
+                item.onmouseenter = () => { item.style.borderColor = 'var(--accent-color)'; item.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)'; };
+                item.onmouseleave = () => { item.style.borderColor = 'var(--border-color-light)'; item.style.boxShadow = 'none'; };
+
+                item.innerHTML = `
+                    <div style="width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 4px; border: 1px solid #eee; background: #fafafa; display: flex; align-items: center; justify-content: center;">
+                        <img src="${pattern.thumbnail || ''}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                    </div>
+                    <div class="delete-pattern" style="position: absolute; top: -6px; right: -6px; background: white; border: 1px solid #e0e0e0; color: #dc3545; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; box-shadow: 0 1px 3px rgba(0,0,0,0.1);" title="Remove">✕</div>
+                    <div style="font-size: 10px; color: #666; margin-top: 4px; width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        ${pattern.stats || 'Pattern'}
+                    </div>
+                `;
+
+                // Click events
+                item.onclick = (e) => {
+                    if (e.target.classList.contains('delete-pattern')) {
+                        e.stopPropagation();
+                        if (confirm('Delete this pattern?')) {
+                            savedPatterns.splice(index, 1);
+                            renderSavedPatternsList();
+                        }
+                    } else {
+                        applySavedPattern(pattern);
+                    }
+                };
+
+                container.appendChild(item);
+            });
+        }
+
+        function saveCurrentPattern() {
+            if (!cropLengths || !searchBboxSize) {
+                alert('No valid pattern to save!');
+                return;
+            }
+
+            // Capture thumbnail from crop canvas
+            const cropCanvas = document.getElementById('crop-canvas');
+            let thumbnail = '';
+            if (cropCanvas) {
+                // Determine crop bounds on the crop canvas to avoid saving empty whitespace
+                // For simplicity, we just save the whole crop canvas which is already tightly fitted to anchorBbox in showCropModal
+                thumbnail = cropCanvas.toDataURL('image/png');
+            }
+
+            // Generate stats string
+            let stats = [];
+            if (cropLengthsFull?.l?.length) stats.push(`${cropLengthsFull.l.length}L`);
+            if (cropLengthsFull?.c?.length) stats.push(`${cropLengthsFull.c.length}C`);
+            if (cropLengthsFull?.qu?.length) stats.push(`${cropLengthsFull.qu.length}Q`);
+            const statsStr = stats.join(', ');
+
+            const patternData = {
+                name: `Pattern ${savedPatterns.length + 1}`, // Internal name
+                thumbnail: thumbnail,
+                stats: statsStr,
+                timestamp: Date.now(),
+                data: {
+                    cropLengths: JSON.parse(JSON.stringify(cropLengths)),
+                    cropLengthsFull: JSON.parse(JSON.stringify(cropLengthsFull)),
+                    cropLengthsFiltered: JSON.parse(JSON.stringify(cropLengthsFiltered)),
+                    anchorPatterns: JSON.parse(JSON.stringify(anchorPatterns)),
+                    sequencePatternTokens: JSON.parse(JSON.stringify(sequencePatternTokens)),
+                    searchBboxSize: JSON.parse(JSON.stringify(searchBboxSize)),
+                    anchorBbox: JSON.parse(JSON.stringify(anchorBbox)),
+                    mainLayers: mainLayers ? [...mainLayers] : []
+                }
+            };
+            savedPatterns.push(patternData);
+            renderSavedPatternsList();
+            // Optional: alert('Pattern saved!');
+        }
+
+        function applySavedPattern(pattern) {
+            if (!jsonShapes) {
+                alert('No document loaded.');
+                return;
+            }
+
+            // Restore pattern data
+            const d = pattern.data;
+            cropLengths = d.cropLengths;
+            cropLengthsFull = d.cropLengthsFull;
+            cropLengthsFiltered = d.cropLengthsFiltered;
+            anchorPatterns = d.anchorPatterns;
+            sequencePatternTokens = d.sequencePatternTokens;
+            searchBboxSize = d.searchBboxSize;
+            anchorBbox = d.anchorBbox;
+
+            // Enable flag to hide blue anchor bbox
+            isApplyingSavedPattern = true;
+
+            // Logic search optimization: use saved layers if available
+            if (d.mainLayers && d.mainLayers.length > 0) {
+                mainLayers = d.mainLayers;
+            } else {
+                // Fallback if no MainLayers saved (e.g. legacy), use all visible
+                mainLayers = sortedLayerKeys.filter(key => key.startsWith('shape_') && layerVisibility[key]);
+            }
+
+            // Just for safety, ensure we are not searching on non-existent layers (though loop handles it)
+            // But we might want to warn if the layer doesn't exist? No, user wants silent optimization.
+
+            if (mainLayers.length === 0) {
+                alert('No valid layers to search on (Saved pattern has no matching layers on this page).');
+                return;
+            }
+
+            // Clean UI
+            isDrawingBbox = false;
+            btnDrawBbox.classList.remove('active');
+
+            const popup = document.getElementById('loading-popup');
+            if (popup) popup.style.display = 'flex';
+
+            // Allow UI update then search
+            setTimeout(() => {
+                try {
+                    findSimilarRegions();
+                    scheduleDraw();
+                } catch (err) {
+                    console.error('Error during saved pattern search', err);
+                } finally {
+                    if (popup) popup.style.display = 'none';
+                }
+            }, 20);
+        }
+
         resizeCanvas();
     </script>
 </body>
+
 </html>
