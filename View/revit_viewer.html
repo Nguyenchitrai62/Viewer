@@ -202,9 +202,57 @@
             box-shadow: 0 0 8px currentColor;
         }
 
-        .filter-item input {
-            accent-color: var(--primary);
-            cursor: pointer;
+        /* Modern Switch Toggle */
+        .toggle-switch {
+            position: relative;
+            display: inline-flex;
+            width: 32px;
+            height: 18px;
+            flex-shrink: 0;
+            margin-right: 6px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            margin: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.1);
+            transition: .3s;
+            border-radius: 18px;
+            border: 1px solid var(--glass-border);
+            pointer-events: none;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 12px;
+            width: 12px;
+            left: 2px;
+            bottom: 2px;
+            background-color: var(--text-muted);
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked+.toggle-slider {
+            background-color: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .toggle-switch input:checked+.toggle-slider:before {
+            transform: translateX(14px);
+            background-color: white;
+            box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
         }
 
         /* --- PROPERTIES & LEGEND --- */
@@ -1049,16 +1097,16 @@
                 const group = new THREE.Group();
                 const t = fitting.Transform;
                 const basisXDir = new THREE.Vector2(parseFloat(t.BasisX.X), parseFloat(t.BasisX.Y)).normalize();
-                
+
                 // Phân loại connectors thành run vs branch dựa trên hướng pipe
                 const runDiams = [];
                 const branchDiams = [];
-                
+
                 if (fitting.Connectors && fitting.Connectors.length >= 4) {
                     fitting.Connectors.forEach(conn => {
                         const connDia = parseFloat(conn.Diameter || 0) * scale;
                         const connId = conn.ConnectedToId;
-                        
+
                         // Tìm pipe tương ứng để xác định hướng
                         let isRun = false;
                         if (connId && state.data && state.data.Pipes) {
@@ -1074,17 +1122,17 @@
                                 isRun = dot > 0.7;
                             }
                         }
-                        
+
                         if (isRun) runDiams.push(connDia);
                         else branchDiams.push(connDia);
                     });
                 }
-                
+
                 // Fallback nếu phân loại không đủ
                 const runRadius = runDiams.length > 0 ? Math.max(...runDiams) / 2 : radius;
                 const branchRadius1 = branchDiams.length > 0 ? branchDiams[0] / 2 : smallRadius;
                 const branchRadius2 = branchDiams.length > 1 ? branchDiams[1] / 2 : branchRadius1;
-                
+
                 // Run along X
                 const runLength = runRadius * 4;
                 const runGeom = new THREE.CylinderGeometry(runRadius, runRadius, runLength, 12);
@@ -1193,24 +1241,73 @@
             const pipes = state.data.Pipes?.length || 0;
             const fittings = state.data.Fittings?.length || 0;
 
+            const levels = new Set();
+            if (state.data.Pipes) state.data.Pipes.forEach(p => { if (p.LevelName) levels.add(p.LevelName); });
+            if (state.data.Fittings) state.data.Fittings.forEach(f => { if (f.LevelName) levels.add(f.LevelName); });
+            const sortedLevels = Array.from(levels).sort();
+
             let html = `
-                <div class="tree-item" onclick="selectAllObjects()">
-                    <span class="tree-item-icon">📁</span>
-                    <span>All Elements</span>
-                </div>
+                <label class="tree-item" style="margin-bottom: 2px;">
+                    <div class="toggle-switch">
+                        <input type="checkbox" checked id="toggle-all-elements" onchange="toggleAllElements(this)">
+                        <span class="toggle-slider"></span>
+                    </div>
+                    <span class="tree-item-icon" style="margin-left: 5px;">📁</span>
+                    <span style="flex: 1;">All Elements</span>
+                </label>
                 <div class="tree-children">
-                    <div class="tree-item" onclick="selectByType('pipe')">
-                        <span class="tree-item-icon">🔗</span>
-                        <span>Pipes (${pipes})</span>
-                    </div>
-                    <div class="tree-item" onclick="selectByType('fitting')">
-                        <span class="tree-item-icon">🔧</span>
-                        <span>Fittings (${fittings})</span>
-                    </div>
+                    <label class="tree-item" style="margin-bottom: 2px;">
+                        <div class="toggle-switch">
+                            <input type="checkbox" checked data-type="pipe" onchange="toggleTypeFilter(this)">
+                            <span class="toggle-slider"></span>
+                        </div>
+                        <span class="tree-item-icon" style="margin-left: 5px;">🔗</span>
+                        <span style="flex: 1;">Pipes (${pipes})</span>
+                    </label>
+                    <label class="tree-item" style="margin-bottom: 2px;">
+                        <div class="toggle-switch">
+                            <input type="checkbox" checked data-type="fitting" onchange="toggleTypeFilter(this)">
+                            <span class="toggle-slider"></span>
+                        </div>
+                        <span class="tree-item-icon" style="margin-left: 5px;">🔧</span>
+                        <span style="flex: 1;">Fittings (${fittings})</span>
+                    </label>
                 </div>
+                
+                <label class="tree-item" style="margin-top: 10px; margin-bottom: 2px;">
+                    <div class="toggle-switch">
+                        <input type="checkbox" checked id="toggle-all-levels" onchange="toggleAllLevels(this)">
+                        <span class="toggle-slider"></span>
+                    </div>
+                    <span class="tree-item-icon" style="margin-left: 5px;">🏢</span>
+                    <span style="flex: 1;">Tầng (Levels)</span>
+                </label>
+                <div class="tree-children">
             `;
 
-            // Add Levels/Systems sub-trees as needed (simplified here)
+            if (sortedLevels.length > 0) {
+                sortedLevels.forEach(level => {
+                    const safeLevel = level.replace(/"/g, '&quot;');
+                    html += `
+                        <label class="tree-item" style="margin-bottom: 2px;">
+                            <div class="toggle-switch">
+                                <input type="checkbox" checked data-level="${safeLevel}" onchange="toggleLevelFilter(this)">
+                                <span class="toggle-slider"></span>
+                            </div>
+                            <span style="flex: 1; margin-left: 5px;">${level}</span>
+                        </label>
+                    `;
+                });
+            } else {
+                html += `
+                    <div class="tree-item" style="color: var(--text-muted); cursor: default;">
+                        <span>No Levels Data</span>
+                    </div>
+                `;
+            }
+
+            html += `</div>`;
+
             browser.innerHTML = html;
         }
 
@@ -1223,11 +1320,14 @@
             systems.forEach(system => {
                 const color = '#' + getSystemColor(system).toString(16).padStart(6, '0');
                 html += `
-                    <div class="filter-item">
-                        <input type="checkbox" checked data-system="${system}" onchange="toggleSystemFilter(this)">
-                        <span class="filter-color" style="background: ${color};"></span>
-                        <span>${system}</span>
-                    </div>
+                    <label class="filter-item" style="margin-bottom: 4px;">
+                        <div class="toggle-switch">
+                            <input type="checkbox" checked data-system="${system}" onchange="toggleSystemFilter(this)">
+                            <span class="toggle-slider"></span>
+                        </div>
+                        <span class="filter-color" style="background: ${color}; margin-left: 5px;"></span>
+                        <span style="flex: 1; margin-left: 5px;">${system}</span>
+                    </label>
                 `;
             });
             container.innerHTML = html || '<div style="color:var(--text-muted); padding:10px;">No filters</div>';
@@ -1497,12 +1597,27 @@
             });
         }
 
-        function selectAllObjects() {
-            state.objects.forEach(obj => obj.visible = true);
+        function updateGlobalCheckboxState() {
+            const allCheckboxes = document.querySelectorAll('input[type="checkbox"]:not(#toggle-all-elements)');
+            const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+            const toggleAll = document.getElementById('toggle-all-elements');
+            if (toggleAll) toggleAll.checked = allChecked;
         }
 
-        function selectByType(type) {
-            state.objects.forEach(obj => obj.visible = (obj.userData.type === type));
+        function toggleAllElements(checkbox) {
+            const visible = checkbox.checked;
+            state.objects.forEach(obj => obj.visible = visible);
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = visible);
+        }
+
+        function toggleTypeFilter(checkbox) {
+            const type = checkbox.dataset.type;
+            const visible = checkbox.checked;
+            state.objects.forEach(obj => {
+                if (obj.userData.type === type) obj.visible = visible;
+            });
+            updateGlobalCheckboxState();
         }
 
         function toggleSystemFilter(checkbox) {
@@ -1511,6 +1626,40 @@
             state.objects.forEach(obj => {
                 if (obj.userData.data.SystemTypeName === system) obj.visible = visible;
             });
+            updateGlobalCheckboxState();
+        }
+
+        function toggleLevelFilter(checkbox) {
+            const level = checkbox.dataset.level;
+            const visible = checkbox.checked;
+            state.objects.forEach(obj => {
+                if (obj.userData.data.LevelName === level) obj.visible = visible;
+            });
+
+            // Update parent checkbox state
+            const levelCheckboxes = document.querySelectorAll('input[data-level]');
+            const allChecked = Array.from(levelCheckboxes).every(cb => cb.checked);
+            const toggleAll = document.getElementById('toggle-all-levels');
+            if (toggleAll) toggleAll.checked = allChecked;
+
+            updateGlobalCheckboxState();
+        }
+
+        function toggleAllLevels(checkbox) {
+            const visible = checkbox.checked;
+            const levelCheckboxes = document.querySelectorAll('input[data-level]');
+            levelCheckboxes.forEach(cb => {
+                cb.checked = visible;
+            });
+
+            // Apply visibility to all objects with a LevelName
+            state.objects.forEach(obj => {
+                if (obj.userData.data.LevelName) {
+                    obj.visible = visible;
+                }
+            });
+
+            updateGlobalCheckboxState();
         }
 
         function showLoading(text) {
