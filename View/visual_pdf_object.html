@@ -2287,16 +2287,27 @@
             btnShowMode.classList.remove('active');
             const croppedObjs = [];
             const layerSet = new Set();
-            sortedLayerKeys.forEach(layerName => {
-                if (!layerVisibility[layerName]) return;
-                const layerArr = layerIndex[layerName] || [];
-                layerArr.forEach(obj => {
+            if (allShapesSorted && allShapesSorted.length > 0) {
+                allShapesSorted.forEach(obj => {
+                    const layerName = obj.layer;
+                    if (!layerVisibility[layerName]) return;
                     if (bboxInside(obj.rect, [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height])) {
                         croppedObjs.push({ obj, layer: layerName });
                         layerSet.add(layerName);
                     }
                 });
-            });
+            } else {
+                sortedLayerKeys.forEach(layerName => {
+                    if (!layerVisibility[layerName]) return;
+                    const layerArr = layerIndex[layerName] || [];
+                    layerArr.forEach(obj => {
+                        if (bboxInside(obj.rect, [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height])) {
+                            croppedObjs.push({ obj, layer: layerName });
+                            layerSet.add(layerName);
+                        }
+                    });
+                });
+            }
             if (!croppedObjs.length) return;
             let tightMinX = Infinity, tightMinY = Infinity, tightMaxX = -Infinity, tightMaxY = -Infinity;
             croppedObjs.forEach(({ obj }) => {

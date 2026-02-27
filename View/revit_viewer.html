@@ -843,6 +843,15 @@
                         // Elbow curve: from (-arcRadius, 0, 0) to (0, arcRadius, 0)
                         localEndpoints.push(new THREE.Vector3(-arcRadius, 0, 0));
                         localEndpoints.push(new THREE.Vector3(0, arcRadius, 0));
+                    } else if (familyName.includes('cross')) {
+                        const halfRun = radius * 2; // runLength/2 (same as Tee)
+                        const branchEnd = radius * 2.5; // branchLength (same as Tee)
+                        // Run along X
+                        localEndpoints.push(new THREE.Vector3(-halfRun, 0, 0));
+                        localEndpoints.push(new THREE.Vector3(halfRun, 0, 0));
+                        // Branch along +Y and -Y
+                        localEndpoints.push(new THREE.Vector3(0, branchEnd, 0));
+                        localEndpoints.push(new THREE.Vector3(0, -branchEnd, 0));
                     } else if (familyName.includes('tee')) {
                         const halfRun = radius * 2; // runLength/2
                         const branchEnd = radius * 2.5; // branchLength
@@ -865,7 +874,7 @@
 
                     // Build transform matrix (same logic as createFitting)
                     const matrix = new THREE.Matrix4();
-                    if (familyName.includes('tee')) {
+                    if (familyName.includes('tee') || familyName.includes('cross')) {
                         const xVal = parseFloat(t.BasisX.X);
                         const yVal = parseFloat(t.BasisX.Y);
                         const angle = Math.atan2(yVal, xVal);
@@ -884,7 +893,12 @@
                     // Transform local endpoints to world space
                     const worldEndpoints = localEndpoints.map(lp => lp.clone().applyMatrix4(matrix));
 
-                    fittingEndpoints.push({ origin, endpoints: worldEndpoints });
+                    let connectedPipes = [];
+                    if (fitting.Connectors && Array.isArray(fitting.Connectors)) {
+                        connectedPipes = fitting.Connectors.map(c => String(c.ConnectedToId)).filter(id => id !== "undefined" && id !== "null");
+                    }
+
+                    fittingEndpoints.push({ origin, endpoints: worldEndpoints, connectedPipes });
                 });
             }
 
@@ -922,42 +936,31 @@
 
             // Shorten pipe ends to match fitting geometry endpoints
             if (fittingEndpoints && fittingEndpoints.length > 0) {
-                const originTolerance = 0.001;
                 const pipeDir = new THREE.Vector3().subVectors(end, start).normalize();
+                const pipeIdStr = String(pipe.Id);
 
                 for (const fit of fittingEndpoints) {
-                    // Check if pipe START matches a fitting origin
-                    if (start.distanceTo(fit.origin) < originTolerance) {
-                        // Find the fitting endpoint most aligned with the pipe direction
-                        let bestEp = null;
-                        let bestDot = -Infinity;
-                        for (const ep of fit.endpoints) {
-                            const toEp = new THREE.Vector3().subVectors(ep, fit.origin).normalize();
-                            const dot = toEp.dot(pipeDir);
-                            if (dot > bestDot) {
-                                bestDot = dot;
-                                bestEp = ep;
-                            }
-                        }
-                        if (bestEp && bestDot > 0.5) {
-                            start.copy(bestEp);
+                    if (!fit.connectedPipes || !fit.connectedPipes.includes(pipeIdStr)) continue;
+
+                    const isStart = start.distanceTo(fit.origin) < end.distanceTo(fit.origin);
+                    const checkDir = isStart ? pipeDir : pipeDir.clone().negate();
+
+                    let bestEp = null;
+                    let bestDot = -Infinity;
+                    for (const ep of fit.endpoints) {
+                        const toEp = new THREE.Vector3().subVectors(ep, fit.origin).normalize();
+                        const dot = toEp.dot(checkDir);
+                        if (dot > bestDot) {
+                            bestDot = dot;
+                            bestEp = ep;
                         }
                     }
-                    // Check if pipe END matches a fitting origin
-                    if (end.distanceTo(fit.origin) < originTolerance) {
-                        const reversePipeDir = pipeDir.clone().negate();
-                        let bestEp = null;
-                        let bestDot = -Infinity;
-                        for (const ep of fit.endpoints) {
-                            const toEp = new THREE.Vector3().subVectors(ep, fit.origin).normalize();
-                            const dot = toEp.dot(reversePipeDir);
-                            if (dot > bestDot) {
-                                bestDot = dot;
-                                bestEp = ep;
-                            }
-                        }
-                        if (bestEp && bestDot > 0.5) {
-                            end.copy(bestEp);
+                    if (bestEp && bestDot > 0.5) {
+                        const indentDist = fit.origin.distanceTo(bestEp);
+                        if (isStart) {
+                            start.copy(fit.origin).add(pipeDir.clone().multiplyScalar(indentDist));
+                        } else {
+                            end.copy(fit.origin).add(pipeDir.clone().negate().multiplyScalar(indentDist));
                         }
                     }
                 }
@@ -1040,6 +1043,70 @@
                 const subMesh = new THREE.Mesh(geometry, material);
                 mesh = new THREE.Group();
                 mesh.add(subMesh);
+            } else if (familyName.includes('cross')) {
+                // Cross = 4-way junction
+                // Phân loại connector: run (dọc theo BasisX) vs branch (vuông góc BasisX)
+                const group = new THREE.Group();
+                const t = fitting.Transform;
+                const basisXDir = new THREE.Vector2(parseFloat(t.BasisX.X), parseFloat(t.BasisX.Y)).normalize();
+                
+                // Phân loại connectors thành run vs branch dựa trên hướng pipe
+                const runDiams = [];
+                const branchDiams = [];
+                
+                if (fitting.Connectors && fitting.Connectors.length >= 4) {
+                    fitting.Connectors.forEach(conn => {
+                        const connDia = parseFloat(conn.Diameter || 0) * scale;
+                        const connId = conn.ConnectedToId;
+                        
+                        // Tìm pipe tương ứng để xác định hướng
+                        let isRun = false;
+                        if (connId && state.data && state.data.Pipes) {
+                            const pipe = state.data.Pipes.find(p => p.Id === connId);
+                            if (pipe) {
+                                const ps = new THREE.Vector2(
+                                    parseFloat(pipe.StartPoint.X), parseFloat(pipe.StartPoint.Y));
+                                const pe = new THREE.Vector2(
+                                    parseFloat(pipe.EndPoint.X), parseFloat(pipe.EndPoint.Y));
+                                const pipeDir = new THREE.Vector2().subVectors(pe, ps).normalize();
+                                // Nếu pipe song song với BasisX (|dot| > 0.7) → run
+                                const dot = Math.abs(pipeDir.dot(basisXDir));
+                                isRun = dot > 0.7;
+                            }
+                        }
+                        
+                        if (isRun) runDiams.push(connDia);
+                        else branchDiams.push(connDia);
+                    });
+                }
+                
+                // Fallback nếu phân loại không đủ
+                const runRadius = runDiams.length > 0 ? Math.max(...runDiams) / 2 : radius;
+                const branchRadius1 = branchDiams.length > 0 ? branchDiams[0] / 2 : smallRadius;
+                const branchRadius2 = branchDiams.length > 1 ? branchDiams[1] / 2 : branchRadius1;
+                
+                // Run along X
+                const runLength = runRadius * 4;
+                const runGeom = new THREE.CylinderGeometry(runRadius, runRadius, runLength, 12);
+                const runMesh = new THREE.Mesh(runGeom, material);
+                runMesh.rotation.z = Math.PI / 2;
+                group.add(runMesh);
+
+                // Branch +Y
+                const branchLength1 = runRadius * 2.5;
+                const branchGeom1 = new THREE.CylinderGeometry(branchRadius1, branchRadius1, branchLength1, 12);
+                const branchMesh1 = new THREE.Mesh(branchGeom1, material);
+                branchMesh1.position.y = branchLength1 / 2;
+                group.add(branchMesh1);
+
+                // Branch -Y
+                const branchLength2 = runRadius * 2.5;
+                const branchGeom2 = new THREE.CylinderGeometry(branchRadius2, branchRadius2, branchLength2, 12);
+                const branchMesh2 = new THREE.Mesh(branchGeom2, material);
+                branchMesh2.position.y = -branchLength2 / 2;
+                group.add(branchMesh2);
+
+                mesh = group;
             } else if (familyName.includes('tee')) {
                 const group = new THREE.Group();
                 const runLength = radius * 4;
@@ -1066,7 +1133,7 @@
             const matrix = new THREE.Matrix4();
 
             // Fix for Tees: Rely on BasisX only (Z-rotation) as requested by user
-            if (familyName.includes('tee')) {
+            if (familyName.includes('tee') || familyName.includes('cross')) {
                 const xVal = parseFloat(transform.BasisX.X);
                 const yVal = parseFloat(transform.BasisX.Y);
                 const angle = Math.atan2(yVal, xVal);
@@ -1114,6 +1181,7 @@
             const name = (familyName || '').toLowerCase();
             if (name.includes('elbow')) return 0x888888;
             if (name.includes('wye')) return 0x999999;
+            if (name.includes('cross')) return 0xbbbbbb;
             if (name.includes('tee')) return 0xaaaaaa;
             if (name.includes('sprinkler')) return 0xff6b6b;
             return systemColors['Default'];
