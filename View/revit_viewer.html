@@ -689,6 +689,40 @@
             'Default': 0x888888
         };
 
+        const geomCache = {};
+        const matCache = {};
+
+        function getSharedMaterial(colorHex, isWireframe) {
+            const key = `${colorHex}_${isWireframe}`;
+            if (!matCache[key]) {
+                const mat = new THREE.MeshLambertMaterial({ color: colorHex, wireframe: isWireframe });
+                mat.transparent = true;
+                matCache[key] = mat;
+            }
+            return matCache[key];
+        }
+
+        function getSharedPipeGeom() {
+            if (!geomCache.pipe) { geomCache.pipe = new THREE.CylinderGeometry(1, 1, 1, 12, 1); geomCache.pipe.computeBoundingBox(); }
+            return geomCache.pipe;
+        }
+
+        function getSharedElbowGeom() {
+            if (!geomCache.elbow) {
+                const curve = new THREE.QuadraticBezierCurve3(
+                    new THREE.Vector3(-1.5, 0, 0), new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1.5, 0)
+                );
+                geomCache.elbow = new THREE.TubeGeometry(curve, 16, 0.85, 12, false);
+                geomCache.elbow.computeBoundingBox();
+            }
+            return geomCache.elbow;
+        }
+
+        function getSharedBoxGeom() {
+            if (!geomCache.box) { geomCache.box = new THREE.BoxGeometry(1, 1, 1); geomCache.box.computeBoundingBox(); }
+            return geomCache.box;
+        }
+
         // ==================== INITIALIZATION ====================
         function init() {
             initThreeJS();
@@ -829,15 +863,37 @@
             // Cleanup existing
             const objectsToRemove = [];
             state.scene.traverse(child => {
-                if (child.userData && (child.userData.type === 'pipe' || child.userData.type === 'fitting')) {
+                if (child.userData && (child.userData.type === 'pipe' || child.userData.type === 'fitting' || child.userData.type === 'instanced_pipes')) {
                     objectsToRemove.push(child);
                 }
             });
             objectsToRemove.forEach(obj => {
                 state.scene.remove(obj);
-                if (obj.geometry) obj.geometry.dispose();
-                if (obj.material) obj.material.dispose();
+                if (obj.geometry && obj !== state.instancedPipes) obj.geometry.dispose();
+                if (obj.material && obj !== state.instancedPipes) obj.material.dispose();
             });
+
+            if (state.highlightMeshPipe) {
+                state.scene.remove(state.highlightMeshPipe);
+                state.highlightMeshPipe = null;
+            }
+
+            state.instancedPipes = null;
+            state.instancedPipesMap = new Map();
+            state.pipeMap = new Map();
+
+            if (state.instancedFittings) {
+                Object.values(state.instancedFittings).forEach(m => {
+                    if (m) state.scene.remove(m);
+                });
+            }
+            state.instancedFittings = { elbow: null, cylinder: null, box: null };
+            state.fittingGroups = new Map();
+            state.fittingInstanceMap = { elbow: new Map(), cylinder: new Map(), box: new Map() };
+
+            if (data.Pipes && Array.isArray(data.Pipes)) {
+                data.Pipes.forEach(pipe => state.pipeMap.set(pipe.Id, pipe));
+            }
 
             // Calculate average Z for grid positioning
             let minZ = Infinity, maxZ = -Infinity;
@@ -950,8 +1006,70 @@
                 });
             }
 
-            if (data.Pipes) data.Pipes.forEach((pipe, index) => createPipe(pipe, index, fittingEndpoints));
-            if (data.Fittings) data.Fittings.forEach((fitting, index) => createFitting(fitting, index));
+            if (data.Pipes && data.Pipes.length > 0) {
+                const pipeGeom = getSharedPipeGeom();
+                const pipeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, wireframe: state.wireframe });
+                pipeMat.transparent = true;
+                state.instancedPipes = new THREE.InstancedMesh(pipeGeom, pipeMat, data.Pipes.length);
+                state.instancedPipes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                state.instancedPipes.userData = { type: 'instanced_pipes' };
+                state.scene.add(state.instancedPipes);
+                state.objects.push(state.instancedPipes);
+
+                let pipeIdx = 0;
+                data.Pipes.forEach((pipe) => {
+                    if (createPipe(pipe, pipeIdx, fittingEndpoints)) {
+                        pipeIdx++;
+                    }
+                });
+                state.instancedPipes.count = pipeIdx;
+                state.instancedPipes.instanceMatrix.needsUpdate = true;
+                if (state.instancedPipes.instanceColor) state.instancedPipes.instanceColor.needsUpdate = true;
+            }
+
+            // Count fittings to allocate instances
+            let cElbow = 0, cCyl = 0, cBox = 0;
+            if (data.Fittings) {
+                data.Fittings.forEach(fit => {
+                    const fname = (fit.FamilyName || '').toLowerCase();
+                    if (fname.includes('elbow')) cElbow++;
+                    else if (fname.includes('cross')) cCyl += 3;
+                    else if (fname.includes('tee')) cCyl += 2;
+                    else cBox++;
+                });
+            }
+
+            const fitMat = new THREE.MeshLambertMaterial({ color: 0xffffff, wireframe: state.wireframe });
+            fitMat.transparent = true;
+
+            if (cElbow > 0) {
+                state.instancedFittings.elbow = new THREE.InstancedMesh(getSharedElbowGeom(), fitMat.clone(), cElbow);
+                state.instancedFittings.elbow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                state.instancedFittings.elbow.userData = { type: 'instanced_fittings', fitType: 'elbow' };
+                state.scene.add(state.instancedFittings.elbow);
+                state.objects.push(state.instancedFittings.elbow);
+            }
+            if (cCyl > 0) {
+                state.instancedFittings.cylinder = new THREE.InstancedMesh(getSharedPipeGeom(), fitMat.clone(), cCyl);
+                state.instancedFittings.cylinder.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                state.instancedFittings.cylinder.userData = { type: 'instanced_fittings', fitType: 'cylinder' };
+                state.scene.add(state.instancedFittings.cylinder);
+                state.objects.push(state.instancedFittings.cylinder);
+            }
+            if (cBox > 0) {
+                state.instancedFittings.box = new THREE.InstancedMesh(getSharedBoxGeom(), fitMat.clone(), cBox);
+                state.instancedFittings.box.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                state.instancedFittings.box.userData = { type: 'instanced_fittings', fitType: 'box' };
+                state.scene.add(state.instancedFittings.box);
+                state.objects.push(state.instancedFittings.box);
+            }
+
+            const fittingIndices = { elbow: 0, cylinder: 0, box: 0 };
+            if (data.Fittings) data.Fittings.forEach((fitting) => createFittingFast(fitting, fittingIndices));
+
+            if (state.instancedFittings.elbow) { state.instancedFittings.elbow.instanceMatrix.needsUpdate = true; if (state.instancedFittings.elbow.instanceColor) state.instancedFittings.elbow.instanceColor.needsUpdate = true; }
+            if (state.instancedFittings.cylinder) { state.instancedFittings.cylinder.instanceMatrix.needsUpdate = true; if (state.instancedFittings.cylinder.instanceColor) state.instancedFittings.cylinder.instanceColor.needsUpdate = true; }
+            if (state.instancedFittings.box) { state.instancedFittings.box.instanceMatrix.needsUpdate = true; if (state.instancedFittings.box.instanceColor) state.instancedFittings.box.instanceColor.needsUpdate = true; }
 
             updateProjectBrowser();
             updateSystemFilters();
@@ -1018,39 +1136,36 @@
             const radius = diameter / 2;
             const length = start.distanceTo(end);
 
-            if (length < 0.001) return;
+            if (length < 0.001) return false;
 
-            const geometry = new THREE.CylinderGeometry(radius, radius, length, 12, 1);
-            const color = getSystemColor(pipe.SystemTypeName || 'Default');
-
-            const material = new THREE.MeshLambertMaterial({
-                color: color,
-                wireframe: state.wireframe
-            });
-
-            const mesh = new THREE.Mesh(geometry, material);
             const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-            mesh.position.copy(midpoint);
-
             const direction = new THREE.Vector3().subVectors(end, start).normalize();
             const yAxis = new THREE.Vector3(0, 1, 0);
             const quaternion = new THREE.Quaternion();
             quaternion.setFromUnitVectors(yAxis, direction);
-            mesh.quaternion.copy(quaternion);
 
-            mesh.userData = {
+            const matrix = new THREE.Matrix4();
+            matrix.compose(midpoint, quaternion, new THREE.Vector3(radius, length, radius));
+
+            const colorHex = getSystemColor(pipe.SystemTypeName || 'Default');
+            const colorObj = new THREE.Color(colorHex);
+
+            state.instancedPipes.setMatrixAt(index, matrix);
+            state.instancedPipes.setColorAt(index, colorObj);
+
+            state.instancedPipesMap.set(index, {
                 type: 'pipe',
                 data: pipe,
                 id: pipe.Id,
                 name: pipe.Id,
-                originalMaterial: material
-            };
-
-            state.scene.add(mesh);
-            state.objects.push(mesh);
+                originalMatrix: matrix,
+                originalColor: colorObj,
+                visible: true
+            });
+            return true;
         }
 
-        function createFitting(fitting) {
+        function createFittingFast(fitting, indices) {
             const transform = fitting.Transform;
             const scale = state.feetToUnit;
 
@@ -1071,127 +1186,18 @@
             const smallRadius = minDiameter / 2;
 
             const familyName = (fitting.FamilyName || '').toLowerCase();
-            const material = new THREE.MeshLambertMaterial({
-                color: getFittingColor(fitting.FamilyName || 'Default'),
-                wireframe: state.wireframe
-            });
-
-            let mesh;
-
-            // Simplified geometry creation for clarity in refactor
-            if (familyName.includes('elbow')) {
-                const arcRadius = radius * 1.5;
-                const tubeRadius = radius * 0.85;
-                const curve = new THREE.QuadraticBezierCurve3(
-                    new THREE.Vector3(-arcRadius, 0, 0),
-                    new THREE.Vector3(0, 0, 0),
-                    new THREE.Vector3(0, arcRadius, 0)
-                );
-                const geometry = new THREE.TubeGeometry(curve, 16, tubeRadius, 12, false);
-                const subMesh = new THREE.Mesh(geometry, material);
-                mesh = new THREE.Group();
-                mesh.add(subMesh);
-            } else if (familyName.includes('cross')) {
-                // Cross = 4-way junction
-                // Phân loại connector: run (dọc theo BasisX) vs branch (vuông góc BasisX)
-                const group = new THREE.Group();
-                const t = fitting.Transform;
-                const basisXDir = new THREE.Vector2(parseFloat(t.BasisX.X), parseFloat(t.BasisX.Y)).normalize();
-
-                // Phân loại connectors thành run vs branch dựa trên hướng pipe
-                const runDiams = [];
-                const branchDiams = [];
-
-                if (fitting.Connectors && fitting.Connectors.length >= 4) {
-                    fitting.Connectors.forEach(conn => {
-                        const connDia = parseFloat(conn.Diameter || 0) * scale;
-                        const connId = conn.ConnectedToId;
-
-                        // Tìm pipe tương ứng để xác định hướng
-                        let isRun = false;
-                        if (connId && state.data && state.data.Pipes) {
-                            const pipe = state.data.Pipes.find(p => p.Id === connId);
-                            if (pipe) {
-                                const ps = new THREE.Vector2(
-                                    parseFloat(pipe.StartPoint.X), parseFloat(pipe.StartPoint.Y));
-                                const pe = new THREE.Vector2(
-                                    parseFloat(pipe.EndPoint.X), parseFloat(pipe.EndPoint.Y));
-                                const pipeDir = new THREE.Vector2().subVectors(pe, ps).normalize();
-                                // Nếu pipe song song với BasisX (|dot| > 0.7) → run
-                                const dot = Math.abs(pipeDir.dot(basisXDir));
-                                isRun = dot > 0.7;
-                            }
-                        }
-
-                        if (isRun) runDiams.push(connDia);
-                        else branchDiams.push(connDia);
-                    });
-                }
-
-                // Fallback nếu phân loại không đủ
-                const runRadius = runDiams.length > 0 ? Math.max(...runDiams) / 2 : radius;
-                const branchRadius1 = branchDiams.length > 0 ? branchDiams[0] / 2 : smallRadius;
-                const branchRadius2 = branchDiams.length > 1 ? branchDiams[1] / 2 : branchRadius1;
-
-                // Run along X
-                const runLength = runRadius * 4;
-                const runGeom = new THREE.CylinderGeometry(runRadius, runRadius, runLength, 12);
-                const runMesh = new THREE.Mesh(runGeom, material);
-                runMesh.rotation.z = Math.PI / 2;
-                group.add(runMesh);
-
-                // Branch +Y
-                const branchLength1 = runRadius * 2.5;
-                const branchGeom1 = new THREE.CylinderGeometry(branchRadius1, branchRadius1, branchLength1, 12);
-                const branchMesh1 = new THREE.Mesh(branchGeom1, material);
-                branchMesh1.position.y = branchLength1 / 2;
-                group.add(branchMesh1);
-
-                // Branch -Y
-                const branchLength2 = runRadius * 2.5;
-                const branchGeom2 = new THREE.CylinderGeometry(branchRadius2, branchRadius2, branchLength2, 12);
-                const branchMesh2 = new THREE.Mesh(branchGeom2, material);
-                branchMesh2.position.y = -branchLength2 / 2;
-                group.add(branchMesh2);
-
-                mesh = group;
-            } else if (familyName.includes('tee')) {
-                const group = new THREE.Group();
-                const runLength = radius * 4;
-                const runGeom = new THREE.CylinderGeometry(radius, radius, runLength, 12);
-                const runMesh = new THREE.Mesh(runGeom, material);
-                runMesh.rotation.z = Math.PI / 2;
-                group.add(runMesh);
-
-                const branchLength = radius * 2.5;
-                const branchGeom = new THREE.CylinderGeometry(smallRadius, smallRadius, branchLength, 12);
-                const branchMesh = new THREE.Mesh(branchGeom, material);
-                branchMesh.position.y = -branchLength / 2;
-                group.add(branchMesh);
-                mesh = group;
-            } else {
-                // Default box
-                const size = maxDiameter * 1.2;
-                const geometry = new THREE.BoxGeometry(size, size, size);
-                mesh = new THREE.Mesh(geometry, material);
-            }
-
-            // Debug axis (REMOVED per user request)
+            const colorHex = getFittingColor(fitting.FamilyName || 'Default');
+            const colorObj = new THREE.Color(colorHex);
 
             const matrix = new THREE.Matrix4();
-
-            // Fix for Tees: Rely on BasisX only (Z-rotation) as requested by user
             if (familyName.includes('tee') || familyName.includes('cross')) {
                 const xVal = parseFloat(transform.BasisX.X);
                 const yVal = parseFloat(transform.BasisX.Y);
                 const angle = Math.atan2(yVal, xVal);
-
                 const rotationMatrix = new THREE.Matrix4().makeRotationZ(angle);
                 const positionMatrix = new THREE.Matrix4().makeTranslation(origin.x, origin.y, origin.z);
-
                 matrix.multiplyMatrices(positionMatrix, rotationMatrix);
             } else {
-                // Default handling (Preserves mirroring for Elbows)
                 matrix.set(
                     parseFloat(transform.BasisX.X), parseFloat(transform.BasisY.X), parseFloat(transform.BasisZ.X), origin.x,
                     parseFloat(transform.BasisX.Y), parseFloat(transform.BasisY.Y), parseFloat(transform.BasisZ.Y), origin.y,
@@ -1200,25 +1206,102 @@
                 );
             }
 
-            const position = new THREE.Vector3();
-            const quaternion = new THREE.Quaternion();
-            const meshScale = new THREE.Vector3();
-            matrix.decompose(position, quaternion, meshScale);
+            const parts = [];
 
-            mesh.position.copy(position);
-            mesh.quaternion.copy(quaternion);
-            mesh.scale.copy(meshScale);
+            if (familyName.includes('elbow')) {
+                const localMat = new THREE.Matrix4().makeScale(radius, radius, radius);
+                parts.push({ type: 'elbow', matrix: new THREE.Matrix4().multiplyMatrices(matrix, localMat) });
+            } else if (familyName.includes('cross')) {
+                const t = fitting.Transform;
+                const basisXDir = new THREE.Vector2(parseFloat(t.BasisX.X), parseFloat(t.BasisX.Y)).normalize();
+                const runDiams = [];
+                const branchDiams = [];
 
-            mesh.userData = {
-                type: 'fitting',
+                if (fitting.Connectors) {
+                    fitting.Connectors.forEach(conn => {
+                        const connDia = parseFloat(conn.Diameter || 0) * scale;
+                        const connId = conn.ConnectedToId;
+                        let isRun = false;
+                        if (connId && state.pipeMap) {
+                            const pipe = state.pipeMap.get(connId);
+                            if (pipe) {
+                                const ps = new THREE.Vector2(parseFloat(pipe.StartPoint.X), parseFloat(pipe.StartPoint.Y));
+                                const pe = new THREE.Vector2(parseFloat(pipe.EndPoint.X), parseFloat(pipe.EndPoint.Y));
+                                const pipeDir = new THREE.Vector2().subVectors(pe, ps).normalize();
+                                const dot = Math.abs(pipeDir.dot(basisXDir));
+                                isRun = dot > 0.7;
+                            }
+                        }
+                        if (isRun) runDiams.push(connDia);
+                        else branchDiams.push(connDia);
+                    });
+                }
+
+                const runRadius = runDiams.length > 0 ? Math.max(...runDiams) / 2 : radius;
+                const branchRadius1 = branchDiams.length > 0 ? branchDiams[0] / 2 : smallRadius;
+                const branchRadius2 = branchDiams.length > 1 ? branchDiams[1] / 2 : branchRadius1;
+
+                const runLength = runRadius * 4;
+                const runRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
+                const runScale = new THREE.Vector3(runRadius, runLength, runRadius);
+                const runLocal = new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), runRot, runScale);
+                parts.push({ type: 'cylinder', matrix: new THREE.Matrix4().multiplyMatrices(matrix, runLocal) });
+
+                const branchLength1 = runRadius * 2.5;
+                const branchPos1 = new THREE.Vector3(0, branchLength1 / 2, 0);
+                const branchScale1 = new THREE.Vector3(branchRadius1, branchLength1, branchRadius1);
+                const branchLocal1 = new THREE.Matrix4().compose(branchPos1, new THREE.Quaternion(), branchScale1);
+                parts.push({ type: 'cylinder', matrix: new THREE.Matrix4().multiplyMatrices(matrix, branchLocal1) });
+
+                const branchLength2 = runRadius * 2.5;
+                const branchPos2 = new THREE.Vector3(0, -branchLength2 / 2, 0);
+                const branchScale2 = new THREE.Vector3(branchRadius2, branchLength2, branchRadius2);
+                const branchLocal2 = new THREE.Matrix4().compose(branchPos2, new THREE.Quaternion(), branchScale2);
+                parts.push({ type: 'cylinder', matrix: new THREE.Matrix4().multiplyMatrices(matrix, branchLocal2) });
+            } else if (familyName.includes('tee')) {
+                const runLength = radius * 4;
+                const runRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
+                const runScale = new THREE.Vector3(radius, runLength, radius);
+                const runLocal = new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), runRot, runScale);
+                parts.push({ type: 'cylinder', matrix: new THREE.Matrix4().multiplyMatrices(matrix, runLocal) });
+
+                const branchLength = radius * 2.5;
+                const branchPos = new THREE.Vector3(0, -branchLength / 2, 0);
+                const branchScale = new THREE.Vector3(smallRadius, branchLength, smallRadius);
+                const branchLocal = new THREE.Matrix4().compose(branchPos, new THREE.Quaternion(), branchScale);
+                parts.push({ type: 'cylinder', matrix: new THREE.Matrix4().multiplyMatrices(matrix, branchLocal) });
+            } else {
+                const size = maxDiameter * 1.2;
+                const localMat = new THREE.Matrix4().makeScale(size, size, size);
+                parts.push({ type: 'box', matrix: new THREE.Matrix4().multiplyMatrices(matrix, localMat) });
+            }
+
+            const fittingInstances = [];
+            parts.forEach(part => {
+                const type = part.type;
+                const idx = indices[type];
+
+                state.instancedFittings[type].setMatrixAt(idx, part.matrix);
+                state.instancedFittings[type].setColorAt(idx, colorObj);
+
+                state.fittingInstanceMap[type].set(idx, fitting.Id);
+
+                fittingInstances.push({
+                    type: type,
+                    instanceId: idx,
+                    originalMatrix: part.matrix,
+                    originalColor: colorObj
+                });
+
+                indices[type]++;
+            });
+
+            state.fittingGroups.set(fitting.Id, {
                 data: fitting,
-                id: fitting.Id,
-                name: fitting.FamilyName || fitting.Id,
-                originalMaterial: material
-            };
-
-            state.scene.add(mesh);
-            state.objects.push(mesh);
+                parts: fittingInstances,
+                visible: true,
+                type: 'fitting'
+            });
         }
 
         function getSystemColor(systemType) {
@@ -1241,10 +1324,31 @@
             const pipes = state.data.Pipes?.length || 0;
             const fittings = state.data.Fittings?.length || 0;
 
-            const levels = new Set();
-            if (state.data.Pipes) state.data.Pipes.forEach(p => { if (p.LevelName) levels.add(p.LevelName); });
-            if (state.data.Fittings) state.data.Fittings.forEach(f => { if (f.LevelName) levels.add(f.LevelName); });
-            const sortedLevels = Array.from(levels).sort();
+            const levelZ = new Map();
+            const addLevelZ = (name, z) => {
+                if (!name) return;
+                if (!levelZ.has(name) || z < levelZ.get(name)) {
+                    levelZ.set(name, z);
+                }
+            };
+
+            if (state.data.Pipes) {
+                state.data.Pipes.forEach(p => {
+                    if (p.LevelName && p.StartPoint) {
+                        addLevelZ(p.LevelName, parseFloat(p.StartPoint.Z));
+                    }
+                });
+            }
+            if (state.data.Fittings) {
+                state.data.Fittings.forEach(f => {
+                    if (f.LevelName && f.Transform && f.Transform.Origin) {
+                        addLevelZ(f.LevelName, parseFloat(f.Transform.Origin.Z));
+                    }
+                });
+            }
+
+            // Sort lowest Z first (thấp nhất ở trên cùng)
+            const sortedLevels = Array.from(levelZ.keys()).sort((a, b) => levelZ.get(a) - levelZ.get(b));
 
             let html = `
                 <label class="tree-item" style="margin-bottom: 2px;">
@@ -1334,11 +1438,12 @@
         }
 
         function updateStats() {
-            const pipes = state.objects.filter(o => o.userData.type === 'pipe').length;
-            const fittings = state.objects.filter(o => o.userData.type === 'fitting').length;
+            let pipes = 0;
+            if (state.instancedPipes) pipes = state.instancedPipes.count;
+            const fittings = state.fittingGroups ? state.fittingGroups.size : 0;
             document.getElementById('stat-pipes').textContent = pipes;
             document.getElementById('stat-fittings').textContent = fittings;
-            document.getElementById('status-objects').textContent = `Total: ${state.objects.length}`;
+            document.getElementById('status-objects').textContent = `Total: ${pipes + fittings}`;
             document.getElementById('stats-panel').style.display = 'flex';
         }
 
@@ -1433,51 +1538,107 @@
             const intersects = state.raycaster.intersectObjects(state.objects, true); // Recursive for Groups
 
             if (intersects.length > 0) {
-                // Find the top-level parent that is our "object"
                 let target = intersects[0].object;
-                while (target.parent && !target.userData.id && target.parent !== state.scene) {
-                    target = target.parent;
-                }
+                let targetInfo = null;
 
-                // If it's part of a group but the group is the main object
-                if (target.parent && target.parent.userData.id) {
-                    target = target.parent;
+                if (target === state.instancedPipes) {
+                    const instanceId = intersects[0].instanceId;
+                    targetInfo = state.instancedPipesMap.get(instanceId);
+                    if (!targetInfo || !targetInfo.visible) return; // Ignore hidden
+                } else if (target.userData && target.userData.type === 'instanced_fittings') {
+                    const fitType = target.userData.fitType;
+                    const instanceId = intersects[0].instanceId;
+                    const fittingId = state.fittingInstanceMap[fitType].get(instanceId);
+                    targetInfo = state.fittingGroups.get(fittingId);
+                    if (!targetInfo || !targetInfo.visible) return;
+                } else {
+                    while (target.parent && !target.userData.id && target.parent !== state.scene) {
+                        target = target.parent;
+                    }
+                    if (target.parent && target.parent.userData.id) {
+                        target = target.parent;
+                    }
+                    if (!target.userData.id) return;
                 }
-
-                if (!target.userData.id) return; // Clicked something else?
 
                 // restore old selection
                 if (state.selectedObject) {
-                    restoreObjectColor(state.selectedObject);
+                    restoreObjectColor(state.selectedObject, state.selectedInstanceId, state.selectedFittingId);
                 }
 
-                // New selection
                 state.selectedObject = target;
-                highlightObject(target);
-
-                updatePropertiesPanel(target);
+                if (target === state.instancedPipes) {
+                    state.selectedInstanceId = intersects[0].instanceId;
+                    state.selectedFittingId = null;
+                    highlightObject(target, state.selectedInstanceId, null);
+                    updatePropertiesPanel({ userData: targetInfo });
+                } else if (target.userData && target.userData.type === 'instanced_fittings') {
+                    state.selectedInstanceId = null;
+                    state.selectedFittingId = targetInfo.data.Id;
+                    highlightObject(target, null, state.selectedFittingId);
+                    updatePropertiesPanel({ userData: targetInfo });
+                } else {
+                    state.selectedInstanceId = null;
+                    state.selectedFittingId = null;
+                    highlightObject(target);
+                    updatePropertiesPanel(target);
+                }
             } else {
-                // Deselect
                 if (state.selectedObject) {
-                    restoreObjectColor(state.selectedObject);
+                    restoreObjectColor(state.selectedObject, state.selectedInstanceId, state.selectedFittingId);
                     state.selectedObject = null;
+                    state.selectedInstanceId = null;
+                    state.selectedFittingId = null;
                     updatePropertiesPanel(null);
                 }
             }
         }
 
-        function highlightObject(object) {
+        function highlightObject(object, pipeInstanceId = null, fittingId = null) {
+            const highlightColorObj = new THREE.Color(0x40a0ff);
+
+            if (object === state.instancedPipes && pipeInstanceId !== null) {
+                const info = state.instancedPipesMap.get(pipeInstanceId);
+                if (!info) return;
+
+                object.setColorAt(pipeInstanceId, highlightColorObj);
+                if (object.instanceColor) object.instanceColor.needsUpdate = true;
+
+                if (!state.highlightMeshPipe) {
+                    const hMat = new THREE.MeshLambertMaterial({ color: 0x40a0ff, emissive: 0x0078d4 });
+                    state.highlightMeshPipe = new THREE.Mesh(getSharedPipeGeom(), hMat);
+                    state.scene.add(state.highlightMeshPipe);
+                }
+                state.highlightMeshPipe.matrixAutoUpdate = false;
+
+                const sc = new THREE.Vector3();
+                const pos = new THREE.Vector3();
+                const quat = new THREE.Quaternion();
+                info.originalMatrix.decompose(pos, quat, sc);
+                state.highlightMeshPipe.matrix.compose(pos, quat, new THREE.Vector3(sc.x * 1.05, sc.y, sc.z * 1.05));
+                state.highlightMeshPipe.visible = true;
+                return;
+            } else if (object.userData && object.userData.type === 'instanced_fittings' && fittingId !== null) {
+                const group = state.fittingGroups.get(fittingId);
+                if (!group) return;
+
+                group.parts.forEach(part => {
+                    const instMesh = state.instancedFittings[part.type];
+                    instMesh.setColorAt(part.instanceId, highlightColorObj);
+                    if (instMesh.instanceColor) instMesh.instanceColor.needsUpdate = true;
+                });
+                return;
+            }
+
             const highlightColor = 0x40a0ff;
             const emissiveColor = 0x0078d4;
 
             if (object.isGroup) {
-                // First pass: save original colors before any mutation happens
                 object.children.forEach(child => {
                     if (child.isMesh) {
                         if (!child.userData.originalColor) child.userData.originalColor = child.material.color.clone();
                     }
                 });
-                // Second pass: apply highlighting
                 object.children.forEach(child => {
                     if (child.isMesh) {
                         child.material.emissive.setHex(emissiveColor);
@@ -1491,7 +1652,29 @@
             }
         }
 
-        function restoreObjectColor(object) {
+        function restoreObjectColor(object, pipeInstanceId = null, fittingId = null) {
+            if (object === state.instancedPipes && pipeInstanceId !== null) {
+                const info = state.instancedPipesMap.get(pipeInstanceId);
+                if (info) {
+                    object.setColorAt(pipeInstanceId, info.originalColor);
+                    if (object.instanceColor) object.instanceColor.needsUpdate = true;
+                }
+                if (state.highlightMeshPipe) {
+                    state.highlightMeshPipe.visible = false;
+                }
+                return;
+            } else if (object.userData && object.userData.type === 'instanced_fittings' && fittingId !== null) {
+                const group = state.fittingGroups.get(fittingId);
+                if (!group) return;
+
+                group.parts.forEach(part => {
+                    const instMesh = state.instancedFittings[part.type];
+                    instMesh.setColorAt(part.instanceId, part.originalColor);
+                    if (instMesh.instanceColor) instMesh.instanceColor.needsUpdate = true;
+                });
+                return;
+            }
+
             if (object.isGroup) {
                 object.children.forEach(child => {
                     if (child.isMesh) {
@@ -1534,8 +1717,7 @@
 
         function fitToView() {
             if (state.objects.length === 0) {
-                // Reset to default home if no objects
-                state.camera.position.set(15, -15, 15); // 5 o'clockish
+                state.camera.position.set(15, -15, 15);
                 state.camera.lookAt(0, 0, 0);
                 state.camera.up.set(0, 0, 1);
                 state.controls.target.set(0, 0, 0);
@@ -1544,18 +1726,58 @@
             }
 
             const box = new THREE.Box3();
-            state.objects.forEach(obj => box.expandByObject(obj));
+            let hasValidBounds = false;
+
+            state.objects.forEach(obj => {
+                if (obj === state.instancedPipes) {
+                    if (state.instancedPipes.count > 0 && state.instancedPipesMap) {
+                        if (!state.instancedPipes.geometry.boundingBox) state.instancedPipes.geometry.computeBoundingBox();
+                        const geomBox = state.instancedPipes.geometry.boundingBox;
+                        const tempBox = new THREE.Box3();
+                        for (let i = 0; i < state.instancedPipes.count; i++) {
+                            const info = state.instancedPipesMap.get(i);
+                            if (info && info.visible) {
+                                tempBox.copy(geomBox);
+                                tempBox.applyMatrix4(info.originalMatrix);
+                                box.union(tempBox);
+                                hasValidBounds = true;
+                            }
+                        }
+                    }
+                } else if (obj.visible && !obj.userData?.type?.startsWith('instanced_')) {
+                    box.expandByObject(obj);
+                    hasValidBounds = true;
+                }
+            });
+
+            if (state.fittingGroups) {
+                state.fittingGroups.forEach(group => {
+                    if (group.visible) {
+                        group.parts.forEach(part => {
+                            const instMesh = state.instancedFittings[part.type];
+                            if (instMesh) {
+                                if (!instMesh.geometry.boundingBox) instMesh.geometry.computeBoundingBox();
+                                const tempBox = new THREE.Box3();
+                                tempBox.copy(instMesh.geometry.boundingBox);
+                                tempBox.applyMatrix4(part.originalMatrix);
+                                box.union(tempBox);
+                                hasValidBounds = true;
+                            }
+                        });
+                    }
+                });
+            }
+
+            if (!hasValidBounds) return;
+
             const center = new THREE.Vector3();
             box.getCenter(center);
             const size = new THREE.Vector3();
             box.getSize(size);
             const maxDim = Math.max(size.x, size.y, size.z);
 
-            // 5 o'clock view: X+, Y-
-            // Position: Center + (Distance * Direction)
             const distance = maxDim * 2.0;
-            const direction = new THREE.Vector3(1, -1, 0.8).normalize(); // 5 o'clock direction + elevation
-
+            const direction = new THREE.Vector3(1, -1, 0.8).normalize();
             const newPos = center.clone().add(direction.multiplyScalar(distance));
 
             state.camera.position.copy(newPos);
@@ -1568,7 +1790,16 @@
         function toggleWireframe() {
             state.wireframe = !state.wireframe;
             document.getElementById('wireframe-btn').classList.toggle('active', state.wireframe);
+
+            if (state.instancedPipes) state.instancedPipes.material.wireframe = state.wireframe;
+            if (state.instancedFittings) {
+                Object.values(state.instancedFittings).forEach(m => {
+                    if (m) m.material.wireframe = state.wireframe;
+                });
+            }
+
             state.objects.forEach(obj => {
+                if (obj === state.instancedPipes || (obj.userData && obj.userData.type === 'instanced_fittings')) return;
                 if (obj.isGroup) {
                     obj.children.forEach(child => {
                         if (child.isMesh) child.material.wireframe = state.wireframe;
@@ -1582,17 +1813,92 @@
         function toggleTransparency() {
             state.xray = !state.xray;
             document.getElementById('xray-btn').classList.toggle('active', state.xray);
+
+            if (state.instancedPipes) {
+                state.instancedPipes.material.transparent = true;
+                state.instancedPipes.material.opacity = state.xray ? 0.5 : 1.0;
+                state.instancedPipes.material.needsUpdate = true;
+            }
+
+            if (state.instancedFittings) {
+                Object.values(state.instancedFittings).forEach(m => {
+                    if (m) {
+                        m.material.transparent = true;
+                        m.material.opacity = state.xray ? 0.5 : 1.0;
+                        m.material.needsUpdate = true;
+                    }
+                });
+            }
+
             state.objects.forEach(obj => {
+                if (obj === state.instancedPipes || (obj.userData && obj.userData.type === 'instanced_fittings')) return;
                 if (obj.isGroup) {
                     obj.children.forEach(child => {
                         if (child.isMesh) {
-                            child.material.transparent = state.xray;
+                            child.material.transparent = true;
                             child.material.opacity = state.xray ? 0.5 : 1.0;
+                            child.material.needsUpdate = true;
                         }
                     });
                 } else if (obj.isMesh) {
-                    obj.material.transparent = state.xray;
+                    obj.material.transparent = true;
                     obj.material.opacity = state.xray ? 0.5 : 1.0;
+                    obj.material.needsUpdate = true;
+                }
+            });
+        }
+
+        function applyFilters() {
+            const pipesVisible = document.querySelector('input[data-type="pipe"]')?.checked !== false;
+            const fittingsVisible = document.querySelector('input[data-type="fitting"]')?.checked !== false;
+
+            const sysFilters = {};
+            document.querySelectorAll('input[data-system]').forEach(cb => sysFilters[cb.dataset.system] = cb.checked);
+            const lvlFilters = {};
+            document.querySelectorAll('input[data-level]').forEach(cb => lvlFilters[cb.dataset.level] = cb.checked);
+
+            if (state.instancedPipes && state.instancedPipesMap) {
+                const hideMat = new THREE.Matrix4().makeScale(0, 0, 0);
+                for (let i = 0; i < state.instancedPipes.count; i++) {
+                    const info = state.instancedPipesMap.get(i);
+                    if (!info) continue;
+
+                    let v = pipesVisible;
+                    if (v && sysFilters[info.data.SystemTypeName || 'Default'] === false) v = false;
+                    if (v && info.data.LevelName && lvlFilters[info.data.LevelName] === false) v = false;
+
+                    info.visible = v;
+                    state.instancedPipes.setMatrixAt(i, v ? info.originalMatrix : hideMat);
+                }
+                state.instancedPipes.instanceMatrix.needsUpdate = true;
+            }
+
+            if (state.fittingGroups) {
+                const hideMat = new THREE.Matrix4().makeScale(0, 0, 0);
+                state.fittingGroups.forEach((group, fittingId) => {
+                    let v = fittingsVisible;
+                    if (v && sysFilters[group.data.SystemTypeName || 'Default'] === false) v = false;
+                    if (v && group.data.LevelName && lvlFilters[group.data.LevelName] === false) v = false;
+
+                    group.visible = v;
+
+                    group.parts.forEach(part => {
+                        const instMesh = state.instancedFittings[part.type];
+                        if (instMesh) instMesh.setMatrixAt(part.instanceId, v ? part.originalMatrix : hideMat);
+                    });
+                });
+                if (state.instancedFittings.elbow) state.instancedFittings.elbow.instanceMatrix.needsUpdate = true;
+                if (state.instancedFittings.cylinder) state.instancedFittings.cylinder.instanceMatrix.needsUpdate = true;
+                if (state.instancedFittings.box) state.instancedFittings.box.instanceMatrix.needsUpdate = true;
+            }
+
+            state.objects.forEach(obj => {
+                if (obj === state.instancedPipes || (obj.userData && obj.userData.type === 'instanced_fittings') || !obj.userData) return;
+                if (obj.userData.type === 'fitting') {
+                    let v = fittingsVisible;
+                    if (v && sysFilters[obj.userData.data.SystemTypeName || 'Default'] === false) v = false;
+                    if (v && obj.userData.data.LevelName && lvlFilters[obj.userData.data.LevelName] === false) v = false;
+                    obj.visible = v;
                 }
             });
         }
@@ -1606,60 +1912,34 @@
 
         function toggleAllElements(checkbox) {
             const visible = checkbox.checked;
-            state.objects.forEach(obj => obj.visible = visible);
-            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-            checkboxes.forEach(cb => cb.checked = visible);
+            document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = visible);
+            applyFilters();
         }
 
         function toggleTypeFilter(checkbox) {
-            const type = checkbox.dataset.type;
-            const visible = checkbox.checked;
-            state.objects.forEach(obj => {
-                if (obj.userData.type === type) obj.visible = visible;
-            });
             updateGlobalCheckboxState();
+            applyFilters();
         }
 
         function toggleSystemFilter(checkbox) {
-            const system = checkbox.dataset.system;
-            const visible = checkbox.checked;
-            state.objects.forEach(obj => {
-                if (obj.userData.data.SystemTypeName === system) obj.visible = visible;
-            });
             updateGlobalCheckboxState();
+            applyFilters();
         }
 
         function toggleLevelFilter(checkbox) {
-            const level = checkbox.dataset.level;
-            const visible = checkbox.checked;
-            state.objects.forEach(obj => {
-                if (obj.userData.data.LevelName === level) obj.visible = visible;
-            });
-
-            // Update parent checkbox state
             const levelCheckboxes = document.querySelectorAll('input[data-level]');
             const allChecked = Array.from(levelCheckboxes).every(cb => cb.checked);
             const toggleAll = document.getElementById('toggle-all-levels');
             if (toggleAll) toggleAll.checked = allChecked;
-
             updateGlobalCheckboxState();
+            applyFilters();
         }
 
         function toggleAllLevels(checkbox) {
             const visible = checkbox.checked;
-            const levelCheckboxes = document.querySelectorAll('input[data-level]');
-            levelCheckboxes.forEach(cb => {
-                cb.checked = visible;
-            });
-
-            // Apply visibility to all objects with a LevelName
-            state.objects.forEach(obj => {
-                if (obj.userData.data.LevelName) {
-                    obj.visible = visible;
-                }
-            });
-
+            document.querySelectorAll('input[data-level]').forEach(cb => cb.checked = visible);
             updateGlobalCheckboxState();
+            applyFilters();
         }
 
         function showLoading(text) {
