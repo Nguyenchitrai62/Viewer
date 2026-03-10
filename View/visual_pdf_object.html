@@ -435,6 +435,7 @@
             <div id="layer-actions">
                 <button id="btn-draw-rect">Draw BBox to Find</button>
                 <button id="btn-reset-filter">Reset Filter</button>
+                <button id="btn-detect-pipeline">🔧 Detect Pipeline</button>
             </div>
 
             <div id="layer-list">
@@ -601,7 +602,7 @@
         const btnDrawBbox = document.getElementById('btn-draw-rect');
         const btnResetFilter = document.getElementById('btn-reset-filter');
         const btnExportSvg = document.getElementById('btn-export-svg');
-
+        const btnDetectPipeline = document.getElementById('btn-detect-pipeline');
 
         let jsonData = null;
         let jsonShapes = null;
@@ -639,6 +640,26 @@
         let lastSearchMs = 0;
         let precomputedLengths = {};
         let drawScheduled = false;
+        let currentPageNum = null;
+        let pipelineLayerNames = []; // Track pipeline layer names
+
+        // Kelly's 20-color palette for pipeline visualization
+        const KELLY_COLORS = [
+            '#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231',
+            '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe',
+            '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000',
+            '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080'
+        ];
+
+        // Distinct colors for pipeline shape types (high contrast RGB 0-1 format)
+        const PIPELINE_SHAPE_COLORS = {
+            'Line': null, // Will use pipe_id color
+            'Tee': [0.2, 0.6, 0.9], // Bright blue
+            'Elbow': [0.9, 0.5, 0.2], // Bright orange  
+            'Cross': [0.6, 0.2, 0.8], // Purple
+            'Reducer': [0.2, 0.8, 0.6], // Teal
+            'Sprinkler': null // Will use type-specific color
+        };
         let cropItems = [];
         let cropSelectedItemIds = new Set();
         let cropPreviewTransform = null;
@@ -922,6 +943,18 @@
                         targetCtx.closePath();
                         cx = q0x; cy = q0y;
                     }
+                } else if (type === 'poly') {
+                    const points = item[1];
+                    if (points?.length > 0) {
+                        const [q0x, q0y] = points[0];
+                        if (!started) { targetCtx.moveTo(q0x, q0y); started = true; }
+                        else if (cx !== q0x || cy !== q0y) targetCtx.moveTo(q0x, q0y);
+                        for (let i = 1; i < points.length; i++) {
+                            targetCtx.lineTo(points[i][0], points[i][1]);
+                        }
+                        targetCtx.closePath();
+                        cx = q0x; cy = q0y;
+                    }
                 }
             });
             if (shape.closePath) targetCtx.closePath();
@@ -946,6 +979,15 @@
                         targetCtx.lineTo(points[1][0], points[1][1]);
                         targetCtx.lineTo(points[3][0], points[3][1]);
                         targetCtx.lineTo(points[2][0], points[2][1]);
+                        targetCtx.closePath();
+                    }
+                } else if (type === 'poly') {
+                    const points = item[1];
+                    if (points?.length > 0) {
+                        targetCtx.moveTo(points[0][0], points[0][1]);
+                        for (let i = 1; i < points.length; i++) {
+                            targetCtx.lineTo(points[i][0], points[i][1]);
+                        }
                         targetCtx.closePath();
                     }
                 }
@@ -985,6 +1027,15 @@
                         targetCtx.lineTo(points[1][0], points[1][1]);
                         targetCtx.lineTo(points[3][0], points[3][1]);
                         targetCtx.lineTo(points[2][0], points[2][1]);
+                        targetCtx.closePath();
+                    }
+                } else if (type === 'poly') {
+                    const points = item[1];
+                    if (points?.length > 0) {
+                        targetCtx.moveTo(points[0][0], points[0][1]);
+                        for (let i = 1; i < points.length; i++) {
+                            targetCtx.lineTo(points[i][0], points[i][1]);
+                        }
                         targetCtx.closePath();
                     }
                 }
@@ -1362,121 +1413,142 @@
         }
         function updateLayerList() {
             layerList.innerHTML = '';
-            const typeGroups = { shape: [], svg_graphic: [], svg_text: [] };
+            const typeGroups = { shape: [], svg_graphic: [], svg_text: [], pipeline: [] };
             sortedLayerKeys.forEach(layerName => {
                 if (layerName.startsWith('shape_')) {
                     typeGroups.shape.push(layerName);
-                } else if (layerName === 'svg_graphic') {
+                } else if (layerName.startsWith('svg_graphic')) {
                     typeGroups.svg_graphic.push(layerName);
                 } else if (layerName === 'svg_text') {
                     typeGroups.svg_text.push(layerName);
+                } else if (pipelineLayerNames.includes(layerName)) {
+                    typeGroups.pipeline.push(layerName);
                 }
             });
-            const typeLabels = { shape: 'Shape', svg_graphic: 'Image', svg_text: 'Text' };
-            const typeIcons = { shape: 'shape', svg_graphic: 'shape', svg_text: 'text' };
+            const typeLabels = { shape: 'Shape', svg_graphic: 'Image', svg_text: 'Text', pipeline: 'Pipeline' };
+            const typeIcons = { shape: 'shape', svg_graphic: 'shape', svg_text: 'text', pipeline: 'shape' };
             Object.entries(typeGroups).forEach(([typeName, layers]) => {
                 if (!layers.length) return;
                 const typeNode = document.createElement('div');
-                typeNode.className = 'layer-item';
-                typeNode.style.cursor = 'pointer';
-                typeNode.style.background = '#e8f4fd';
-                typeNode.style.marginBottom = '4px';
-                typeNode.style.border = '1px solid #cce7f8';
-                typeNode.style.borderRadius = '4px';
-                typeNode.style.padding = '6px';
-                typeNode.dataset.nodeId = `type-${typeName}`;
+                typeNode.style.marginBottom = '10px';
+                const typeHeader = document.createElement('div');
+                typeHeader.style.display = 'flex';
+                typeHeader.style.alignItems = 'center';
+                typeHeader.style.padding = '8px 10px';
+                typeHeader.style.backgroundColor = '#e9ecef';
+                typeHeader.style.borderRadius = '6px';
+                typeHeader.style.cursor = 'pointer';
+                typeHeader.style.fontWeight = 'bold';
+                typeHeader.dataset.nodeId = `type-${typeName}`;
                 const typeCheckbox = document.createElement('input');
                 typeCheckbox.type = 'checkbox';
-                const allTypeChecked = layers.every(l => layerVisibility[l]);
-                const someTypeChecked = layers.some(l => layerVisibility[l]);
-                typeCheckbox.checked = allTypeChecked;
-                typeCheckbox.indeterminate = !allTypeChecked && someTypeChecked;
-                typeCheckbox.style.marginRight = '8px';
+                const allChecked = layers.every(l => layerVisibility[l]);
+                const someChecked = layers.some(l => layerVisibility[l]);
+                typeCheckbox.checked = allChecked;
+                typeCheckbox.indeterminate = !allChecked && someChecked;
+                typeCheckbox.style.marginRight = '10px';
                 typeCheckbox.addEventListener('change', e => {
                     layers.forEach(l => layerVisibility[l] = e.target.checked);
                     updateLayerList();
                     scheduleDraw();
                 });
-                const icon = document.createElement('div');
-                icon.className = 'layer-icon';
-                icon.innerHTML = icons[typeIcons[typeName]] || '';
-                const label = document.createElement('span');
-                label.textContent = `${typeLabels[typeName]} (${layers.length})`;
-                label.style.fontWeight = 'bold';
+                const typeIcon = document.createElement('span');
+                typeIcon.className = 'layer-icon';
+                typeIcon.innerHTML = icons[typeIcons[typeName]];
+                const typeLabel = document.createElement('span');
+                typeLabel.textContent = `${typeLabels[typeName]} (${layers.length})`;
+                typeLabel.style.color = 'var(--text-color-primary)';
                 const toggleIcon = document.createElement('span');
                 toggleIcon.textContent = expandedNodes[`type-${typeName}`] ? ' ▼' : ' ▶';
                 toggleIcon.style.marginLeft = 'auto';
-                typeNode.append(typeCheckbox, icon, label, toggleIcon);
+                typeHeader.append(typeCheckbox, typeIcon, typeLabel, toggleIcon);
+                typeNode.appendChild(typeHeader);
                 const colorSubtree = document.createElement('div');
                 colorSubtree.style.display = expandedNodes[`type-${typeName}`] ? 'block' : 'none';
                 colorSubtree.style.marginLeft = '20px';
-                const colorGroups = {};
-                layers.forEach(layerName => {
-                    const layerObjs = layerIndex[layerName];
-                    if (!layerObjs || !layerObjs.length) return;
-                    const firstObj = layerObjs[0];
-                    const color = toRgbString(firstObj.color);
-                    colorGroups[color] ??= [];
-                    colorGroups[color].push(layerName);
-                });
-                const sortedColorEntries = Object.entries(colorGroups).sort(([a], [b]) => a.localeCompare(b));
-                sortedColorEntries.forEach(([color, colorLayers]) => {
-                    const colorNode = document.createElement('div');
-                    colorNode.className = 'layer-item';
-                    colorNode.style.cursor = 'pointer';
-                    colorNode.style.background = '#f0f8e1';
-                    colorNode.style.marginBottom = '2px';
-                    colorNode.style.border = '1px solid #dcedc8';
-                    colorNode.style.borderRadius = '3px';
-                    colorNode.style.padding = '4px';
-                    colorNode.dataset.nodeId = `color-${typeName}-${color}`;
-                    const colorCheckbox = document.createElement('input');
-                    colorCheckbox.type = 'checkbox';
-                    const allColorChecked = colorLayers.every(l => layerVisibility[l]);
-                    const someColorChecked = colorLayers.some(l => layerVisibility[l]);
-                    colorCheckbox.checked = allColorChecked;
-                    colorCheckbox.indeterminate = !allColorChecked && someColorChecked;
-                    colorCheckbox.style.marginRight = '6px';
-                    colorCheckbox.addEventListener('change', e => {
-                        colorLayers.forEach(l => layerVisibility[l] = e.target.checked);
-                        updateLayerList();
-                        scheduleDraw();
-                    });
-                    const swatch = document.createElement('div');
-                    swatch.className = 'color-swatch';
-                    swatch.style.backgroundColor = color;
-                    const colorLabel = document.createElement('span');
-                    colorLabel.textContent = `${color} (${colorLayers.length})`;
-                    colorLabel.style.fontSize = '13px';
-                    const colorToggleIcon = document.createElement('span');
-                    colorToggleIcon.textContent = expandedNodes[`color-${typeName}-${color}`] ? ' ▼' : ' ▶';
-                    colorToggleIcon.style.marginLeft = 'auto';
-                    colorNode.append(colorCheckbox, swatch, colorLabel, colorToggleIcon);
-                    const colorSubLayers = document.createElement('div');
-                    colorSubLayers.style.display = expandedNodes[`color-${typeName}-${color}`] ? 'block' : 'none';
-                    colorSubLayers.style.marginLeft = '16px';
-                    colorLayers.sort((a, b) => totalCommands[b] - totalCommands[a]);
-                    colorLayers.forEach((layerName, index) => {
+
+                // For pipeline layers: show directly without color grouping
+                if (typeName === 'pipeline') {
+                    layers.sort((a, b) => (totalCommands[b] || 0) - (totalCommands[a] || 0));
+                    layers.forEach((layerName, index) => {
                         const layerItem = createLayerControl(layerName);
-                        layerItem.style.marginBottom = '1px';
+                        layerItem.style.marginBottom = '2px';
                         const label = layerItem.querySelector('label');
-                        label.textContent = totalCommands[layerName] + ' elements';
+                        label.textContent = `${layerName} (${totalCommands[layerName] || 0})`;
+                        label.style.fontWeight = '500';
                         label.title = layerName;
-                        colorSubLayers.appendChild(layerItem);
+                        colorSubtree.appendChild(layerItem);
                     });
-                    colorNode.addEventListener('click', e => {
-                        if (e.target === colorToggleIcon) {
-                            const nodeId = `color-${typeName}-${color}`;
-                            expandedNodes[nodeId] = !expandedNodes[nodeId];
+                } else {
+                    // For other layers: group by color
+                    const colorGroups = {};
+                    layers.forEach(layerName => {
+                        const layerObjs = layerIndex[layerName];
+                        if (!layerObjs || !layerObjs.length) return;
+                        const firstObj = layerObjs[0];
+                        const color = toRgbString(firstObj.color);
+                        colorGroups[color] ??= [];
+                        colorGroups[color].push(layerName);
+                    });
+                    const sortedColorEntries = Object.entries(colorGroups).sort(([a], [b]) => a.localeCompare(b));
+                    sortedColorEntries.forEach(([color, colorLayers]) => {
+                        const colorNode = document.createElement('div');
+                        colorNode.className = 'layer-item';
+                        colorNode.style.cursor = 'pointer';
+                        colorNode.style.background = '#f0f8e1';
+                        colorNode.style.marginBottom = '2px';
+                        colorNode.style.border = '1px solid #dcedc8';
+                        colorNode.style.borderRadius = '3px';
+                        colorNode.style.padding = '4px';
+                        colorNode.dataset.nodeId = `color-${typeName}-${color}`;
+                        const colorCheckbox = document.createElement('input');
+                        colorCheckbox.type = 'checkbox';
+                        const allColorChecked = colorLayers.every(l => layerVisibility[l]);
+                        const someColorChecked = colorLayers.some(l => layerVisibility[l]);
+                        colorCheckbox.checked = allColorChecked;
+                        colorCheckbox.indeterminate = !allColorChecked && someColorChecked;
+                        colorCheckbox.style.marginRight = '6px';
+                        colorCheckbox.addEventListener('change', e => {
+                            colorLayers.forEach(l => layerVisibility[l] = e.target.checked);
                             updateLayerList();
-                        } else if (e.target !== colorCheckbox) {
-                            colorCheckbox.checked = !colorCheckbox.checked;
-                            colorCheckbox.dispatchEvent(new Event('change'));
-                        }
+                            scheduleDraw();
+                        });
+                        const swatch = document.createElement('div');
+                        swatch.className = 'color-swatch';
+                        swatch.style.backgroundColor = color;
+                        const colorLabel = document.createElement('span');
+                        colorLabel.textContent = `${color} (${colorLayers.length})`;
+                        colorLabel.style.fontSize = '13px';
+                        const colorToggleIcon = document.createElement('span');
+                        colorToggleIcon.textContent = expandedNodes[`color-${typeName}-${color}`] ? ' ▼' : ' ▶';
+                        colorToggleIcon.style.marginLeft = 'auto';
+                        colorNode.append(colorCheckbox, swatch, colorLabel, colorToggleIcon);
+                        const colorSubLayers = document.createElement('div');
+                        colorSubLayers.style.display = expandedNodes[`color-${typeName}-${color}`] ? 'block' : 'none';
+                        colorSubLayers.style.marginLeft = '16px';
+                        colorLayers.sort((a, b) => totalCommands[b] - totalCommands[a]);
+                        colorLayers.forEach((layerName, index) => {
+                            const layerItem = createLayerControl(layerName);
+                            layerItem.style.marginBottom = '1px';
+                            const label = layerItem.querySelector('label');
+                            label.textContent = totalCommands[layerName] + ' elements';
+                            label.title = layerName;
+                            colorSubLayers.appendChild(layerItem);
+                        });
+                        colorNode.addEventListener('click', e => {
+                            if (e.target === colorToggleIcon) {
+                                const nodeId = `color-${typeName}-${color}`;
+                                expandedNodes[nodeId] = !expandedNodes[nodeId];
+                                updateLayerList();
+                            } else if (e.target !== colorCheckbox) {
+                                colorCheckbox.checked = !colorCheckbox.checked;
+                                colorCheckbox.dispatchEvent(new Event('change'));
+                            }
+                        });
+                        colorSubtree.appendChild(colorNode);
+                        colorSubtree.appendChild(colorSubLayers);
                     });
-                    colorSubtree.appendChild(colorNode);
-                    colorSubtree.appendChild(colorSubLayers);
-                });
+                }
                 typeNode.addEventListener('click', e => {
                     if (e.target === toggleIcon) {
                         const nodeId = `type-${typeName}`;
@@ -2838,8 +2910,245 @@
             return JSON.parse(new TextDecoder().decode(combined));
         }
 
+        // Convert pipeline result objects to drawable shapes (inspired by Agent.html)
+        function convertPipelineToShapes(pipelineObjects) {
+            const shapes = [];
+            const pipeColorMap = {};
+
+            // Assign colors to pipe_ids
+            pipelineObjects.forEach(obj => {
+                if (obj.pipe_id !== undefined && !pipeColorMap[obj.pipe_id]) {
+                    const colorIdx = Object.keys(pipeColorMap).length % KELLY_COLORS.length;
+                    const hexColor = KELLY_COLORS[colorIdx];
+                    // Convert hex to RGB 0-1 format
+                    const r = parseInt(hexColor.slice(1, 3), 16) / 255;
+                    const g = parseInt(hexColor.slice(3, 5), 16) / 255;
+                    const b = parseInt(hexColor.slice(5, 7), 16) / 255;
+                    pipeColorMap[obj.pipe_id] = [r, g, b];
+                }
+            });
+
+            pipelineObjects.forEach((obj, idx) => {
+                if (!obj.vertices || obj.vertices.length === 0) return;
+
+                const pipeColor = pipeColorMap[obj.pipe_id] || [0.5, 0.5, 0.5];
+                const shapeName = obj.shape_name || 'Unknown';
+                let items = [];
+                let fill = null;
+                let color = pipeColor;
+                let width = 3; // Increased default width
+
+                // Use shape-specific color if defined
+                if (PIPELINE_SHAPE_COLORS[shapeName]) {
+                    color = PIPELINE_SHAPE_COLORS[shapeName];
+                }
+
+                // Convert based on shape type (matching Agent.html visualization style)
+                if (shapeName === 'Line') {
+                    // Line: draw as line segment or polygon based on vertices count
+                    if (obj.vertices.length === 2) {
+                        items = [['l', obj.vertices[0], obj.vertices[1]]];
+                    } else if (obj.vertices.length >= 4) {
+                        // Line as polygon (rectangle or polyline shape)
+                        items = [['poly', obj.vertices]];
+                        fill = [...pipeColor, 0.3]; // Semi-transparent fill
+                    } else {
+                        // Fallback for other cases
+                        items = [['poly', obj.vertices]];
+                        fill = [...pipeColor, 0.3];
+                    }
+                    width = 4; // Thicker lines for better visibility
+
+                } else if (shapeName === 'Sprinkler') {
+                    // Sprinkler: use type-specific colors (high contrast)
+                    if (obj.type === 'end') {
+                        color = [0.95, 0.2, 0.2]; // Bright red
+                        fill = [...color, 0.7];
+                    } else if (obj.type === 'center') {
+                        color = [0.1, 0.75, 0.85]; // Bright cyan
+                        fill = [...color, 0.7];
+                    } else {
+                        color = [0.95, 0.85, 0.1]; // Bright yellow
+                        fill = [...color, 0.7];
+                    }
+
+                    // Always draw as polygon using exact vertices
+                    items = [['poly', obj.vertices]];
+                    width = 2;
+
+                } else if (shapeName === 'Tee' || shapeName === 'Elbow' ||
+                    shapeName === 'Cross' || shapeName === 'Reducer') {
+                    // Junction shapes: draw as small filled circles or polygons
+                    if (obj.vertices.length === 1) {
+                        const [cx, cy] = obj.vertices[0];
+                        const radius = 2.5; // Small radius for junction points
+                        const points = [];
+                        for (let i = 0; i < 12; i++) {
+                            const angle = (i / 12) * Math.PI * 2;
+                            points.push([cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)]);
+                        }
+                        items = [['poly', points]];
+                        fill = [...color, 0.85]; // High opacity for visibility
+                        width = 1.5;
+                    } else {
+                        // Multiple vertices - draw as polygon
+                        items = [['poly', obj.vertices]];
+                        fill = [...color, 0.7];
+                        width = 3;
+                    }
+
+                } else if (obj.vertices.length > 1) {
+                    // Generic polygon for other shape types
+                    items = [['poly', obj.vertices]];
+                    fill = [...color, 0.5];
+                    width = 2;
+                }
+
+                if (items.length > 0) {
+                    // Calculate bounding box
+                    const xs = obj.vertices.map(v => v[0]);
+                    const ys = obj.vertices.map(v => v[1]);
+                    const rect = [
+                        Math.min(...xs),
+                        Math.min(...ys),
+                        Math.max(...xs),
+                        Math.max(...ys)
+                    ];
+
+                    shapes.push({
+                        color: color,
+                        width: width,
+                        fill: fill,
+                        rect: rect,
+                        seqno: obj.id,
+                        items: items
+                    });
+                }
+            });
+
+            return shapes;
+        }
+
+        // Detect pipeline on current page
+        async function detectPipeline() {
+            if (!currentPageNum || !cachedPages[currentPageNum]) {
+                return;
+            }
+
+            const popup = document.getElementById('loading-popup');
+            if (popup) popup.style.display = 'flex';
+
+            try {
+                const gzipData = cachedPages[currentPageNum];
+
+                // Send to backend as JSON
+                console.time('Pipeline Detection');
+                const response = await fetch(`${ENV.PDF_API_BASE_URL}/process_pipeline`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ gzip_data: gzipData })
+                });
+                console.timeEnd('Pipeline Detection');
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log('Pipeline detection result:', result);
+
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                const pipelineObjects = result.json_objects || [];
+
+                if (pipelineObjects.length === 0) {
+                    return;
+                }
+
+                // Group pipeline objects by shape_name
+                const pipelineGroups = {};
+                pipelineObjects.forEach(obj => {
+                    const shapeName = obj.shape_name || 'Unknown';
+                    if (!pipelineGroups[shapeName]) {
+                        pipelineGroups[shapeName] = [];
+                    }
+                    pipelineGroups[shapeName].push(obj);
+                });
+
+                // Convert each group to drawable shapes and add to layerIndex
+                let totalPipelineShapes = 0;
+                pipelineLayerNames = []; // Reset pipeline layer names
+                Object.entries(pipelineGroups).forEach(([shapeName, objects]) => {
+                    // Use exact shape_name from backend as layer key
+                    const layerKey = shapeName;
+                    pipelineLayerNames.push(layerKey); // Track this as pipeline layer
+                    const shapes = convertPipelineToShapes(objects);
+
+                    console.log(`Processing ${shapeName}: ${objects.length} objects -> ${shapes.length} shapes`);
+
+                    // Create proper shape objects with layer property
+                    const properShapes = shapes.map((rawShape, idx) => {
+                        const shapeObj = {
+                            id: `pipeline_${shapeName}_${idx}`,
+                            layer: layerKey,
+                            items: rawShape.items,
+                            color: rawShape.color,
+                            width: rawShape.width,
+                            fill: rawShape.fill,
+                            rect: rawShape.rect,
+                            seqno: rawShape.seqno || 0
+                        };
+                        // Compute bbox for culling
+                        computeShapeBbox(shapeObj);
+                        return shapeObj;
+                    });
+
+                    totalPipelineShapes += properShapes.length;
+                    layerIndex[layerKey] = properShapes;
+                    layerVisibility[layerKey] = true;
+
+                    // Calculate totalCommands for this layer
+                    totalCommands[layerKey] = properShapes.reduce((sum, shape) => sum + (shape.items?.length || 0), 0);
+
+                    console.log(`  -> Layer ${layerKey}: ${properShapes.length} shapes, ${totalCommands[layerKey]} commands, visibility: ${layerVisibility[layerKey]}`);
+
+                    // Add to sorted keys if not already present
+                    if (!sortedLayerKeys.includes(layerKey)) {
+                        sortedLayerKeys.push(layerKey);
+                    }
+
+                    // Add to allShapesSorted directly (like loadJSON does)
+                    properShapes.forEach(shapeObj => {
+                        allShapesSorted.push(shapeObj);
+                    });
+                });
+
+                console.log(`Total pipeline shapes added: ${totalPipelineShapes}, allShapesSorted length: ${allShapesSorted.length}`);
+
+                // Sort allShapesSorted by seqno
+                allShapesSorted.sort((a, b) => (a.seqno || 0) - (b.seqno || 0));
+
+                // Update layer list UI
+                updateLayerList();
+                scheduleDraw();
+
+                // Log success 
+                console.log(`Pipeline detected successfully!`);
+
+            } catch (error) {
+                console.error('Pipeline detection error:', error);
+            } finally {
+                if (popup) popup.style.display = 'none';
+            }
+        }
+
         // Load a cached page
         async function loadCachedPage(pageNum) {
+            currentPageNum = pageNum;
             const gzipB64 = cachedPages[pageNum];
             if (!gzipB64) {
                 console.warn(`No cached data for page ${pageNum}`);
@@ -3183,6 +3492,7 @@
                 console.error('autoLoadExampleFromQuery error', err);
             }
         })();
+        btnDetectPipeline.addEventListener('click', detectPipeline);
         btnExportSvg.addEventListener('click', exportToSVG);
         btnDrawBbox.addEventListener('click', () => {
             isDrawingBbox = !isDrawingBbox;

@@ -714,6 +714,7 @@
                 // Viewport controls
                 this.viewport.addEventListener('wheel', e => this.handleWheel(e), { passive: false });
                 this.viewport.addEventListener('mousedown', e => this.handleMouseDown(e));
+                this.viewport.addEventListener('click', e => this.handleClick(e));
                 window.addEventListener('mousemove', e => this.handleMouseMove(e)); // Window for smoother drag
                 window.addEventListener('mouseup', e => this.handleMouseUp(e));
 
@@ -746,6 +747,7 @@
                 // Only drag if left click and target is SVG or wrapper
                 if (e.button === 0) {
                     this.isDragging = true;
+                    this.hasDragged = false;
                     this.lastMouseX = e.clientX;
                     this.lastMouseY = e.clientY;
                     this.viewport.classList.add('dragging');
@@ -759,11 +761,25 @@
                 e.preventDefault();
                 const dx = e.clientX - this.lastMouseX;
                 const dy = e.clientY - this.lastMouseY;
+                if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+                    this.hasDragged = true;
+                }
                 this.panX += dx;
                 this.panY += dy;
                 this.lastMouseX = e.clientX;
                 this.lastMouseY = e.clientY;
                 this.updateTransform();
+            }
+
+            handleClick(e) {
+                if (!this.hasDragged) {
+                    // Ignore clicks on HUD elements
+                    if (e.target.closest && e.target.closest('.hud-overlay')) return;
+
+                    this.selectedPipeId = null;
+                    this.selectedObjectId = null;
+                    this.updateUI();
+                }
             }
 
             handleMouseUp() {
