@@ -138,24 +138,55 @@
 
         /* Các nút hành động */
         #layer-actions {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 12px;
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color-light);
+        }
+
+        .action-group-title {
+            font-size: 10px;
+            color: var(--text-color-secondary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .action-group-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
         }
 
         #layer-actions button,
         .crop-toolbar button,
         #btn-export-svg {
-            padding: 10px;
-            font-size: 14px;
-            font-weight: 500;
+            flex: 1;
+            min-width: calc(50% - 4px);
+            /* For 2 cols */
+            padding: 6px 8px;
+            font-size: 12px;
+            font-weight: 600;
             border: 1px solid var(--border-color-dark);
             background-color: var(--background-button);
             border-radius: 6px;
             cursor: pointer;
-            transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
-            text-align: center;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            color: #333;
+        }
+
+        /* Make full width buttons inside flex wrap */
+        .btn-full-width {
+            flex-basis: 100% !important;
         }
 
         #layer-actions button:hover,
@@ -431,11 +462,24 @@
 <body>
     <div id="main-container">
         <div id="layer-controls">
-            <h3>Bảng điều khiển Layer</h3>
+            <h3>Control Panel</h3>
             <div id="layer-actions">
-                <button id="btn-draw-rect">Draw BBox to Find</button>
-                <button id="btn-reset-filter">Reset Filter</button>
-                <button id="btn-detect-pipeline">🔧 Detect Pipeline</button>
+                <div class="action-group">
+                    <div class="action-group-title">Search & Filter</div>
+                    <div class="action-group-buttons">
+                        <button id="btn-draw-rect" title="✏️ Find">✏️ Find</button>
+                        <button id="btn-reset-filter" title="Reset Filter">🔄 Reset</button>
+                    </div>
+                </div>
+                <div class="action-group">
+                    <div class="action-group-title">Pipeline & Export</div>
+                    <div class="action-group-buttons">
+                        <button id="btn-detect-pipeline" title="Detect Pipeline" class="btn-full-width">🔧 Detect
+                            Pipeline</button>
+                        <button id="btn-export-pipeline-json" title="Export Pipeline JSON">📋 JSON</button>
+                        <button id="btn-export-revit-json" title="Export Revit JSON">🏗️ Revit</button>
+                    </div>
+                </div>
             </div>
 
             <div id="layer-list">
@@ -603,10 +647,13 @@
         const btnResetFilter = document.getElementById('btn-reset-filter');
         const btnExportSvg = document.getElementById('btn-export-svg');
         const btnDetectPipeline = document.getElementById('btn-detect-pipeline');
+        const btnExportPipelineJson = document.getElementById('btn-export-pipeline-json');
+        const btnExportRevitJson = document.getElementById('btn-export-revit-json');
 
         let jsonData = null;
         let jsonShapes = null;
         let svgData = null;
+        let pipelineRawResults = null; // Store raw pipeline detection results
         let layerIndex = {};
         let layerVisibility = {};
         let sortedLayerKeys = [];
@@ -2751,45 +2798,76 @@
                 const arrayBuffer = await file.arrayBuffer();
                 pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-                for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-                    if (currentThumbnailTaskId !== taskId) {
-                        break; // Bỏ qua nếu có task render thumbnail mới
-                    }
+                // Tạo trước list divs để giữ đúng thứ tự các trang
+                const thumbnailDivs = [];
+                for (let i = 1; i <= numPages; i++) {
+                    const div = document.createElement('div');
+                    div.className = 'page-thumbnail';
+                    div.dataset.page = i;
 
-                    const page = await pdf.getPage(pageNum);
-                    const viewport = page.getViewport({ scale: 0.2 }); // Small scale for thumbnail
+                    const loadingText = document.createElement('div');
+                    loadingText.textContent = `Loading Page ${i}...`;
+                    loadingText.style.padding = '10px';
+                    loadingText.style.textAlign = 'center';
+                    loadingText.style.fontSize = '12px';
+                    loadingText.style.color = 'var(--text-color-secondary)';
+                    div.appendChild(loadingText);
 
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
-
-                    const renderContext = {
-                        canvasContext: context,
-                        viewport: viewport
-                    };
-
-                    await page.render(renderContext).promise;
-
-                    const thumbnailDiv = document.createElement('div');
-                    thumbnailDiv.className = 'page-thumbnail';
-                    thumbnailDiv.dataset.page = pageNum;
-                    thumbnailDiv.addEventListener('click', () => {
-                        processSelectedPage(pageNum);
-                        updateSelectedThumbnail(pageNum);
-                    });
-
-                    const pageNumberDiv = document.createElement('div');
-                    pageNumberDiv.className = 'page-number';
-                    pageNumberDiv.textContent = `Page ${pageNum}`;
-
-                    thumbnailDiv.appendChild(canvas);
-                    thumbnailDiv.appendChild(pageNumberDiv);
-                    thumbnailsContainer.appendChild(thumbnailDiv);
-
-                    // Giải phóng bộ nhớ của page
-                    page.cleanup();
+                    thumbnailsContainer.appendChild(div);
+                    thumbnailDivs.push({ pageNum: i, element: div });
                 }
+
+                // Render đồng thời bằng Worker Pool (giới hạn số luồng)
+                const CONCURRENCY_LIMIT = 8;
+                let currentIndex = 0;
+
+                async function renderWorker() {
+                    while (currentIndex < numPages) {
+                        if (currentThumbnailTaskId !== taskId) break;
+
+                        const workIndex = currentIndex++;
+                        const { pageNum, element } = thumbnailDivs[workIndex];
+
+                        try {
+                            const page = await pdf.getPage(pageNum);
+                            const viewport = page.getViewport({ scale: 0.2 });
+
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+
+                            await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+                            const pageNumberDiv = document.createElement('div');
+                            pageNumberDiv.className = 'page-number';
+                            pageNumberDiv.textContent = `Page ${pageNum}`;
+
+                            // Cập nhật DOM
+                            element.innerHTML = '';
+                            element.appendChild(canvas);
+                            element.appendChild(pageNumberDiv);
+
+                            element.addEventListener('click', () => {
+                                processSelectedPage(pageNum);
+                                updateSelectedThumbnail(pageNum);
+                            });
+
+                            page.cleanup();
+                        } catch (err) {
+                            console.error(`Error rendering thumbnail page ${pageNum}:`, err);
+                            element.innerHTML = `<div style="padding:10px;text-align:center;color:red;">Error P${pageNum}</div>`;
+                        }
+                    }
+                }
+
+                // Chạy nhiều worker cùng lúc
+                const workers = [];
+                for (let i = 0; i < Math.min(CONCURRENCY_LIMIT, numPages); i++) {
+                    workers.push(renderWorker());
+                }
+                await Promise.all(workers);
+
             } catch (error) {
                 console.error('Error creating thumbnails:', error);
                 thumbnailsContainer.innerHTML = '<p>Error loading thumbnails</p>';
@@ -2856,7 +2934,7 @@
             // clear draw bbox state
             isDrawingBbox = false;
             isApplyingSavedPattern = false; // Reset saved pattern flag
-            btnDrawBbox.textContent = 'Draw BBox to Find';
+            btnDrawBbox.textContent = '✏️ Find';
             btnDrawBbox.classList.remove('active');
             if (bboxStart) bboxStart = null;
             if (currentBbox) currentBbox = null;
@@ -3042,7 +3120,7 @@
                 const gzipData = cachedPages[currentPageNum];
 
                 // Send to backend as JSON
-                console.time('Pipeline Detection');
+                const startTime = performance.now();
                 const response = await fetch(`${ENV.PDF_API_BASE_URL}/process_pipeline`, {
                     method: 'POST',
                     headers: {
@@ -3050,20 +3128,19 @@
                     },
                     body: JSON.stringify({ gzip_data: gzipData })
                 });
-                console.timeEnd('Pipeline Detection');
 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
                 const result = await response.json();
-                console.log('Pipeline detection result:', result);
+                const endTime = performance.now();
+                const apiTime = (endTime - startTime) / 1000;
+                console.log(`Pipeline Detection API Call took ${apiTime.toFixed(3)} seconds`);
+                console.log('Result received:', result);
 
-                if (result.error) {
-                    throw new Error(result.error);
-                }
-
-                const pipelineObjects = result.json_objects || [];
+                const pipelineObjects = Array.isArray(result) ? result : (result.json_objects || []);
+                pipelineRawResults = pipelineObjects; // Store explicitly the array for export
 
                 if (pipelineObjects.length === 0) {
                     return;
@@ -3493,10 +3570,72 @@
             }
         })();
         btnDetectPipeline.addEventListener('click', detectPipeline);
+        btnExportPipelineJson.addEventListener('click', () => {
+            if (!pipelineRawResults) {
+                alert('No pipeline data to export. Please run "Detect Pipeline" first.');
+                return;
+            }
+
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(pipelineRawResults, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", `pipeline_detect_page_${currentPageNum || 1}.json`);
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        });
+
+        btnExportRevitJson.addEventListener('click', async () => {
+            if (!pipelineRawResults || pipelineRawResults.length === 0) {
+                alert('No pipeline data available. Please run "Detect Pipeline" first.');
+                return;
+            }
+
+            const popup = document.getElementById('loading-popup');
+            if (popup) popup.style.display = 'flex';
+
+            try {
+                // Call export_revit endpoint
+                const startTime = performance.now();
+                const response = await fetch(`${ENV.PDF_API_BASE_URL}/export_revit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ input_data: pipelineRawResults })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                const endTime = performance.now();
+                console.log(`Export Revit API Call took ${((endTime - startTime) / 1000).toFixed(3)} seconds`);
+                console.log('Revit result:', result);
+
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result, null, 2));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", `revit_pipeline_detect_page_${currentPageNum || 1}.json`);
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+
+            } catch (error) {
+                console.error('Export Revit Error:', error);
+                alert(`Error during export to Revit: ${error.message}`);
+            } finally {
+                if (popup) popup.style.display = 'none';
+            }
+        });
+
         btnExportSvg.addEventListener('click', exportToSVG);
         btnDrawBbox.addEventListener('click', () => {
             isDrawingBbox = !isDrawingBbox;
-            btnDrawBbox.textContent = isDrawingBbox ? 'Cancel Draw BBox' : 'Draw BBox to Find';
+            btnDrawBbox.textContent = isDrawingBbox ? 'Cancel' : '✏️ Find';
             btnDrawBbox.classList.toggle('active', isDrawingBbox);
             if (isDrawingBbox) {
                 mouseX = (canvas.width / zoom) / 2;
@@ -3529,7 +3668,7 @@
             expandedNodes = {};
             document.getElementById('found-count').style.display = 'none';
             isDrawingBbox = false;
-            btnDrawBbox.textContent = 'Draw BBox to Find';
+            btnDrawBbox.textContent = '✏️ Find';
             btnDrawBbox.classList.remove('active');
             scheduleDraw();
         });
@@ -3550,7 +3689,7 @@
                     showCropModal(currentBbox);
                 }
                 isDrawingBbox = false;
-                btnDrawBbox.textContent = 'Draw BBox to Find';
+                btnDrawBbox.textContent = '✏️ Find';
                 btnDrawBbox.classList.remove('active');
                 bboxStart = null;
                 currentBbox = null;
