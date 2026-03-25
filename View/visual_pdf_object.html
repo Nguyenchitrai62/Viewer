@@ -217,6 +217,11 @@
             border-color: #dc3545;
         }
 
+        /* Cursor changes during bbox drawing */
+        #canvas-container.drawing-bbox {
+            cursor: crosshair !important;
+        }
+
         #btn-export-svg {
             width: 100%;
             background-color: var(--success-color);
@@ -472,6 +477,12 @@
                     </div>
                 </div>
                 <div class="action-group">
+                    <div class="action-group-title">Layer Mode</div>
+                    <div class="action-group-buttons">
+                        <button id="btn-toggle-layer-mode" title="Switch Layer Mode" class="btn-full-width">Mode: Layer 1</button>
+                    </div>
+                </div>
+                <div class="action-group">
                     <div class="action-group-title">Pipeline & Export</div>
                     <div class="action-group-buttons">
                         <button id="btn-detect-pipeline" title="Detect Pipeline" class="btn-full-width">🔧 Detect
@@ -509,8 +520,9 @@
                 </table>
             </div>
             <div id="found-count" style="display: none;"></div>
-            <div id="btn-export-svg-container" style="margin-top: 15px;">
-                <button id="btn-export-svg">Export SVG</button>
+            <div id="btn-export-svg-container" style="margin-top: 15px; display: flex; gap: 8px;">
+                <button id="btn-export-svg" style="flex:1;">📄 SVG</button>
+                <button id="btn-export-images" style="flex:1; background-color:#6f42c1; color:white; border:none; padding:6px 8px; font-size:12px; font-weight:600; border-radius:6px; cursor:pointer;">🖼️ Images</button>
             </div>
         </div>
         <div id="canvas-container">
@@ -611,6 +623,7 @@
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
         // Configure PDF.js worker
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -622,7 +635,7 @@
             SIMILARITY_TOLERANCE: 0.2, // Dung sai độ dài để so sánh tương tự (pixel)
             MIN_MATCHING_ITEMS_RATIO: 0.5, // Ngưỡng số lượng lệnh tối thiểu (internal)
             SIMILARITY_THRESHOLD_GREEN: 0.6, // Ngưỡng tương tự cho logic xanh
-            SIMILARITY_THRESHOLD_PURPLE: 0.05, // Ngưỡng tương tự cho logic tím
+            SIMILARITY_THRESHOLD_PURPLE: 0.5, // Ngưỡng tương tự cho logic tím
             CONFIDENCE_DISPLAY_THRESHOLD: 0.01, // Ngưỡng confidence tối thiểu để hiển thị kết quả
             MAX_COMMANDS_PER_TYPE: 50, // Số lệnh tối đa mỗi loại (l, c, qu) để lọc
             MAX_ANCHOR_PATTERNS: 1, // Số pattern neo tối đa để tìm kiếm
@@ -636,7 +649,165 @@
             MIN_PATTERN_LENGTH: 20, // Số lệnh tối thiểu để bỏ qua kiểm tra độ dài lệnh
             OVERLAP_THRESHOLD: 0.2, // Ngưỡng chồng lấn cho phép giữa các rect tương tự (20%)
             MERGE_RESULTS: true, // Merge kết quả 2 logic xanh và tím
+            MIN_LINE_WIDTH: 0.5, // Độ dày tối thiểu cho các lệnh vẽ có width = 0
         };
+
+        // ============================================
+        // PERFORMANCE OPTIMIZATION: Quadtree Spatial Index
+        // ============================================
+        class Quadtree {
+            constructor(bounds, capacity = 25, maxDepth = 10) {
+                this.bounds = bounds; // {x, y, width, height}
+                this.capacity = capacity;
+                this.maxDepth = maxDepth;
+                this.objects = [];
+                this.divided = false;
+                this.children = null; // nw, ne, sw, se
+            }
+
+            subdivide() {
+                const { x, y, width, height } = this.bounds;
+                const hw = width / 2;
+                const hh = height / 2;
+
+                this.children = {
+                    nw: new Quadtree({ x: x, y: y, width: hw, height: hh }, this.capacity, this.maxDepth - 1),
+                    ne: new Quadtree({ x: x + hw, y: y, width: hw, height: hh }, this.capacity, this.maxDepth - 1),
+                    sw: new Quadtree({ x: x, y: y + hh, width: hw, height: hh }, this.capacity, this.maxDepth - 1),
+                    se: new Quadtree({ x: x + hw, y: y + hh, width: hw, height: hh }, this.capacity, this.maxDepth - 1)
+                };
+                this.divided = true;
+            }
+
+            insert(obj) {
+                // obj must have bbox: {minX, minY, maxX, maxY}
+                if (!this.contains(obj.bbox)) return false;
+
+                if (this.objects.length < this.capacity || this.maxDepth <= 0) {
+                    this.objects.push(obj);
+                    return true;
+                }
+
+                if (!this.divided) this.subdivide();
+
+                // FIXED: Insert into ALL intersecting children, not just the first one so large objects are never missed
+                let inserted = false;
+                if (this.children.nw.insert(obj)) inserted = true;
+                if (this.children.ne.insert(obj)) inserted = true;
+                if (this.children.sw.insert(obj)) inserted = true;
+                if (this.children.se.insert(obj)) inserted = true;
+
+                return inserted;
+            }
+
+            contains(bbox) {
+                return !(
+                    bbox.maxX < this.bounds.x ||
+                    bbox.minX > this.bounds.x + this.bounds.width ||
+                    bbox.maxY < this.bounds.y ||
+                    bbox.minY > this.bounds.y + this.bounds.height
+                );
+            }
+
+            intersects(range) {
+                return !(
+                    range.maxX < this.bounds.x ||
+                    range.minX > this.bounds.x + this.bounds.width ||
+                    range.maxY < this.bounds.y ||
+                    range.minY > this.bounds.y + this.bounds.height
+                );
+            }
+
+            query(range, result = []) {
+                if (!this.intersects(range)) return result;
+
+                for (const obj of this.objects) {
+                    if (this.objectIntersects(obj.bbox, range)) {
+                        result.push(obj);
+                    }
+                }
+
+                if (this.divided) {
+                    this.children.nw.query(range, result);
+                    this.children.ne.query(range, result);
+                    this.children.sw.query(range, result);
+                    this.children.se.query(range, result);
+                }
+
+                return result;
+            }
+
+            objectIntersects(objBbox, range) {
+                return !(
+                    objBbox.maxX < range.minX ||
+                    objBbox.minX > range.maxX ||
+                    objBbox.maxY < range.minY ||
+                    objBbox.minY > range.maxY
+                );
+            }
+        }
+
+        // Quadtree instance
+        let shapeQuadtree = null;
+
+        // ============================================
+        // PERFORMANCE OPTIMIZATION: RequestAnimationFrame Loop
+        // ============================================
+        let needsRender = false;
+        let animationFrameId = null;
+
+        function scheduleDraw() {
+            needsRender = true;
+            if (!animationFrameId) {
+                animationFrameId = requestAnimationFrame(renderLoop);
+            }
+        }
+
+        function renderLoop(timestamp) {
+            if (needsRender) {
+                draw();
+                needsRender = false;
+            }
+            animationFrameId = null;
+            // Check if we need another frame
+            if (needsRender) {
+                animationFrameId = requestAnimationFrame(renderLoop);
+            }
+        }
+
+        // ============================================
+        // PERFORMANCE OPTIMIZATION: Interaction Mode
+        // ============================================
+        let isInteracting = false;
+        let interactionTimer = null;
+
+        function setInteractionState(active) {
+            if (active) {
+                isInteracting = true;
+                if (interactionTimer) clearTimeout(interactionTimer);
+            } else {
+                if (interactionTimer) clearTimeout(interactionTimer);
+                interactionTimer = setTimeout(() => {
+                    isInteracting = false;
+                    scheduleDraw(); // Redraw in high quality
+                }, 300); // 300ms debounce
+            }
+        }
+
+        // ============================================
+        // PERFORMANCE OPTIMIZATION: LOD Configuration
+        // ============================================
+        const LOD_CONFIG = {
+            HIGH_DETAIL: 0.5,    // Full detail zoom >= 0.5
+            MEDIUM_DETAIL: 0.2, // Simplified zoom >= 0.2
+            LOW_DETAIL: 0.1     // Points only zoom < 0.2
+        };
+
+        function getLODLevel(zoom) {
+            if (zoom >= LOD_CONFIG.HIGH_DETAIL) return 'high';
+            if (zoom >= LOD_CONFIG.MEDIUM_DETAIL) return 'medium';
+            return 'low';
+        }
 
         const canvas = document.getElementById('drawing-canvas');
         const ctx = canvas.getContext('2d');
@@ -649,9 +820,11 @@
         const btnDetectPipeline = document.getElementById('btn-detect-pipeline');
         const btnExportPipelineJson = document.getElementById('btn-export-pipeline-json');
         const btnExportRevitJson = document.getElementById('btn-export-revit-json');
+        const btnToggleLayerMode = document.getElementById('btn-toggle-layer-mode');
 
         let jsonData = null;
         let jsonShapes = null;
+        let currentLayerField = 'layer_1'; // DEFAULT: filter by layer_1 (shape_color_...)
         let svgData = null;
         let pipelineRawResults = null; // Store raw pipeline detection results
         let layerIndex = {};
@@ -701,10 +874,10 @@
         // Distinct colors for pipeline shape types (high contrast RGB 0-1 format)
         const PIPELINE_SHAPE_COLORS = {
             'Line': null, // Will use pipe_id color
-            'Tee': [0.2, 0.6, 0.9], // Bright blue
-            'Elbow': [0.9, 0.5, 0.2], // Bright orange  
-            'Cross': [0.6, 0.2, 0.8], // Purple
-            'Reducer': [0.2, 0.8, 0.6], // Teal
+            'Tee': [1.0, 0.0, 1.0], // Bright magenta
+            'Elbow': [0.0, 1.0, 1.0], // Bright cyan  
+            'Cross': [1.0, 1.0, 0.0], // Bright yellow
+            'Reducer': [1.0, 0.5, 0.0], // Bright orange
             'Sprinkler': null // Will use type-specific color
         };
         let cropItems = [];
@@ -714,6 +887,12 @@
         let dragSelecting = false;
         let cachedPages = {}; // page_num -> base64 gzip data
         let currentThumbnailTaskId = 0; // Fixed: Global variable to cancel ongoing thumbnails task
+
+        // PERFORMANCE: Length calculation cache using WeakMap (auto GC)
+        const lengthCache = new WeakMap();
+        
+        // PERFORMANCE: Reusable array buffer for draw operations
+        let shapesDrawBuffer = [];
 
         // FIXED: Tách biến seqnoToIds thành 2 biến riêng biệt để tránh xung đột
         let globalSeqnoToIds = {}; // Dùng cho hover trên main canvas
@@ -735,18 +914,32 @@
             if (typeof color === 'number') return `rgba(${(color >> 16) & 255}, ${(color >> 8) & 255}, ${color & 255}, ${alpha})`;
             return `rgba(0, 0, 0, ${alpha})`;
         }
+        function getEffectiveWidth(width) {
+            if (width === undefined || width === null || width <= 0) {
+                return CONFIG.MIN_LINE_WIDTH;
+            }
+            return width;
+        }
         function calculateLength(type, item) {
+            // PERFORMANCE: Check cache first
+            if (lengthCache.has(item)) {
+                return lengthCache.get(item);
+            }
+            
+            let len = 0;
             switch (type) {
                 case 'l': {
                     const [x1, y1] = item[1], [x2, y2] = item[2];
-                    return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+                    len = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+                    break;
                 }
                 case 'c': {
                     const [p0x, p0y] = item[1], [p1x, p1y] = item[2], [p2x, p2y] = item[3], [p3x, p3y] = item[4];
                     const d1 = Math.sqrt((p1x - p0x) ** 2 + (p1y - p0y) ** 2);
                     const d2 = Math.sqrt((p2x - p1x) ** 2 + (p2y - p1y) ** 2);
                     const d3 = Math.sqrt((p3x - p2x) ** 2 + (p3y - p2y) ** 2);
-                    return d1 + d2 + d3;
+                    len = d1 + d2 + d3;
+                    break;
                 }
                 case 'qu': {
                     const points = item[1];
@@ -755,12 +948,34 @@
                         const d2 = Math.sqrt((points[3][0] - points[1][0]) ** 2 + (points[3][1] - points[1][1]) ** 2);
                         const d3 = Math.sqrt((points[2][0] - points[3][0]) ** 2 + (points[2][1] - points[3][1]) ** 2);
                         const d4 = Math.sqrt((points[0][0] - points[2][0]) ** 2 + (points[0][1] - points[2][1]) ** 2);
-                        return d1 + d2 + d3 + d4;
+                        len = d1 + d2 + d3 + d4;
+                    } else {
+                        lengthCache.set(item, 0);
+                        return 0;
                     }
-                    return 0;
+                    break;
                 }
-                default: return 0;
+                case 'poly': {
+                    const points = item[1];
+                    if (!points || points.length < 2) {
+                        lengthCache.set(item, 0);
+                        return 0;
+                    }
+                    for (let i = 0; i < points.length; i++) {
+                        const [x1, y1] = points[i];
+                        const [x2, y2] = points[(i + 1) % points.length];
+                        len += Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+                    }
+                    break;
+                }
+                default:
+                    lengthCache.set(item, 0);
+                    return 0;
             }
+            
+            // PERFORMANCE: Cache the result
+            lengthCache.set(item, len);
+            return len;
         }
         function getDisplayLengths(arr) {
             if (arr.length <= 6) return arr.map(l => l.toFixed(2)).join(', ');
@@ -960,6 +1175,52 @@
             }
         }
         // Drawing
+        function addShapeToPath(targetCtx, shape) {
+            // Add shape geometry to current path WITHOUT calling beginPath()
+            if (!shape.items) return;
+            let started = false, cx, cy;
+            shape.items.forEach(item => {
+                const type = item[0];
+                if (type === 'l') {
+                    const [sx, sy] = item[1], [ex, ey] = item[2];
+                    if (!started) { targetCtx.moveTo(sx, sy); started = true; }
+                    else if (cx !== sx || cy !== sy) targetCtx.moveTo(sx, sy);
+                    targetCtx.lineTo(ex, ey);
+                    cx = ex; cy = ey;
+                } else if (type === 'c') {
+                    const [p0x, p0y] = item[1], [p1x, p1y] = item[2], [p2x, p2y] = item[3], [p3x, p3y] = item[4];
+                    if (!started) { targetCtx.moveTo(p0x, p0y); started = true; }
+                    else if (cx !== p0x || cy !== p0y) targetCtx.moveTo(p0x, p0y);
+                    targetCtx.bezierCurveTo(p1x, p1y, p2x, p2y, p3x, p3y);
+                    cx = p3x; cy = p3y;
+                } else if (type === 'qu') {
+                    const points = item[1];
+                    if (points?.length === 4) {
+                        const [q0x, q0y] = points[0];
+                        if (!started) { targetCtx.moveTo(q0x, q0y); started = true; }
+                        else if (cx !== q0x || cy !== q0y) targetCtx.moveTo(q0x, q0y);
+                        targetCtx.lineTo(points[1][0], points[1][1]);
+                        targetCtx.lineTo(points[3][0], points[3][1]);
+                        targetCtx.lineTo(points[2][0], points[2][1]);
+                        targetCtx.closePath();
+                        cx = q0x; cy = q0y;
+                    }
+                } else if (type === 'poly') {
+                    const points = item[1];
+                    if (points?.length > 0) {
+                        const [q0x, q0y] = points[0];
+                        if (!started) { targetCtx.moveTo(q0x, q0y); started = true; }
+                        else if (cx !== q0x || cy !== q0y) targetCtx.moveTo(q0x, q0y);
+                        for (let i = 1; i < points.length; i++) {
+                            targetCtx.lineTo(points[i][0], points[i][1]);
+                        }
+                        targetCtx.closePath();
+                        cx = q0x; cy = q0y;
+                    }
+                }
+            });
+            if (shape.closePath) targetCtx.closePath();
+        }
         function buildShapePath(targetCtx, shape) {
             targetCtx.beginPath();
             if (!shape.items) return;
@@ -1007,9 +1268,9 @@
             if (shape.closePath) targetCtx.closePath();
         }
         function strokeShapeItems(targetCtx, shape) {
-            if (!shape.color || shape.width <= 0 || !shape.items) return;
+            if (!shape.color || !shape.items) return;
             targetCtx.strokeStyle = toRgbString(shape.color);
-            targetCtx.lineWidth = shape.width || 1;
+            targetCtx.lineWidth = getEffectiveWidth(shape.width);
             targetCtx.beginPath();
             shape.items.forEach(item => {
                 const type = item[0];
@@ -1055,9 +1316,9 @@
                 targetCtx.fillStyle = toRgbString(overrideColor);
                 targetCtx.fill();
             }
-            if (!shape.color || shape.width <= 0 || !shape.items) return;
+            if (!shape.color || !shape.items) return;
             targetCtx.strokeStyle = toRgbString(overrideColor);
-            targetCtx.lineWidth = shape.width || 1;
+            targetCtx.lineWidth = getEffectiveWidth(shape.width);
             targetCtx.beginPath();
             shape.items.forEach(item => {
                 const type = item[0];
@@ -1108,7 +1369,7 @@
                     if (!found) return;
                     const selected = cropSelectedItemIds.has(found.id);
                     previewCtx.strokeStyle = selected ? toRgbString(obj.color || [0, 0, 0]) : toRgbString(obj.color || [0, 0, 0], 0.02);
-                    previewCtx.lineWidth = obj.width || 1;
+                    previewCtx.lineWidth = getEffectiveWidth(obj.width);
                     previewCtx.beginPath();
                     if (type === 'l') {
                         previewCtx.moveTo(item[1][0], item[1][1]);
@@ -1133,8 +1394,21 @@
         }
         function applySvgTransform() {
             if (!svgData) return;
+            
             const textLayer = document.getElementById('svg-text-layer');
             const graphicLayer = document.getElementById('svg-graphic-layer');
+            
+            // Always update display state - even if both layers are hidden
+            const textVisible = layerVisibility['svg_text'] && !(isInteracting && !isDrawingBbox);
+            const graphicVisible = layerVisibility['svg_graphic'];
+            
+            // If both layers are hidden, hide the container layers and return early
+            if (!textVisible && !graphicVisible) {
+                textLayer.style.display = 'none';
+                graphicLayer.style.display = 'none';
+                return;
+            }
+            
             const viewMinX = -offsetX / zoom;
             const viewMinY = -offsetY / zoom;
             const viewWidth = canvas.width / zoom;
@@ -1151,30 +1425,117 @@
                 svgGraphicEl.style.width = canvas.width + 'px';
                 svgGraphicEl.style.height = canvas.height + 'px';
             }
-            textLayer.style.display = layerVisibility['svg_text'] ? 'block' : 'none';
-            graphicLayer.style.display = layerVisibility['svg_graphic'] ? 'block' : 'none';
+            textLayer.style.display = textVisible ? 'block' : 'none';
+            graphicLayer.style.display = graphicVisible ? 'block' : 'none';
         }
         function draw() {
             if (!jsonShapes) return;
+
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.translate(offsetX, offsetY);
             ctx.scale(zoom, zoom);
 
-            // Draw shapes sorted by seqno
-            const shapesToDraw = (allShapesSorted && allShapesSorted.length > 0) ? allShapesSorted : [];
+            // ============================================
+            // PERFORMANCE OPTIMIZATION: Use Quadtree for visible shapes
+            // ============================================
+            // PERFORMANCE: Reuse buffer instead of creating new array
+            shapesDrawBuffer.length = 0;
 
-            // Viewport culling
             const viewMinX = -offsetX / zoom;
             const viewMinY = -offsetY / zoom;
             const viewMaxX = (canvas.width - offsetX) / zoom;
             const viewMaxY = (canvas.height - offsetY) / zoom;
 
-            shapesToDraw.forEach(obj => {
+            // Add padding to viewport to prevent shapes "popping" at edges
+            const viewportPadding = 50 / zoom;
+            const queryRange = {
+                minX: viewMinX - viewportPadding,
+                minY: viewMinY - viewportPadding,
+                maxX: viewMaxX + viewportPadding,
+                maxY: viewMaxY + viewportPadding
+            };
+
+            // Use quadtree if available, otherwise fall back to all shapes
+            if (shapeQuadtree) {
+                // FIXED: Query returns duplicates because objects are stored in multiple nodes. Use Set to deduplicate.
+                const results = shapeQuadtree.query(queryRange);
+                const uniqueResults = new Set(results);
+                shapesDrawBuffer = Array.from(uniqueResults);
+                
+                // Sort: 1) Pipeline layers first (bottom), 2) Then by seqno
+                shapesDrawBuffer.sort((a, b) => {
+                    const aPipeline = pipelineLayerNames.includes(a.layer) ? 0 : 1;
+                    const bPipeline = pipelineLayerNames.includes(b.layer) ? 0 : 1;
+                    if (aPipeline !== bPipeline) return aPipeline - bPipeline;
+                    return (a.seqno || 0) - (b.seqno || 0);
+                });
+            } else {
+                shapesDrawBuffer = (allShapesSorted && allShapesSorted.length > 0) ? allShapesSorted : [];
+                // Sort: Pipeline layers first, then by seqno
+                shapesToDraw.sort((a, b) => {
+                    const aPipeline = pipelineLayerNames.includes(a.layer) ? 0 : 1;
+                    const bPipeline = pipelineLayerNames.includes(b.layer) ? 0 : 1;
+                    if (aPipeline !== bPipeline) return aPipeline - bPipeline;
+                    return (a.seqno || 0) - (b.seqno || 0);
+                });
+            }
+
+            // ============================================
+            // PERFORMANCE OPTIMIZATION: LOD (Level of Detail)
+            // ============================================
+            const lodLevel = getLODLevel(zoom);
+            const skipSmallShapes = lodLevel === 'low' || lodLevel === 'medium';
+
+            let currentStrokeStyle = null;
+            let currentLineWidth = null;
+            let strokePending = false;
+            
+            let currentFillStyle = null;
+            let fillPending = false;
+
+            function flushFills() {
+                if (fillPending) {
+                    ctx.fillStyle = currentFillStyle;
+                    ctx.fill();
+                    fillPending = false;
+                }
+            }
+            function flushStrokes() {
+                if (strokePending) {
+                    ctx.strokeStyle = currentStrokeStyle;
+                    ctx.lineWidth = currentLineWidth;
+                    ctx.stroke();
+                    strokePending = false;
+                }
+            }
+
+            // ============================================
+            // UNIFIED RENDER LOOP: Both pipeline and shape layers use same logic
+            // ============================================
+            shapesDrawBuffer.forEach(obj => {
                 const layerName = obj.layer;
                 if (!layerVisibility[layerName]) return;
 
-                // Culling check
+                // ============================================
+                // PERFORMANCE OPTIMIZATION: Skip shapes too small to see
+                // ============================================
+                if (skipSmallShapes && obj.bbox) {
+                    const shapeWidth = obj.bbox.maxX - obj.bbox.minX;
+                    const shapeHeight = obj.bbox.maxY - obj.bbox.minY;
+                    const screenWidth = shapeWidth * zoom;
+                    const screenHeight = shapeHeight * zoom;
+
+                    if (screenWidth < 1 || screenHeight < 1) {
+                        return;
+                    }
+
+                    if (lodLevel === 'low' && (screenWidth < 3 || screenHeight < 3)) {
+                        return;
+                    }
+                }
+
+                // Viewport culling
                 if (obj.bbox) {
                     const padding = (obj.width || 2);
                     if (obj.bbox.maxX + padding < viewMinX ||
@@ -1185,33 +1546,184 @@
                     }
                 }
 
-                // FIXED: Don't hide non-main layers if we are applying a saved pattern (user wants context)
-                if (cropLengths && mainLayers && !mainLayers.includes(layerName) && !isApplyingSavedPattern) return;
+                // CropLengths filter (allow pipeline layers to bypass)
+                if (cropLengths && mainLayers && !mainLayers.includes(layerName) && !isApplyingSavedPattern && !pipelineLayerNames.includes(layerName)) return;
 
-                // LOD Optimization for zoomed out small objects
-                if (obj.bbox) {
-                    const screenW = (obj.bbox.maxX - obj.bbox.minX) * zoom;
-                    const screenH = (obj.bbox.maxY - obj.bbox.minY) * zoom;
-                    if (screenW < 2 && screenH < 2 && !obj.fill) {
-                        ctx.fillStyle = toRgbString(obj.color || [0, 0, 0]);
-                        ctx.fillRect(obj.bbox.minX, obj.bbox.minY, Math.max(1 / zoom, obj.bbox.maxX - obj.bbox.minX), Math.max(1 / zoom, obj.bbox.maxY - obj.bbox.minY));
-                        return;
+                // ============================================
+                // RENDER MODE: Fast batching vs Detailed filtering
+                // ============================================
+                if (isInteracting && !isDrawingBbox) {
+                    // FAST MODE: Batch shapes by color/width during zoom/pan
+                    if (obj.fill) {
+                        const fillStyle = toRgbString(obj.fill);
+                        if (currentFillStyle !== fillStyle || strokePending) {
+                            flushFills();
+                            flushStrokes();
+                            currentFillStyle = fillStyle;
+                            ctx.beginPath();
+                        }
+                        addShapeToPath(ctx, obj);
+                        fillPending = true;
                     }
-                }
-
-                if (cropLengths && mainLayers) {
+                    if (obj.color && obj.items) {
+                        const styleKey = toRgbString(obj.color);
+                        const widthKey = getEffectiveWidth(obj.width);
+                        if (currentStrokeStyle !== styleKey || currentLineWidth !== widthKey || fillPending) {
+                            flushFills();
+                            flushStrokes();
+                            currentStrokeStyle = styleKey;
+                            currentLineWidth = widthKey;
+                            ctx.beginPath();
+                        }
+                        obj.items?.forEach(item => {
+                            const type = item[0];
+                            if (type === 'l') {
+                                ctx.moveTo(item[1][0], item[1][1]);
+                                ctx.lineTo(item[2][0], item[2][1]);
+                            } else if (type === 'c') {
+                                ctx.moveTo(item[1][0], item[1][1]);
+                                ctx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
+                            } else if (type === 'qu') {
+                                const points = item[1];
+                                if (points?.length === 4) {
+                                    ctx.moveTo(points[0][0], points[0][1]);
+                                    ctx.lineTo(points[1][0], points[1][1]);
+                                    ctx.lineTo(points[3][0], points[3][1]);
+                                    ctx.lineTo(points[2][0], points[2][1]);
+                                    ctx.closePath();
+                                }
+                            } else if (type === 'poly') {
+                                const points = item[1];
+                                if (points?.length > 0) {
+                                    ctx.moveTo(points[0][0], points[0][1]);
+                                    for (let i = 1; i < points.length; i++) {
+                                        ctx.lineTo(points[i][0], points[i][1]);
+                                    }
+                                    ctx.closePath();
+                                }
+                            }
+                        });
+                        strokePending = true;
+                    }
+                } else if (cropLengths && mainLayers) {
+                    // DETAILED MODE with cropLengths filtering
+                    flushFills();
+                    flushStrokes();
                     drawShapeOnCtx(ctx, obj);
                 } else {
+                    // Slow path: filter items for detailed rendering
                     const filteredItems = obj.items?.filter((item, itemIndex) => {
                         if (!cropLengths) return true;
-                        // Lazy compute length
                         const type = item[0];
+                        // Always include types not in cropLengths (e.g., 'poly' for pipeline shapes)
+                        if (!cropLengths[type] || cropLengths[type].length === 0) return true;
                         const currentLength = getOrComputeLength(layerName, obj.id, itemIndex, type, item);
                         return cropLengths[type].some(len => Math.abs(len - currentLength) <= 1);
                     }) || [];
-                    if (filteredItems.length > 0) drawShapeOnCtx(ctx, { ...obj, items: filteredItems });
+                    
+                    if (filteredItems.length === 0) return;
+
+                    if (obj.fill) {
+                        const styleKey = toRgbString(obj.fill);
+                        if (currentFillStyle !== styleKey || strokePending) {
+                            flushFills();
+                            flushStrokes(); 
+                            currentFillStyle = styleKey;
+                            ctx.beginPath();
+                        }
+                        
+                        let started = false, cx, cy;
+                        filteredItems.forEach(item => {
+                            const type = item[0];
+                            if (type === 'l') {
+                                const [sx, sy] = item[1], [ex, ey] = item[2];
+                                if (!started) { ctx.moveTo(sx, sy); started = true; }
+                                else if (cx !== sx || cy !== sy) ctx.moveTo(sx, sy);
+                                ctx.lineTo(ex, ey);
+                                cx = ex; cy = ey;
+                            } else if (type === 'c') {
+                                const [p0x, p0y] = item[1], [p1x, p1y] = item[2], [p2x, p2y] = item[3], [p3x, p3y] = item[4];
+                                if (!started) { ctx.moveTo(p0x, p0y); started = true; }
+                                else if (cx !== p0x || cy !== p0y) ctx.moveTo(p0x, p0y);
+                                ctx.bezierCurveTo(p1x, p1y, p2x, p2y, p3x, p3y);
+                                cx = p3x; cy = p3y;
+                            } else if (type === 'qu') {
+                                const points = item[1];
+                                if (points?.length === 4) {
+                                    const [q0x, q0y] = points[0];
+                                    if (!started) { ctx.moveTo(q0x, q0y); started = true; }
+                                    else if (cx !== q0x || cy !== q0y) ctx.moveTo(q0x, q0y);
+                                    ctx.lineTo(points[1][0], points[1][1]);
+                                    ctx.lineTo(points[3][0], points[3][1]);
+                                    ctx.lineTo(points[2][0], points[2][1]);
+                                    ctx.closePath();
+                                    cx = q0x; cy = q0y;
+                                }
+                            } else if (type === 'poly') {
+                                const points = item[1];
+                                if (points?.length > 0) {
+                                    const [q0x, q0y] = points[0];
+                                    if (!started) { ctx.moveTo(q0x, q0y); started = true; }
+                                    else if (cx !== q0x || cy !== q0y) ctx.moveTo(q0x, q0y);
+                                    for (let i = 1; i < points.length; i++) {
+                                        ctx.lineTo(points[i][0], points[i][1]);
+                                    }
+                                    ctx.closePath();
+                                    cx = q0x; cy = q0y;
+                                }
+                            }
+                        });
+                        if (obj.closePath) ctx.closePath();
+                        fillPending = true;
+                    }
+
+                    if (obj.color && obj.items) {
+                        const styleKey = toRgbString(obj.color);
+                        const widthKey = getEffectiveWidth(obj.width);
+                        if (currentStrokeStyle !== styleKey || currentLineWidth !== widthKey || fillPending) {
+                            flushFills();
+                            flushStrokes();
+                            currentStrokeStyle = styleKey;
+                            currentLineWidth = widthKey;
+                            ctx.beginPath();
+                        }
+                        
+                        filteredItems.forEach(item => {
+                            const type = item[0];
+                            if (type === 'l') {
+                                ctx.moveTo(item[1][0], item[1][1]);
+                                ctx.lineTo(item[2][0], item[2][1]);
+                            } else if (type === 'c') {
+                                ctx.moveTo(item[1][0], item[1][1]);
+                                ctx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
+                            } else if (type === 'qu') {
+                                const points = item[1];
+                                if (points?.length === 4) {
+                                    ctx.moveTo(points[0][0], points[0][1]);
+                                    ctx.lineTo(points[1][0], points[1][1]);
+                                    ctx.lineTo(points[3][0], points[3][1]);
+                                    ctx.lineTo(points[2][0], points[2][1]);
+                                    ctx.closePath();
+                                }
+                            } else if (type === 'poly') {
+                                const points = item[1];
+                                if (points?.length > 0) {
+                                    ctx.moveTo(points[0][0], points[0][1]);
+                                    for (let i = 1; i < points.length; i++) {
+                                        ctx.lineTo(points[i][0], points[i][1]);
+                                    }
+                                    ctx.closePath();
+                                }
+                            }
+                        });
+                        strokePending = true;
+                    }
                 }
             });
+                
+            // Flush any remaining batched draws
+            flushFills();
+            flushStrokes();
 
             // FIXED: Tránh vẽ Bbox bị lỗi nếu width/height = 0
             if (currentBbox && currentBbox.width > 0 && currentBbox.height > 0) {
@@ -1282,7 +1794,11 @@
                 });
                 highlightedShapes.forEach(objIndex => {
                     const obj = jsonShapes[objIndex];
-                    if (obj.type === 'text' || !layerVisibility[obj.layer_1]) return;
+                    let layerKey = obj[currentLayerField];
+                    if (currentLayerField === 'layer' && (!layerKey || layerKey.trim() === '')) {
+                        layerKey = '__default_shape_layer__';
+                    }
+                    if (obj.type === 'text' || !layerVisibility[layerKey]) return;
                     drawShapeOnCtxWithColor(ctx, obj, [255, 0, 0]); // red
                 });
             }
@@ -1312,7 +1828,7 @@
                             maxX = Math.max(maxX, p0[0], p1[0], p2[0], p3[0]);
                             maxY = Math.max(maxY, p0[1], p1[1], p2[1], p3[1]);
                         }
-                    } else if (type === 'qu') {
+                    } else if (type === 'qu' || type === 'poly') {
                         const points = item[1];
                         if (Array.isArray(points)) {
                             for (const p of points) {
@@ -1341,8 +1857,16 @@
             allShapesSorted = [];
             if (!jsonShapes) return;
             jsonShapes.forEach((obj, objIndex) => {
-                const layerName = obj.layer_1;
-                if (!layerName || !layerName.startsWith('shape_color_')) return;
+                let layerName = obj[currentLayerField];
+                // If using layer_1, strictly enforce shape_color_ prefix. If using layer, allow all.
+                if (currentLayerField === 'layer_1') {
+                    if (!layerName || !layerName.startsWith('shape_color_')) return;
+                } else {
+                    // For 'layer' mode: use default layer name if layer field is empty/undefined
+                    if (!layerName || layerName.trim() === '') {
+                        layerName = '__default_shape_layer__';
+                    }
+                }
                 if (!obj.items || !Array.isArray(obj.items)) return;
                 layerIndex[layerName] ??= [];
                 const shapeObj = {
@@ -1380,6 +1904,50 @@
                 layerVisibility['svg_graphic'] = true;
             }
             linkConsecutiveSeqnos();
+            rebuildQuadtree();
+        }
+
+        // ============================================
+        // PERFORMANCE OPTIMIZATION: Rebuild Quadtree
+        // ============================================
+        function rebuildQuadtree() {
+            if (allShapesSorted.length === 0) {
+                shapeQuadtree = null;
+                return;
+            }
+
+            // Calculate bounds from all shapes
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            allShapesSorted.forEach(obj => {
+                if (obj.bbox) {
+                    minX = Math.min(minX, obj.bbox.minX);
+                    minY = Math.min(minY, obj.bbox.minY);
+                    maxX = Math.max(maxX, obj.bbox.maxX);
+                    maxY = Math.max(maxY, obj.bbox.maxY);
+                }
+            });
+
+            if (minX === Infinity) {
+                shapeQuadtree = null;
+                return;
+            }
+
+            // Add padding to bounds
+            const padding = 100;
+            shapeQuadtree = new Quadtree({
+                x: minX - padding,
+                y: minY - padding,
+                width: (maxX - minX) + padding * 2,
+                height: (maxY - minY) + padding * 2
+            }, 25, 10);
+
+            // Insert all shapes into quadtree
+            allShapesSorted.forEach(obj => {
+                if (obj.bbox) {
+                    shapeQuadtree.insert(obj);
+                }
+            });
+            console.log(`Quadtree rebuilt with ${allShapesSorted.length} shapes`);
         }
 
         function getOrComputeLength(layerName, objIndex, itemIndex, type, item) {
@@ -1425,7 +1993,12 @@
             checkbox.dataset.layer = layerName;
             checkbox.addEventListener('change', e => {
                 layerVisibility[e.target.dataset.layer] = e.target.checked;
+                // Reset interaction state so SVG layers respond immediately
+                isInteracting = false;
+                if (interactionTimer) { clearTimeout(interactionTimer); interactionTimer = null; }
                 scheduleDraw();
+                // Directly update SVG layer visibility (avoid waiting for debounce)
+                applySvgTransform();
             });
             let color, type;
             if (layerName === 'svg_text') {
@@ -1453,8 +2026,9 @@
             icon.innerHTML = icons[type] || '';
             const label = document.createElement('label');
             label.htmlFor = `check-${layerName}`;
-            label.textContent = layerName;
-            label.title = layerName;
+            const displayName = layerName === '__default_shape_layer__' ? 'Shape (default)' : layerName;
+            label.textContent = displayName;
+            label.title = displayName;
             itemDiv.append(checkbox, swatch, icon, label);
             return itemDiv;
         }
@@ -1462,7 +2036,8 @@
             layerList.innerHTML = '';
             const typeGroups = { shape: [], svg_graphic: [], svg_text: [], pipeline: [] };
             sortedLayerKeys.forEach(layerName => {
-                if (layerName.startsWith('shape_')) {
+                const isDefaultShapeLayer = layerName === '__default_shape_layer__';
+                if (layerName.startsWith('shape_') || isDefaultShapeLayer || (currentLayerField === 'layer' && !layerName.startsWith('svg_') && !pipelineLayerNames.includes(layerName))) {
                     typeGroups.shape.push(layerName);
                 } else if (layerName.startsWith('svg_graphic')) {
                     typeGroups.svg_graphic.push(layerName);
@@ -1496,8 +2071,11 @@
                 typeCheckbox.style.marginRight = '10px';
                 typeCheckbox.addEventListener('change', e => {
                     layers.forEach(l => layerVisibility[l] = e.target.checked);
+                    isInteracting = false;
+                    if (interactionTimer) { clearTimeout(interactionTimer); interactionTimer = null; }
                     updateLayerList();
                     scheduleDraw();
+                    applySvgTransform();
                 });
                 const typeIcon = document.createElement('span');
                 typeIcon.className = 'layer-icon';
@@ -1514,8 +2092,8 @@
                 colorSubtree.style.display = expandedNodes[`type-${typeName}`] ? 'block' : 'none';
                 colorSubtree.style.marginLeft = '20px';
 
-                // For pipeline layers: show directly without color grouping
-                if (typeName === 'pipeline') {
+                // For pipeline layers or "layer" mode shapes: show directly as flat list by name
+                if (typeName === 'pipeline' || (typeName === 'shape' && currentLayerField === 'layer')) {
                     layers.sort((a, b) => (totalCommands[b] || 0) - (totalCommands[a] || 0));
                     layers.forEach((layerName, index) => {
                         const layerItem = createLayerControl(layerName);
@@ -1527,7 +2105,7 @@
                         colorSubtree.appendChild(layerItem);
                     });
                 } else {
-                    // For other layers: group by color
+                    // For layer_1 mode: group by color
                     const colorGroups = {};
                     layers.forEach(layerName => {
                         const layerObjs = layerIndex[layerName];
@@ -1557,8 +2135,11 @@
                         colorCheckbox.style.marginRight = '6px';
                         colorCheckbox.addEventListener('change', e => {
                             colorLayers.forEach(l => layerVisibility[l] = e.target.checked);
+                            isInteracting = false;
+                            if (interactionTimer) { clearTimeout(interactionTimer); interactionTimer = null; }
                             updateLayerList();
                             scheduleDraw();
+                            applySvgTransform();
                         });
                         const swatch = document.createElement('div');
                         swatch.className = 'color-swatch';
@@ -1790,55 +2371,25 @@
             let seqnos = Object.keys(selectedBySeq).map(n => parseInt(n, 10)).sort((a, b) => a - b);
             if (!seqnos.length) return;
 
-            // Tìm đoạn liên tiếp dài nhất để làm pattern chính (logic cũ)
-            let bestRun = [], currentRun = [seqnos[0]];
+            const gaps = [];
             for (let i = 1; i < seqnos.length; i++) {
-                if (seqnos[i] === seqnos[i - 1] + 1) currentRun.push(seqnos[i]);
-                else {
-                    if (currentRun.length > bestRun.length) bestRun = currentRun.slice();
-                    currentRun = [seqnos[i]];
-                }
+                gaps.push(seqnos[i] - seqnos[i - 1]);
             }
-            if (currentRun.length > bestRun.length) bestRun = currentRun.slice();
 
-            // Nếu có đoạn liên tiếp dài >= 2, ưu tiên dùng nó
-            if (bestRun.length >= 2) {
-                sequencePatternTokens = {
-                    type: 'consecutive',
-                    seqnos: bestRun,
-                    gaps: bestRun.slice(1).map(() => 1), // gaps đều là 1
-                    tokens: bestRun.map(s => {
-                        const counts = selectedBySeq[s];
-                        const tokenParts = [];
-                        if (counts.l) tokenParts.push(counts.l + 'l');
-                        if (counts.c) tokenParts.push(counts.c + 'c');
-                        if (counts.qu) tokenParts.push(counts.qu + 'q');
-                        return tokenParts.join('');
-                    }),
-                    lengths: bestRun.map(s => selectedBySeq[s].lengths) // lưu độ dài các lệnh
-                };
-            } else {
-                // Nếu không có đoạn liên tiếp, dùng toàn bộ với gaps thực
-                const gaps = [];
-                for (let i = 1; i < seqnos.length; i++) {
-                    gaps.push(seqnos[i] - seqnos[i - 1]);
-                }
-
-                sequencePatternTokens = {
-                    type: 'gapped',
-                    seqnos: seqnos,
-                    gaps: gaps,
-                    tokens: seqnos.map(s => {
-                        const counts = selectedBySeq[s];
-                        const tokenParts = [];
-                        if (counts.l) tokenParts.push(counts.l + 'l');
-                        if (counts.c) tokenParts.push(counts.c + 'c');
-                        if (counts.qu) tokenParts.push(counts.qu + 'q');
-                        return tokenParts.join('');
-                    }),
-                    lengths: seqnos.map(s => selectedBySeq[s].lengths) // lưu độ dài các lệnh
-                };
-            }
+            sequencePatternTokens = {
+                type: 'gapped',
+                seqnos: seqnos,
+                gaps: gaps,
+                tokens: seqnos.map(s => {
+                    const counts = selectedBySeq[s];
+                    const tokenParts = [];
+                    if (counts.l) tokenParts.push(counts.l + 'l');
+                    if (counts.c) tokenParts.push(counts.c + 'c');
+                    if (counts.qu) tokenParts.push(counts.qu + 'q');
+                    return tokenParts.join('');
+                }),
+                lengths: seqnos.map(s => selectedBySeq[s].lengths) // lưu độ dài các lệnh
+            };
         }
 
         function findSimilarSequencePatternMatches() {
@@ -1855,7 +2406,8 @@
                 const counts = { l: 0, c: 0, qu: 0 };
                 if (g.obj.items) g.obj.items.forEach(item => { const t = item[0]; if (counts[t] != null) counts[t]++; });
                 const parts = []; if (counts.l) parts.push(counts.l + 'l'); if (counts.c) parts.push(counts.c + 'c'); if (counts.qu) parts.push(counts.qu + 'q');
-                return parts.join('');
+                g.token = parts.join('');
+                return g.token;
             });
 
             const patternTokens = sequencePatternTokens.tokens;
@@ -1925,189 +2477,99 @@
                         }
                     }
                 }
-            } else if (sequencePatternTokens.type === 'consecutive') {
-                // Logic cũ: tìm dãy liên tiếp
-                for (let start = 0; start <= globalTokens.length - patLen; start++) {
-                    // Kiểm tra seqno liên tiếp & token match.
-                    let ok = true;
-
-                    for (let k = 0; k < patLen; k++) {
-                        const actualToken = globalTokens[start + k];
-                        const expectedToken = patternTokens[k];
-
-                        if (actualToken !== expectedToken) {
-                            ok = false;
-                            break;
-                        }
-                        // Kiểm tra liên tiếp seqno
-                        if (k > 0 && globalObjs[start + k].seqno !== globalObjs[start + k - 1].seqno + 1) {
-                            ok = false;
-                            break;
-                        }
-                    }
-
-                    let totalDiff = 0;
-                    let totalCount = 0;
-
-                    // Nếu số lệnh được chọn < 20, kiểm tra thêm độ dài lệnh với sai lệch
-                    // Use cropLengthsFull to determine item count (works correctly with saved patterns)
-                    const totalCropItemCount = (cropLengthsFull?.l?.length || 0) + (cropLengthsFull?.c?.length || 0) + (cropLengthsFull?.qu?.length || 0);
-                    if (ok && totalCropItemCount < 20) {
-                        for (let k = 0; k < patLen; k++) {
-                            const expectedLengths = sequencePatternTokens.lengths[k];
-                            const actualObj = globalObjs[start + k].obj;
-
-                            if (!actualObj.items) continue;
-
-                            // Lấy độ dài các lệnh của object hiện tại
-                            const actualLengths = actualObj.items
-                                .filter(item => ['l', 'c', 'qu'].includes(item[0]))
-                                .map(item => calculateLength(item[0], item))
-                                .sort((a, b) => a - b);
-
-                            // So sánh độ dài với sai lệch cho phép
-                            if (expectedLengths.length !== actualLengths.length) {
-                                ok = false;
-                                break;
-                            }
-
-                            for (let i = 0; i < expectedLengths.length; i++) {
-                                const diff = Math.abs(expectedLengths[i] - actualLengths[i]);
-                                if (diff > CONFIG.SIMILARITY_TOLERANCE) {
-                                    ok = false;
-                                    break;
-                                }
-                                totalDiff += diff;
-                                totalCount++;
-                            }
-
-                            if (!ok) break;
-                        }
-                    }
-
-                    if (!ok) continue;
-
-                    // Tính rect chặt cho window
-                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                    for (let k = 0; k < patLen; k++) {
-                        const b = globalObjs[start + k].obj.rect;
-                        if (!b) continue;
-                        minX = Math.min(minX, b[0]); minY = Math.min(minY, b[1]);
-                        maxX = Math.max(maxX, b[2]); maxY = Math.max(maxY, b[3]);
-                    }
-                    if (minX === Infinity) continue;
-
-                    const rect = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-
-                    // Đếm số lệnh l và c trong các object tìm được
-                    let foundL = 0, foundC = 0;
-                    for (let k = 0; k < patLen; k++) {
-                        const obj = globalObjs[start + k].obj;
-                        if (obj.items) {
-                            obj.items.forEach(item => {
-                                if (item[0] === 'l') foundL++;
-                                else if (item[0] === 'c') foundC++;
-                            });
-                        }
-                    }
-
-                    // Tính score dựa trên số lượng lệnh l,c tìm được so với bbox gốc
-                    const expectedL = cropLengthsFull.l.length;
-                    const expectedC = cropLengthsFull.c.length;
-                    const totalExpected = expectedL + expectedC;
-                    const totalFound = foundL + foundC;
-                    let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
-
-                    if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
-                        sequenceMatches.push({ rect, startSeqno: globalObjs[start].seqno, endSeqno: globalObjs[start + patLen - 1].seqno, score });
-                    }
-                }
             } else {
-                // Logic mới: tìm pattern với khoảng cách tương tự
-                for (let start = 0; start <= globalTokens.length - patLen; start++) {
-                    // Kiểm tra token match
-                    let tokensMatch = true;
-                    for (let k = 0; k < patLen; k++) {
-                        if (globalTokens[start + k] !== patternTokens[k]) {
-                            tokensMatch = false;
-                            break;
+                // Logic mới: tìm pattern với khoảng cách tương tự bằng Map dictionary
+                const seqnoMap = new Map();
+                for (let i = 0; i < globalObjs.length; i++) {
+                    const g = globalObjs[i];
+                    seqnoMap.set(g.seqno, g); // globalObjs contains {obj, seqno, token}
+                }
+
+                for (let i = 0; i < globalObjs.length; i++) {
+                    const startObj = globalObjs[i];
+
+                    let matchObjList = [startObj];
+                    let currentSeqno = startObj.seqno;
+                    // Bỏ qua strict tokensMatch: cho phép match "mềm" dựa vào điểm score
+
+                    for (let k = 1; k < patLen; k++) {
+                        currentSeqno += patternGaps[k - 1];
+                        const nextObj = seqnoMap.get(currentSeqno);
+                        if (!nextObj) {
+                            // Nếu khuyết thiếu obj tại khoảng gap này thì cứ push tạm obj trống để làm nền tính điểm
+                            matchObjList.push({ obj: { items: [], rect: null }, seqno: currentSeqno, token: '' });
+                        } else {
+                            matchObjList.push(nextObj);
                         }
                     }
-                    if (!tokensMatch) continue;
-
-                    // Kiểm tra gaps (khoảng cách giữa seqno)
-                    let gapsMatch = true;
-                    for (let k = 0; k < patLen - 1; k++) {
-                        const actualGap = globalObjs[start + k + 1].seqno - globalObjs[start + k].seqno;
-                        const expectedGap = patternGaps[k];
-                        if (actualGap !== expectedGap) {
-                            gapsMatch = false;
-                            break;
-                        }
-                    }
-                    if (!gapsMatch) continue;
-
-                    let totalDiff = 0;
-                    let totalCount = 0;
-
-                    // Nếu số lệnh được chọn < 20, kiểm tra thêm độ dài lệnh với sai lệch
-                    let lengthsMatch = true;
-                    if (cropSelectedItemIds.size < 20) {
-                        for (let k = 0; k < patLen; k++) {
-                            const expectedLengths = sequencePatternTokens.lengths[k];
-                            const actualObj = globalObjs[start + k].obj;
-
-                            if (!actualObj.items) continue;
-
-                            // Lấy độ dài các lệnh của object hiện tại
-                            const actualLengths = actualObj.items
-                                .filter(item => ['l', 'c', 'qu'].includes(item[0]))
-                                .map(item => calculateLength(item[0], item))
-                                .sort((a, b) => a - b);
-
-                            // So sánh độ dài với sai lệch cho phép
-                            if (expectedLengths.length !== actualLengths.length) {
-                                lengthsMatch = false;
-                                break;
-                            }
-
-                            for (let i = 0; i < expectedLengths.length; i++) {
-                                const diff = Math.abs(expectedLengths[i] - actualLengths[i]);
-                                if (diff > CONFIG.SIMILARITY_TOLERANCE) {
-                                    lengthsMatch = false;
-                                    break;
-                                }
-                                totalDiff += diff;
-                                totalCount++;
-                            }
-
-                            if (!lengthsMatch) break;
-                        }
-                    }
-                    if (!lengthsMatch) continue;
 
                     // Tính rect chặt cho window
                     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
                     for (let k = 0; k < patLen; k++) {
-                        const b = globalObjs[start + k].obj.rect;
+                        const b = matchObjList[k].obj.rect;
                         if (!b) continue;
                         minX = Math.min(minX, b[0]); minY = Math.min(minY, b[1]);
                         maxX = Math.max(maxX, b[2]); maxY = Math.max(maxY, b[3]);
                     }
                     if (minX === Infinity) continue;
 
-                    const rect = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+                    const width = maxX - minX;
+                    const height = maxY - minY;
+                    
+                    // Diagonal-based filtering (optimal rotation-invariant constraint)
+                    // Mathematical guarantee: max(rotated_width, rotated_height) <= original_diagonal
+                    // Pure geometric constraint, no threshold multiplier needed!
+                    if (searchBboxSize) {
+                        const anchorDiagonal = Math.sqrt(
+                            searchBboxSize.width ** 2 + searchBboxSize.height ** 2
+                        );
+                        const maxSide = Math.max(width, height);
+                        if (maxSide > anchorDiagonal) {
+                            continue;
+                        }
+                    }
 
-                    // Đếm số lệnh l và c trong các object tìm được
+                    const rect = { x: minX, y: minY, width, height };
+
+                    // Đếm số lệnh l và c trong các object tìm được (kết hợp kiểm tra khớp độ dài)
                     let foundL = 0, foundC = 0;
                     for (let k = 0; k < patLen; k++) {
-                        const obj = globalObjs[start + k].obj;
-                        if (obj.items) {
-                            obj.items.forEach(item => {
-                                if (item[0] === 'l') foundL++;
-                                else if (item[0] === 'c') foundC++;
-                            });
+                        const matchItem = matchObjList[k];
+                        const actualObj = matchItem.obj;
+                        if (!actualObj.items) continue; // Khuyết object
+
+                        // 1. Kiểm tra khớp lệnh vẽ (ví dụ: 3l) - nếu khác lệnh vẽ coi như mảnh này 0 điểm
+                        if (matchItem.token !== patternTokens[k]) {
+                            continue;
                         }
+
+                        // 2. Tính điểm độ dài từng lệnh (khớp hoàn toàn độ dài = 1đ, lệch độ dài = 0.5đ)
+                        const expectedLengths = [...sequencePatternTokens.lengths[k]];
+
+                        actualObj.items.forEach(item => {
+                            const type = item[0];
+                            if (type === 'l' || type === 'c') {
+                                const len = calculateLength(type, item);
+                                let matchedIdx = -1;
+                                let minDiff = Infinity;
+                                for (let j = 0; j < expectedLengths.length; j++) {
+                                    const diff = Math.abs(expectedLengths[j] - len);
+                                    if (diff <= CONFIG.SIMILARITY_TOLERANCE && diff < minDiff) {
+                                        minDiff = diff;
+                                        matchedIdx = j;
+                                    }
+                                }
+
+                                let multiplier = 0.5; // Khác độ dài -> 0.5 điểm
+                                if (matchedIdx !== -1) {
+                                    multiplier = 1.0; // Khớp độ dài -> 1.0 điểm
+                                    expectedLengths.splice(matchedIdx, 1);
+                                }
+
+                                if (type === 'l') foundL += multiplier;
+                                else if (type === 'c') foundC += multiplier;
+                            }
+                        });
                     }
 
                     // Tính score dựa trên số lượng lệnh l,c tìm được so với bbox gốc
@@ -2118,7 +2580,7 @@
                     let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
 
                     if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
-                        sequenceMatches.push({ rect, startSeqno: globalObjs[start].seqno, endSeqno: globalObjs[start + patLen - 1].seqno, score });
+                        sequenceMatches.push({ rect, startSeqno: matchObjList[0].seqno, endSeqno: matchObjList[patLen - 1].seqno, score });
                     }
                 }
             }
@@ -2390,6 +2852,93 @@
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+        }
+
+        async function exportLayerImages() {
+            if (!jsonShapes || !sortedLayerKeys.length) {
+                alert('Không có dữ liệu để xuất.');
+                return;
+            }
+
+            // Tính bounding box toàn bộ
+            let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+            sortedLayerKeys.forEach(layerName => {
+                const arr = layerIndex[layerName] || [];
+                arr.forEach(obj => {
+                    if (obj.bbox) {
+                        gMinX = Math.min(gMinX, obj.bbox.minX);
+                        gMinY = Math.min(gMinY, obj.bbox.minY);
+                        gMaxX = Math.max(gMaxX, obj.bbox.maxX);
+                        gMaxY = Math.max(gMaxY, obj.bbox.maxY);
+                    }
+                });
+            });
+            if (gMinX === Infinity) { alert('Không tính được vùng vẽ.'); return; }
+
+            const SCALE = 2; // 2x resolution
+            const docW = (gMaxX - gMinX) * SCALE;
+            const docH = (gMaxY - gMinY) * SCALE;
+
+            // Offscreen canvas
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = Math.ceil(docW);
+            offCanvas.height = Math.ceil(docH);
+            const offCtx = offCanvas.getContext('2d');
+
+            const popup = document.getElementById('loading-popup');
+            if (popup) popup.style.display = 'flex';
+
+            const zip = new JSZip();
+            const folder = zip.folder('layers');
+
+            // Render từng layer
+            const visibleLayers = sortedLayerKeys.filter(k =>
+                layerIndex[k] && layerIndex[k].length > 0 &&
+                !k.startsWith('svg_') && !pipelineLayerNames.includes(k)
+            );
+
+            for (const layerName of visibleLayers) {
+                offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+                offCtx.save();
+                offCtx.translate(-gMinX * SCALE, -gMinY * SCALE);
+                offCtx.scale(SCALE, SCALE);
+
+                // Nền trắng
+                offCtx.fillStyle = 'white';
+                offCtx.fillRect(gMinX, gMinY, gMaxX - gMinX, gMaxY - gMinY);
+
+                const layerArr = layerIndex[layerName] || [];
+                layerArr.forEach(obj => {
+                    if (obj.fill) {
+                        buildShapePath(offCtx, obj);
+                        offCtx.fillStyle = toRgbString(obj.fill);
+                        offCtx.fill();
+                    }
+                    strokeShapeItems(offCtx, obj);
+                });
+
+                offCtx.restore();
+
+                // Lấy blob PNG
+                const dataUrl = offCanvas.toDataURL('image/png');
+                const base64 = dataUrl.split(',')[1];
+                // Tên file an toàn
+                const safeName = layerName.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+                folder.file(`${safeName}.png`, base64, { base64: true });
+            }
+
+            // Tạo ZIP và download
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            const zipUrl = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = zipUrl;
+            a.download = 'layers_export.zip';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(zipUrl);
+
+            if (popup) popup.style.display = 'none';
         }
         function showCropModal(rect) {
             // FIXED: Kiểm tra size bbox để tránh lỗi Infinity khi scale
@@ -2737,10 +3286,11 @@
             dropZone.classList.add('hidden');
 
             let pdf = null;
+            let page = null;
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                const page = await pdf.getPage(pageNum);
+                page = await pdf.getPage(pageNum);
 
                 const viewport = page.getViewport({ scale: 1 });
                 const canvas = document.createElement('canvas');
@@ -2770,13 +3320,17 @@
                 canvas.style.left = '50%';
                 canvas.style.transform = 'translate(-50%, -50%)';
 
-                page.cleanup();
-
             } catch (error) {
                 pdfPreview.innerHTML = '<div style="display: flex; justify-content: center; align-items: center; height: 100%;"><div>Error loading PDF preview</div></div>';
                 console.error('Error rendering PDF preview:', error);
             } finally {
-                if (pdf) await pdf.destroy();
+                // FIXED: Always cleanup PDF resources to prevent memory leak
+                if (page) {
+                    try { page.cleanup(); } catch (e) { console.warn('Page cleanup error:', e); }
+                }
+                if (pdf) {
+                    try { await pdf.destroy(); } catch (e) { console.warn('PDF destroy error:', e); }
+                }
             }
         }
 
@@ -2853,7 +3407,10 @@
                                 updateSelectedThumbnail(pageNum);
                             });
 
-                            page.cleanup();
+                            // FIXED: Ensure page cleanup even on error
+                            if (page) {
+                                try { page.cleanup(); } catch (e) { /* ignore */ }
+                            }
                         } catch (err) {
                             console.error(`Error rendering thumbnail page ${pageNum}:`, err);
                             element.innerHTML = `<div style="padding:10px;text-align:center;color:red;">Error P${pageNum}</div>`;
@@ -2872,7 +3429,10 @@
                 console.error('Error creating thumbnails:', error);
                 thumbnailsContainer.innerHTML = '<p>Error loading thumbnails</p>';
             } finally {
-                if (pdf) await pdf.destroy();
+                // FIXED: Always cleanup PDF resources to prevent memory leak
+                if (pdf) {
+                    try { await pdf.destroy(); } catch (e) { console.warn('PDF destroy error:', e); }
+                }
             }
         }
 
@@ -2988,6 +3548,35 @@
             return JSON.parse(new TextDecoder().decode(combined));
         }
 
+        // Compress JSON to base64-gzipped format using CompressionStream API
+        async function compressJsonToGzipBase64(jsonString) {
+            const bytes = new TextEncoder().encode(jsonString);
+            const cs = new CompressionStream('gzip');
+            const writer = cs.writable.getWriter();
+            writer.write(bytes);
+            writer.close();
+            const reader = cs.readable.getReader();
+            const chunks = [];
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+            }
+            const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+            const combined = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                combined.set(chunk, offset);
+                offset += chunk.length;
+            }
+            // Convert to base64
+            let binaryStr = '';
+            for (let i = 0; i < combined.length; i++) {
+                binaryStr += String.fromCharCode(combined[i]);
+            }
+            return btoa(binaryStr);
+        }
+
         // Convert pipeline result objects to drawable shapes (inspired by Agent.html)
         function convertPipelineToShapes(pipelineObjects) {
             const shapes = [];
@@ -3040,38 +3629,39 @@
                 } else if (shapeName === 'Sprinkler') {
                     // Sprinkler: use type-specific colors (high contrast)
                     if (obj.type === 'end') {
-                        color = [0.95, 0.2, 0.2]; // Bright red
-                        fill = [...color, 0.7];
+                        color = [0.0, 0.5, 1.0]; // Bright red
+                        fill = [...color, 0.8];
                     } else if (obj.type === 'center') {
-                        color = [0.1, 0.75, 0.85]; // Bright cyan
-                        fill = [...color, 0.7];
+                        color = [0.0, 1.0, 0.0]; // Bright green
+                        fill = [...color, 0.8];
                     } else {
-                        color = [0.95, 0.85, 0.1]; // Bright yellow
-                        fill = [...color, 0.7];
+                        color = [1.0, 0.0, 0.0]; // Bright blue
+                        fill = [...color, 0.8];
                     }
 
                     // Always draw as polygon using exact vertices
                     items = [['poly', obj.vertices]];
-                    width = 2;
+                    width = 3; // Increased width for better visibility
 
                 } else if (shapeName === 'Tee' || shapeName === 'Elbow' ||
                     shapeName === 'Cross' || shapeName === 'Reducer') {
-                    // Junction shapes: draw as small filled circles or polygons
+                    // Junction shapes: draw as filled circles or polygons
                     if (obj.vertices.length === 1) {
                         const [cx, cy] = obj.vertices[0];
-                        const radius = 2.5; // Small radius for junction points
+                        const radius = 3; // Small radius for junction points
                         const points = [];
-                        for (let i = 0; i < 12; i++) {
-                            const angle = (i / 12) * Math.PI * 2;
+                        const segments = 12; // Sufficient segments for small circle
+                        for (let i = 0; i < segments; i++) {
+                            const angle = (i / segments) * Math.PI * 2;
                             points.push([cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)]);
                         }
                         items = [['poly', points]];
-                        fill = [...color, 0.85]; // High opacity for visibility
-                        width = 1.5;
+                        fill = [...color, 0.95]; // Very high opacity for visibility
+                        width = 2;
                     } else {
-                        // Multiple vertices - draw as polygon
+                        // Multiple vertices - draw as polygon with fill
                         items = [['poly', obj.vertices]];
-                        fill = [...color, 0.7];
+                        fill = [...color, 0.9];
                         width = 3;
                     }
 
@@ -3208,6 +3798,9 @@
 
                 // Sort allShapesSorted by seqno
                 allShapesSorted.sort((a, b) => (a.seqno || 0) - (b.seqno || 0));
+
+                // Rebuild quadtree to include new pipeline shapes
+                rebuildQuadtree();
 
                 // Update layer list UI
                 updateLayerList();
@@ -3426,6 +4019,11 @@
         }
 
         // Events
+        window.addEventListener('keydown', e => {
+            if (e.key.toLowerCase() === 'd' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                btnDrawBbox.click();
+            }
+        });
         window.addEventListener('resize', resizeCanvas);
         dropZone.addEventListener('dragover', e => {
             e.preventDefault();
@@ -3465,8 +4063,9 @@
                     dropZone.classList.remove('hidden');
                 }
             } else if (file && file.name.endsWith('.json')) {
+                currentPdfFile = file; // Store file reference
                 const reader = new FileReader();
-                reader.onload = event => {
+                reader.onload = async event => {
                     try {
                         const parsed = JSON.parse(event.target.result);
                         jsonData = parsed;
@@ -3480,8 +4079,18 @@
                             throw new Error('Định dạng JSON không hợp lệ (phải là mảng hoặc object).');
                         }
                         buildLayerIndex();
-                        // precomputeAllLengths() removed for lazy eval
                         setupVisualization();
+
+                        // Compress JSON to gzip base64 and cache as page 1 for pipeline detection
+                        try {
+                            const gzipData = await compressJsonToGzipBase64(event.target.result);
+                            cachedPages = {};
+                            cachedPages[1] = gzipData;
+                            currentPageNum = 1;
+                            console.log(`JSON compressed to ${(gzipData.length / 1024).toFixed(1)}KB (base64) for pipeline detection`);
+                        } catch (err) {
+                            console.warn('Failed to compress JSON for pipeline detection:', err);
+                        }
                     } catch (error) {
                         alert('Lỗi: Tệp JSON không hợp lệ.\n' + error);
                         dropZone.classList.remove('hidden');
@@ -3583,6 +4192,8 @@
             document.body.appendChild(downloadAnchorNode);
             downloadAnchorNode.click();
             downloadAnchorNode.remove();
+            // Open visual_pipeline_fire.html
+            window.open('visual_pipeline_fire.html', '_blank');
         });
 
         btnExportRevitJson.addEventListener('click', async () => {
@@ -3623,6 +4234,9 @@
                 document.body.appendChild(downloadAnchorNode);
                 downloadAnchorNode.click();
                 downloadAnchorNode.remove();
+                
+                // Open revit_viewer.html
+                window.open('revit_viewer.html', '_blank');
 
             } catch (error) {
                 console.error('Export Revit Error:', error);
@@ -3633,10 +4247,23 @@
         });
 
         btnExportSvg.addEventListener('click', exportToSVG);
+        document.getElementById('btn-export-images').addEventListener('click', exportLayerImages);
+        btnToggleLayerMode.addEventListener('click', () => {
+            currentLayerField = (currentLayerField === 'layer_1') ? 'layer' : 'layer_1';
+            btnToggleLayerMode.textContent = `Mode: ${currentLayerField === 'layer_1' ? 'Layer 1' : 'Layer'}`;
+            
+            // Re-index and refresh UI
+            if (jsonShapes) {
+                buildLayerIndex();
+                setupVisualization();
+                scheduleDraw();
+            }
+        });
         btnDrawBbox.addEventListener('click', () => {
             isDrawingBbox = !isDrawingBbox;
             btnDrawBbox.textContent = isDrawingBbox ? 'Cancel' : '✏️ Find';
             btnDrawBbox.classList.toggle('active', isDrawingBbox);
+            canvasContainer.classList.toggle('drawing-bbox', isDrawingBbox); // Update cursor style
             if (isDrawingBbox) {
                 mouseX = (canvas.width / zoom) / 2;
                 mouseY = (canvas.height / zoom) / 2;
@@ -3670,10 +4297,12 @@
             isDrawingBbox = false;
             btnDrawBbox.textContent = '✏️ Find';
             btnDrawBbox.classList.remove('active');
+            canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
             scheduleDraw();
         });
-        canvas.addEventListener('mousedown', e => {
-            const rect = canvas.getBoundingClientRect();
+        canvasContainer.addEventListener('mousedown', e => {
+            const rect = canvasContainer.getBoundingClientRect();
+            if (!isDrawingBbox) setInteractionState(true); // Start interaction only for pan, not bbox
             if (isDrawingBbox) {
                 bboxStart = { x: (e.clientX - rect.left - offsetX) / zoom, y: (e.clientY - rect.top - offsetY) / zoom };
                 currentBbox = null;
@@ -3682,26 +4311,30 @@
                 lastX = e.clientX; lastY = e.clientY;
             }
         });
-        canvas.addEventListener('mouseup', () => {
-            if (isDrawingBbox && currentBbox) {
-                // FIXED: Thêm điều kiện kiểm tra kích thước bbox > 1px để tránh click nhầm gây lỗi
-                if (currentBbox.width > 1 && currentBbox.height > 1) {
+        canvasContainer.addEventListener('mouseup', () => {
+            setInteractionState(false); // End interaction
+            if (isDrawingBbox) {
+                // If bbox was drawn (with valid size), show modal
+                if (currentBbox && currentBbox.width > 1 && currentBbox.height > 1) {
                     showCropModal(currentBbox);
                 }
+                // Always reset drawing mode on mouseup to prevent stuck state
                 isDrawingBbox = false;
                 btnDrawBbox.textContent = '✏️ Find';
                 btnDrawBbox.classList.remove('active');
+                canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
                 bboxStart = null;
                 currentBbox = null;
                 scheduleDraw();
             }
             isDragging = false;
         });
-        canvas.addEventListener('mouseleave', () => {
+        canvasContainer.addEventListener('mouseleave', () => {
             isDragging = false;
+            setInteractionState(false); // End interaction when leaving canvas
         });
-        canvas.addEventListener('mousemove', e => {
-            const rect = canvas.getBoundingClientRect();
+        canvasContainer.addEventListener('mousemove', e => {
+            const rect = canvasContainer.getBoundingClientRect();
             const canvasX = (e.clientX - rect.left - offsetX) / zoom;
             const canvasY = (e.clientY - rect.top - offsetY) / zoom;
             mouseX = canvasX; mouseY = canvasY;
@@ -3714,10 +4347,12 @@
                     height: Math.abs(canvasY - bboxStart.y)
                 };
                 scheduleDraw();
-            } else if (isDragging) {
+            } else if (isDragging && !isDrawingBbox) {
+                setInteractionState(true); // Keep interaction active during pan
                 offsetX += e.clientX - lastX;
                 offsetY += e.clientY - lastY;
                 lastX = e.clientX; lastY = e.clientY;
+                setInteractionState(false); // Signal end after movement (debounced)
                 scheduleDraw();
             } else {
                 // Hover detection for group highlight
@@ -3751,15 +4386,17 @@
                 }
             }
         });
-        canvas.addEventListener('wheel', e => {
+        canvasContainer.addEventListener('wheel', e => {
             e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
+            setInteractionState(true); // Start interaction
+            const rect = canvasContainer.getBoundingClientRect();
             const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
             const worldX = (mouseX - offsetX) / zoom, worldY = (mouseY - offsetY) / zoom;
             const newZoom = e.deltaY < 0 ? zoom * CONFIG.ZOOM_STEP : zoom / CONFIG.ZOOM_STEP;
             offsetX = mouseX - worldX * newZoom;
             offsetY = mouseY - worldY * newZoom;
             zoom = newZoom;
+            setInteractionState(false); // End interaction (debounced)
             scheduleDraw();
         });
         // Saved Patterns Logic
@@ -3889,19 +4526,27 @@
             // Enable flag to hide blue anchor bbox
             isApplyingSavedPattern = true;
 
-            // Logic search optimization: use saved layers if available
+            // Logic search optimization: use saved layers if available on CURRENT page
+            let validSavedLayers = [];
             if (d.mainLayers && d.mainLayers.length > 0) {
-                mainLayers = d.mainLayers;
-            } else {
-                // Fallback if no MainLayers saved (e.g. legacy), use all visible
-                mainLayers = sortedLayerKeys.filter(key => key.startsWith('shape_') && layerVisibility[key]);
+                // Only use saved layers if they actually exist on this page and are visible
+                validSavedLayers = d.mainLayers.filter(layer => sortedLayerKeys.includes(layer) && layerVisibility[layer]);
             }
 
-            // Just for safety, ensure we are not searching on non-existent layers (though loop handles it)
-            // But we might want to warn if the layer doesn't exist? No, user wants silent optimization.
+            if (validSavedLayers.length > 0) {
+                mainLayers = validSavedLayers;
+            } else {
+                // Fallback: If no saved layers match the current page's shape layers, search ALL visible shape layers
+                mainLayers = sortedLayerKeys.filter(key => 
+                    (key.startsWith('shape_') || key === '__default_shape_layer__' || currentLayerField === 'layer') && 
+                    !key.startsWith('svg_') && 
+                    !pipelineLayerNames.includes(key) && 
+                    layerVisibility[key]
+                );
+            }
 
             if (mainLayers.length === 0) {
-                alert('No valid layers to search on (Saved pattern has no matching layers on this page).');
+                alert('No valid layers to search on (Please ensure at least one shape layer is visible).');
                 return;
             }
 

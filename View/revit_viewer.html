@@ -1392,6 +1392,8 @@
             if (sortedLevels.length > 0) {
                 sortedLevels.forEach(level => {
                     const safeLevel = level.replace(/"/g, '&quot;');
+                    const levelElevation = levelZ.get(level);
+                    const elevationMm = (levelElevation * 304.8).toFixed(0);
                     html += `
                         <label class="tree-item" style="margin-bottom: 2px;">
                             <div class="toggle-switch">
@@ -1399,6 +1401,7 @@
                                 <span class="toggle-slider"></span>
                             </div>
                             <span style="flex: 1; margin-left: 5px;">${level}</span>
+                            <span style="color: var(--text-muted); font-size: 11px; margin-right: 5px;">(+${elevationMm}mm)</span>
                         </label>
                     `;
                 });

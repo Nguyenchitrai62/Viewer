@@ -174,12 +174,16 @@
             background: transparent;
             border: 1px solid var(--border-color);
             color: var(--text-secondary);
-            width: 32px;
             height: 32px;
+            padding: 0 10px;
             border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
+            gap: 6px;
+            font-family: var(--font-ui);
+            font-size: 12px;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s ease;
         }
@@ -582,10 +586,20 @@
             <span class="brand-tag">LIGHT</span>
         </div>
         <div class="header-controls">
+            <button class="btn-icon" id="btn-export-revit" title="Convert Revit">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <path d="M2 15h10"></path>
+                    <path d="M9 18l3-3-3-3"></path>
+                </svg>
+                <span>Convert Revit</span>
+            </button>
             <button class="btn-icon" onclick="app.resetToInitial()" title="Reset View">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
                 </svg>
+                <span>Reset View</span>
             </button>
             <button class="btn-icon" title="Toggle Theme" style="opacity:0.5;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -593,6 +607,7 @@
                     <path
                         d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
                 </svg>
+                <span>Toggle Theme</span>
             </button>
         </div>
     </header>
@@ -671,6 +686,7 @@
     </div>
     <div class="tooltip-float" id="tooltip"></div>
 
+    <script src="./env.js"></script>
     <script>
         class PipeVisualization {
             constructor() {
@@ -732,6 +748,60 @@
                     if (this.dragCounter === 0) this.viewport.classList.remove('drag-over');
                 });
                 this.viewport.addEventListener('drop', e => this.handleDrop(e));
+
+                const btnExportRevit = document.getElementById('btn-export-revit');
+                if (btnExportRevit) {
+                    btnExportRevit.addEventListener('click', () => this.exportToRevit());
+                }
+            }
+
+            async exportToRevit() {
+                if (!this.data || this.data.length === 0) {
+                    alert('No pipeline data available.');
+                    return;
+                }
+
+                const loader = document.getElementById('loading');
+                if (loader) loader.style.display = 'flex';
+
+                try {
+                    const startTime = performance.now();
+                    const baseUrl = (typeof ENV !== 'undefined' && ENV.PDF_API_BASE_URL) ? ENV.PDF_API_BASE_URL : 'http://127.0.0.1:5000';
+                    const response = await fetch(`${baseUrl}/export_revit`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ input_data: this.data })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const endTime = performance.now();
+                    console.log(`Export Revit API Call took ${((endTime - startTime) / 1000).toFixed(3)} seconds`);
+
+                    if (result.error) {
+                        throw new Error(result.error);
+                    }
+
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result, null, 2));
+                    const downloadAnchorNode = document.createElement('a');
+                    downloadAnchorNode.setAttribute("href", dataStr);
+                    downloadAnchorNode.setAttribute("download", `revit_pipeline_export.json`);
+                    document.body.appendChild(downloadAnchorNode);
+                    downloadAnchorNode.click();
+                    downloadAnchorNode.remove();
+
+                    // Open revit_viewer.html
+                    window.open('revit_viewer.html', '_blank');
+
+                } catch (error) {
+                    console.error('Export Revit Error:', error);
+                    alert(`Error during export to Revit: ${error.message}`);
+                } finally {
+                    if (loader) loader.style.display = 'none';
+                }
             }
 
             // --- Interactions --- //
