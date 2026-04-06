@@ -675,6 +675,7 @@
         };
 
         const systemColors = {
+            'FIRE - Chữa cháy': 0xff4444,
             'FP-Fire Protection Sprinkler': 0xff4444,
             'PL-Soil Pipe-Trục': 0x4caf50,
             'PL-Waste Water-Trục': 0x2196f3,
@@ -721,6 +722,11 @@
         function getSharedBoxGeom() {
             if (!geomCache.box) { geomCache.box = new THREE.BoxGeometry(1, 1, 1); geomCache.box.computeBoundingBox(); }
             return geomCache.box;
+        }
+
+        function getSharedSphereGeom() {
+            if (!geomCache.sphere) { geomCache.sphere = new THREE.SphereGeometry(1, 16, 12); geomCache.sphere.computeBoundingBox(); }
+            return geomCache.sphere;
         }
 
         // ==================== INITIALIZATION ====================
@@ -887,9 +893,9 @@
                     if (m) state.scene.remove(m);
                 });
             }
-            state.instancedFittings = { elbow: null, cylinder: null, box: null };
+            state.instancedFittings = { elbow: null, cylinder: null, box: null, sphere: null };
             state.fittingGroups = new Map();
-            state.fittingInstanceMap = { elbow: new Map(), cylinder: new Map(), box: new Map() };
+            state.fittingInstanceMap = { elbow: new Map(), cylinder: new Map(), box: new Map(), sphere: new Map() };
 
             if (data.Pipes && Array.isArray(data.Pipes)) {
                 data.Pipes.forEach(pipe => state.pipeMap.set(pipe.Id, pipe));
@@ -1028,13 +1034,14 @@
             }
 
             // Count fittings to allocate instances
-            let cElbow = 0, cCyl = 0, cBox = 0;
+            let cElbow = 0, cCyl = 0, cBox = 0, cSphere = 0;
             if (data.Fittings) {
                 data.Fittings.forEach(fit => {
                     const fname = (fit.FamilyName || '').toLowerCase();
                     if (fname.includes('elbow')) cElbow++;
                     else if (fname.includes('cross')) cCyl += 3;
                     else if (fname.includes('tee')) cCyl += 2;
+                    else if (fname.includes('sprinkler')) cSphere++;
                     else cBox++;
                 });
             }
@@ -1063,13 +1070,21 @@
                 state.scene.add(state.instancedFittings.box);
                 state.objects.push(state.instancedFittings.box);
             }
+            if (cSphere > 0) {
+                state.instancedFittings.sphere = new THREE.InstancedMesh(getSharedSphereGeom(), fitMat.clone(), cSphere);
+                state.instancedFittings.sphere.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                state.instancedFittings.sphere.userData = { type: 'instanced_fittings', fitType: 'sphere' };
+                state.scene.add(state.instancedFittings.sphere);
+                state.objects.push(state.instancedFittings.sphere);
+            }
 
-            const fittingIndices = { elbow: 0, cylinder: 0, box: 0 };
+            const fittingIndices = { elbow: 0, cylinder: 0, box: 0, sphere: 0 };
             if (data.Fittings) data.Fittings.forEach((fitting) => createFittingFast(fitting, fittingIndices));
 
             if (state.instancedFittings.elbow) { state.instancedFittings.elbow.instanceMatrix.needsUpdate = true; if (state.instancedFittings.elbow.instanceColor) state.instancedFittings.elbow.instanceColor.needsUpdate = true; }
             if (state.instancedFittings.cylinder) { state.instancedFittings.cylinder.instanceMatrix.needsUpdate = true; if (state.instancedFittings.cylinder.instanceColor) state.instancedFittings.cylinder.instanceColor.needsUpdate = true; }
             if (state.instancedFittings.box) { state.instancedFittings.box.instanceMatrix.needsUpdate = true; if (state.instancedFittings.box.instanceColor) state.instancedFittings.box.instanceColor.needsUpdate = true; }
+            if (state.instancedFittings.sphere) { state.instancedFittings.sphere.instanceMatrix.needsUpdate = true; if (state.instancedFittings.sphere.instanceColor) state.instancedFittings.sphere.instanceColor.needsUpdate = true; }
 
             updateProjectBrowser();
             updateSystemFilters();
@@ -1208,7 +1223,12 @@
 
             const parts = [];
 
-            if (familyName.includes('elbow')) {
+            if (familyName.includes('sprinkler')) {
+                // Sprinkler: Sphere geometry với size lớn hơn để dễ nhìn
+                const sprinklerSize = radius * 1.5;
+                const localMat = new THREE.Matrix4().makeScale(sprinklerSize, sprinklerSize, sprinklerSize);
+                parts.push({ type: 'sphere', matrix: new THREE.Matrix4().multiplyMatrices(matrix, localMat) });
+            } else if (familyName.includes('elbow')) {
                 const localMat = new THREE.Matrix4().makeScale(radius, radius, radius);
                 parts.push({ type: 'elbow', matrix: new THREE.Matrix4().multiplyMatrices(matrix, localMat) });
             } else if (familyName.includes('cross')) {
@@ -1314,7 +1334,7 @@
             if (name.includes('wye')) return 0x999999;
             if (name.includes('cross')) return 0xbbbbbb;
             if (name.includes('tee')) return 0xaaaaaa;
-            if (name.includes('sprinkler')) return 0xff6b6b;
+            if (name.includes('sprinkler')) return 0x00ffff; // Cyan sáng - nổi bật
             return systemColors['Default'];
         }
 
@@ -1484,6 +1504,7 @@
                     <div class="property-row"><span class="property-name">ID</span><span class="property-value">${data.Id || '-'}</span></div>
                     <div class="property-row"><span class="property-name">Type</span><span class="property-value">${object.userData.type}</span></div>
                     <div class="property-row"><span class="property-name">System</span><span class="property-value">${data.SystemTypeName || '-'}</span></div>
+                    ${data.TypeName ? `<div class="property-row"><span class="property-name">Type</span><span class="property-value">${data.TypeName}</span></div>` : ''}
                     ${data.FamilyName ? `<div class="property-row"><span class="property-name">Family</span><span class="property-value">${data.FamilyName}</span></div>` : ''}
                     ${data.LevelName ? `<div class="property-row"><span class="property-name">Level</span><span class="property-value">${data.LevelName}</span></div>` : ''}
                 </div>
@@ -1893,6 +1914,7 @@
                 if (state.instancedFittings.elbow) state.instancedFittings.elbow.instanceMatrix.needsUpdate = true;
                 if (state.instancedFittings.cylinder) state.instancedFittings.cylinder.instanceMatrix.needsUpdate = true;
                 if (state.instancedFittings.box) state.instancedFittings.box.instanceMatrix.needsUpdate = true;
+                if (state.instancedFittings.sphere) state.instancedFittings.sphere.instanceMatrix.needsUpdate = true;
             }
 
             state.objects.forEach(obj => {

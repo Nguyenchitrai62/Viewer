@@ -136,21 +136,28 @@
             font-weight: 600;
         }
 
-        /* Các nút hành động */
-        #layer-actions {
+        /* Floating toolbar ở dưới màn hình */
+        #floating-toolbar {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.5); /* Tăng độ trong suốt để nhìn rõ background */
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            padding: 12px 24px;
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            z-index: 100;
             display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin-bottom: 12px;
-            background: #f8f9fa;
-            padding: 12px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color-light);
+            gap: 16px;
+            align-items: center;
         }
 
-        .action-group-title {
+        #floating-toolbar .action-group-title {
             font-size: 10px;
-            color: var(--text-color-secondary);
+            color: rgba(255, 255, 255, 0.6);
             margin-bottom: 6px;
             text-transform: uppercase;
             font-weight: 700;
@@ -163,14 +170,36 @@
             gap: 6px;
         }
 
-        #layer-actions button,
+        /* Nút trong Toolbar */
+        #floating-toolbar button {
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background-color: rgba(255, 255, 255, 0.08); /* Nút cũng có dạng glass */
+            color: #ffffff; 
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        #floating-toolbar button:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+        
         .crop-toolbar button,
         #btn-export-svg {
-            flex: 1;
-            min-width: calc(50% - 4px);
-            /* For 2 cols */
-            padding: 6px 8px;
-            font-size: 12px;
+            padding: 8px 16px;
+            font-size: 13px;
             font-weight: 600;
             border: 1px solid var(--border-color-dark);
             background-color: var(--background-button);
@@ -180,16 +209,11 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 4px;
+            gap: 6px;
             color: #333;
+            white-space: nowrap;
         }
-
-        /* Make full width buttons inside flex wrap */
-        .btn-full-width {
-            flex-basis: 100% !important;
-        }
-
-        #layer-actions button:hover,
+        
         .crop-toolbar button:hover {
             background-color: var(--background-button-hover);
             border-color: #b6bec6;
@@ -202,24 +226,90 @@
         }
 
         #btn-draw-rect {
-            background-color: white;
-            color: black;
-            border-color: var(--accent-color);
+            background-color: rgba(0, 123, 255, 0.15) !important;
+            border-color: rgba(0, 123, 255, 0.4) !important;
+            color: #7abaff !important;
         }
 
         #btn-draw-rect:hover {
-            background-color: #f8f9fa;
-            border-color: #0062cc;
+            background-color: rgba(0, 123, 255, 0.25) !important;
+            border-color: rgba(0, 123, 255, 0.6) !important;
+            color: #ffffff !important;
         }
 
         #btn-draw-rect.active {
-            background-color: #dc3545;
-            border-color: #dc3545;
+            background-color: var(--danger-color) !important;
+            border-color: var(--danger-color) !important;
+            color: white !important;
         }
 
         /* Cursor changes during bbox drawing */
         #canvas-container.drawing-bbox {
             cursor: crosshair !important;
+        }
+        
+        /* Mode indicator overlay - visible frame when mode is active */
+        #canvas-container.drawing-bbox::after,
+        #canvas-container.vlm-bbox-mode::after {
+            content: '';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 100;
+            animation: pulse-indicator 1.5s ease-in-out infinite;
+        }
+        
+        #canvas-container.drawing-bbox::after {
+            background: rgba(220, 53, 69, 0.9);
+            box-shadow: 0 0 20px rgba(220, 53, 69, 0.6);
+        }
+        
+        #canvas-container.vlm-bbox-mode::after {
+            background: rgba(40, 167, 69, 0.9);
+            box-shadow: 0 0 20px rgba(40, 167, 69, 0.6);
+        }
+        
+        @keyframes pulse-indicator {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.1);
+                opacity: 0.8;
+            }
+        }
+        
+        /* Mode label badge */
+        .mode-label {
+            position: absolute;
+            top: 15px;
+            right: 80px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            pointer-events: none;
+            z-index: 100;
+            animation: fade-in 0.3s ease;
+        }
+        
+        .mode-label.find-mode {
+            background: rgba(220, 53, 69, 0.9);
+        }
+        
+        .mode-label.vlm-mode {
+            background: rgba(40, 167, 69, 0.9);
+        }
+        
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
         }
 
         #btn-export-svg {
@@ -231,6 +321,29 @@
 
         #btn-export-svg:hover {
             background-color: #218838;
+        }
+
+        /* VLM Extract button styles */
+        #btn-vlm-extract {
+            background-color: rgba(40, 167, 69, 0.1) !important;
+            color: #4ade80 !important; /* Brighter green on dark background */
+            border-color: rgba(40, 167, 69, 0.4) !important;
+        }
+
+        #btn-vlm-extract:hover {
+            background-color: rgba(40, 167, 69, 0.2) !important;
+            border-color: #28a745 !important;
+        }
+
+        #btn-vlm-extract.active {
+            background-color: #28a745 !important;
+            border-color: #28a745 !important;
+            color: white !important;
+        }
+
+        /* Cursor changes during VLM bbox drawing */
+        #canvas-container.vlm-bbox-mode {
+            cursor: crosshair !important;
         }
 
         /* Danh sách Layer */
@@ -461,6 +574,227 @@
             padding-top: 20px;
             border-top: 1px solid var(--border-color-light);
         }
+
+        .ext-type-section {
+            margin-top: 20px;
+            border-top: 1px solid var(--border-color-light);
+            padding-top: 15px;
+        }
+        .ext-type-section h3 {
+            border: none;
+            padding-bottom: 10px;
+            font-size: 1.1em;
+            color: #333;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .ext-type-section h3 button {
+            font-size: 18px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--accent-color);
+            padding: 0 4px;
+            line-height: 1;
+        }
+        .ext-type-item {
+            background: #f8f9fa;
+            border: 1px solid var(--border-color-light);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .ext-type-item:hover {
+            border-color: var(--accent-color);
+            background: #f0f5ff;
+        }
+        .ext-type-item.selected {
+            border-color: var(--accent-color);
+            background: #e8f0fe;
+            box-shadow: 0 0 0 1px var(--accent-color);
+        }
+        .ext-type-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .ext-type-name {
+            font-weight: 600;
+            font-size: 13px;
+            color: #333;
+        }
+        .ext-type-actions {
+            display: flex;
+            gap: 4px;
+        }
+        .ext-type-actions button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 2px 4px;
+            border-radius: 4px;
+            color: var(--text-color-secondary);
+        }
+        .ext-type-actions button:hover {
+            background: #e0e0e0;
+        }
+        .ext-type-actions .ext-delete:hover {
+            color: var(--danger-color);
+        }
+        .ext-type-fields {
+            margin-top: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .ext-field-tag {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .ext-type-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 5000;
+            align-items: center;
+            justify-content: center;
+        }
+        .ext-type-modal-overlay.active {
+            display: flex;
+        }
+        .ext-type-modal {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .ext-type-modal h3 {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            color: #333;
+        }
+        .ext-type-modal label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 4px;
+        }
+        .ext-type-modal input[type="text"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 12px;
+            outline: none;
+        }
+        .ext-type-modal input[type="text"]:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.15);
+        }
+        .ext-field-list {
+            margin-bottom: 12px;
+        }
+        .ext-field-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+        .ext-field-row input {
+            flex: 1;
+        }
+        .ext-field-row button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: var(--danger-color);
+            padding: 4px 6px;
+            border-radius: 4px;
+        }
+        .ext-field-row button:hover {
+            background: #fee;
+        }
+        .ext-add-field-btn {
+            background: none;
+            border: 1px dashed #aaa;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-color-secondary);
+            width: 100%;
+            text-align: center;
+        }
+        .ext-add-field-btn:hover {
+            border-color: var(--accent-color);
+            color: var(--accent-color);
+        }
+        .ext-modal-btns {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .ext-modal-btns button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+        }
+        .ext-modal-btns .ext-save-btn {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+        }
+        .ext-modal-btns .ext-save-btn:hover {
+            background: #0069d9;
+        }
+        .ext-modal-btns .ext-cancel-btn {
+            background: var(--background-button);
+            color: var(--text-color-primary);
+        }
+        .ext-modal-btns .ext-cancel-btn:hover {
+            background: var(--background-button-hover);
+        }
+
+        #vlm-extract-type-select {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 12px;
+            background: white;
+            cursor: pointer;
+        }
+        #vlm-extract-type-select:focus {
+            border-color: var(--accent-color);
+            outline: none;
+        }
+        .vlm-fields-preview {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 12px;
+        }
     </style>
 </head>
 
@@ -468,31 +802,6 @@
     <div id="main-container">
         <div id="layer-controls">
             <h3>Control Panel</h3>
-            <div id="layer-actions">
-                <div class="action-group">
-                    <div class="action-group-title">Search & Filter</div>
-                    <div class="action-group-buttons">
-                        <button id="btn-draw-rect" title="✏️ Find">✏️ Find</button>
-                        <button id="btn-reset-filter" title="Reset Filter">🔄 Reset</button>
-                    </div>
-                </div>
-                <div class="action-group">
-                    <div class="action-group-title">Layer Mode</div>
-                    <div class="action-group-buttons">
-                        <button id="btn-toggle-layer-mode" title="Switch Layer Mode" class="btn-full-width">Mode: Layer 1</button>
-                    </div>
-                </div>
-                <div class="action-group">
-                    <div class="action-group-title">Pipeline & Export</div>
-                    <div class="action-group-buttons">
-                        <button id="btn-detect-pipeline" title="Detect Pipeline" class="btn-full-width">🔧 Detect
-                            Pipeline</button>
-                        <button id="btn-export-pipeline-json" title="Export Pipeline JSON">📋 JSON</button>
-                        <button id="btn-export-revit-json" title="Export Revit JSON">🏗️ Revit</button>
-                    </div>
-                </div>
-            </div>
-
             <div id="layer-list">
                 <div class="info-panel">
                     <p>Drag <code>layered_drawings.json</code> into the canvas area to start.</p>
@@ -504,6 +813,17 @@
                 <div id="saved-patterns-list" style="max-height: 150px; overflow-y: auto;">
                     <div class="info-panel" style="padding: 10px; font-size: 12px; font-style: italic;">No saved
                         patterns</div>
+                </div>
+            </div>
+            <div class="ext-type-section">
+                <h3>
+                    Loại Trích Xuất
+                    <button id="btn-add-ext-type" title="Thêm loại trích xuất">＋</button>
+                </h3>
+                <div id="ext-type-list" style="max-height: 200px; overflow-y: auto;">
+                    <div style="padding: 10px; font-size: 12px; font-style: italic; color: #999;">
+                        Chưa có loại trích xuất. Nhấn ＋ để thêm.
+                    </div>
                 </div>
             </div>
             <div id="search-summary" style="display: none;">
@@ -527,9 +847,11 @@
         </div>
         <div id="canvas-container">
             <canvas id="drawing-canvas"></canvas>
+            <canvas id="crosshair-canvas" style="position: absolute; top: 0; left: 0; pointer-events: none; z-index: 50;"></canvas>
             <div id="pdf-preview"
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; background: white; z-index: 1;">
             </div>
+            <div id="mode-label" class="mode-label" style="display: none;"></div>
             <div id="svg-text-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:5;"></div>
             <div id="svg-graphic-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:4;"></div>
             <div id="drop-zone">
@@ -541,6 +863,17 @@
         <div id="page-preview-sidebar">
             <h3>Page Previews</h3>
             <div id="page-thumbnails"></div>
+        </div>
+    </div>
+    <div id="floating-toolbar">
+        <div class="action-group">
+            <button id="btn-draw-rect" title="✏️ Find">✏️ Find</button>
+            <button id="btn-reset-filter" title="Reset Filter">🔄 Reset</button>
+            <button id="btn-toggle-layer-mode" title="Switch Layer Mode">Mode: Layer 1</button>
+            <button id="btn-detect-pipeline" title="Detect Pipeline">🔧 Detect Pipeline</button>
+            <button id="btn-export-pipeline-json" title="Export Pipeline JSON">📋 JSON</button>
+            <button id="btn-export-revit-json" title="Export Revit JSON">🏗️ Revit</button>
+            <button id="btn-vlm-extract" title="VLM Extract">🤖 VLM Extract</button>
         </div>
     </div>
     <div id="crop-modal" class="modal">
@@ -607,6 +940,92 @@
             </div>
             <div id="batch-progress-text" style="font-size:14px; color:#555; font-weight:500;">0 / 0 pages</div>
             <div id="batch-progress-size" style="font-size:12px; color:#999; margin-top:4px;"></div>
+        </div>
+    </div>
+
+    <!-- VLM Extract Modal -->
+    <div id="ext-type-modal-overlay" class="ext-type-modal-overlay">
+        <div class="ext-type-modal">
+            <h3 id="ext-modal-title">Thêm Loại Trích Xuất</h3>
+            <label for="ext-type-name-input">Tên loại trích xuất</label>
+            <input type="text" id="ext-type-name-input" placeholder="Ví dụ: Kích thước, ABC..." />
+            <label>Các trường cần trích xuất</label>
+            <div id="ext-field-list" class="ext-field-list"></div>
+            <button class="ext-add-field-btn" id="btn-ext-add-field">＋ Thêm trường</button>
+            <div class="ext-modal-btns">
+                <button class="ext-save-btn" id="btn-ext-save">Lưu</button>
+                <button class="ext-cancel-btn" id="btn-ext-cancel">Hủy</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="vlm-modal" class="modal">
+        <div class="modal-content" style="max-width: 700px;">
+            <span class="close" id="vlm-modal-close">&times;</span>
+            <h3 style="margin: 0 0 15px 0; border-bottom: 1px solid var(--border-color-light); padding-bottom: 15px;">
+                VLM Extract
+            </h3>
+            
+            <!-- Preview section - shown before API call -->
+            <div id="vlm-preview" style="display: none;">
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary);">Preview (3x scale):</label>
+                </div>
+                <div style="margin-bottom: 15px; max-height: 350px; overflow: auto; background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 8px; text-align: center;">
+                    <img id="vlm-preview-image" style="max-width: 100%; max-height: 100%; display: inline-block;" />
+                </div>
+                <div style="margin-bottom: 15px; font-size: 13px; color: var(--text-color-secondary);">
+                    <strong>Bounding Box:</strong> <span id="vlm-preview-bbox"></span>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary); display: block; margin-bottom: 4px;">Loại trích xuất:</label>
+                    <select id="vlm-extract-type-select">
+                        <option value="">-- Chọn loại trích xuất --</option>
+                    </select>
+                </div>
+                <div id="vlm-fields-preview-container" style="display: none; margin-bottom: 15px;">
+                    <label style="font-weight: 600; font-size: 12px; color: var(--text-color-secondary); display: block; margin-bottom: 4px;">Các trường sẽ trích xuất:</label>
+                    <div id="vlm-fields-preview" class="vlm-fields-preview"></div>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button id="vlm-confirm-btn" style="flex:1; background-color: #28a745; color: white; border: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                        ✓ Xác nhận & Gửi VLM
+                    </button>
+                    <button id="vlm-cancel-btn" style="flex:1; background-color: var(--background-button); color: var(--text-color-primary); border: 1px solid var(--border-color-dark); padding: 12px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                        Hủy
+                    </button>
+                </div>
+            </div>
+            
+            <div id="vlm-loading" style="display: none; flex-direction: column; align-items: center; padding: 40px 0;">
+                <div
+                    style="width:50px;height:50px;border:5px solid #f3f3f3;border-top-color:#28a745;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px">
+                </div>
+                <div style="font-weight:600;color:#333;">Analyzing with VLM...</div>
+                <div id="vlm-loading-text" style="font-size:13px; color:#888; margin-top:8px;">Processing selected region</div>
+            </div>
+            <div id="vlm-result" style="display: none;">
+                <div style="margin-bottom: 15px; max-height: 300px; overflow: auto; background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 8px; text-align: center;">
+                    <img id="vlm-cropped-image" style="max-width: 100%; max-height: 100%; display: inline-block;" />
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary);">Extracted Information:</label>
+                </div>
+                <div id="vlm-json-container" style="background: #f8f9fa; border: 1px solid var(--border-color-light); border-radius: 4px; padding: 15px; max-height: 400px; overflow-y: auto; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button id="vlm-copy-btn" style="flex:1; background-color: var(--accent-color); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                        Copy
+                    </button>
+                    <button id="vlm-close-btn" style="flex:1; background-color: var(--background-button); color: var(--text-color-primary); border: 1px solid var(--border-color-dark); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+            <div id="vlm-error" style="display: none; padding: 20px; text-align: center;">
+                <div style="color: var(--danger-color); font-weight: 600; margin-bottom: 10px;">Error</div>
+                <div id="vlm-error-message" style="color: var(--text-color-secondary); font-size: 13px;"></div>
+            </div>
         </div>
     </div>
 
@@ -811,6 +1230,8 @@
 
         const canvas = document.getElementById('drawing-canvas');
         const ctx = canvas.getContext('2d');
+        const crosshairCanvas = document.getElementById('crosshair-canvas');
+        const crosshairCtx = crosshairCanvas.getContext('2d');
         const dropZone = document.getElementById('drop-zone');
         const layerList = document.getElementById('layer-list');
         const canvasContainer = document.getElementById('canvas-container');
@@ -842,6 +1263,12 @@
         let bboxStart = null;
         let currentBbox = null;
         let mouseX = 0, mouseY = 0;
+
+        // VLM Extract state variables
+        let isVLMBboxMode = false;
+        let vlmBboxStart = null;
+        let vlmBboxEnd = null;
+        let isVLMDrawing = false;
         let cropLengths = null;
         let cropLengthsFull = null;
         let cropLengthsFiltered = null;
@@ -861,6 +1288,9 @@
         let precomputedLengths = {};
         let drawScheduled = false;
         let currentPageNum = null;
+        let pendingVLMCrop = null; // Store cropped image pending for user confirmation
+        let cachedPageImage = null; // Pre-rendered page image canvas for VLM crop (3x scale)
+        let cachedPageImageLoading = false; // Flag to prevent duplicate pre-render
         let pipelineLayerNames = []; // Track pipeline layer names
 
         // Kelly's 20-color palette for pipeline visualization
@@ -1429,10 +1859,21 @@
             graphicLayer.style.display = graphicVisible ? 'block' : 'none';
         }
         function draw() {
-            if (!jsonShapes) return;
-
             ctx.save();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!jsonShapes || !jsonShapes.length) {
+                if (svgData) {
+                    ctx.translate(offsetX, offsetY);
+                    ctx.scale(zoom, zoom);
+                }
+                ctx.restore();
+                applySvgTransform();
+                // Draw crosshair overlay even when no shapes
+                drawCrosshairOverlay();
+                return;
+            }
+
             ctx.translate(offsetX, offsetY);
             ctx.scale(zoom, zoom);
 
@@ -1473,7 +1914,7 @@
             } else {
                 shapesDrawBuffer = (allShapesSorted && allShapesSorted.length > 0) ? allShapesSorted : [];
                 // Sort: Pipeline layers first, then by seqno
-                shapesToDraw.sort((a, b) => {
+                shapesDrawBuffer.sort((a, b) => {
                     const aPipeline = pipelineLayerNames.includes(a.layer) ? 0 : 1;
                     const bPipeline = pipelineLayerNames.includes(b.layer) ? 0 : 1;
                     if (aPipeline !== bPipeline) return aPipeline - bPipeline;
@@ -1768,30 +2209,24 @@
                     ctx.fillText(`${(m.score * 100).toFixed(0)}%`, m.rect.x, m.rect.y - 5 / zoom);
                 });
             }
-            if (isDrawingBbox) {
-                ctx.strokeStyle = 'black';
-                ctx.lineWidth = 0.5 / zoom;
-                ctx.setLineDash([]);
-                const left = -offsetX / zoom, right = (canvas.width - offsetX) / zoom;
-                const top = -offsetY / zoom, bottom = (canvas.height - offsetY) / zoom;
-                ctx.beginPath(); ctx.moveTo(left, mouseY); ctx.lineTo(right, mouseY); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(mouseX, top); ctx.lineTo(mouseX, bottom); ctx.stroke();
-            }
+            // Note: Crosshair for both modes is now drawn in drawCrosshairOverlay() on overlay canvas
 
             // Highlight hovered group in red
             // FIXED: Sử dụng globalSeqnoToIds cho highlight
             if (hoveredGroup !== null) {
                 const seqnos = groupToSeqnos[hoveredGroup];
                 const highlightedShapes = new Set();
-                seqnos.forEach(seqno => {
-                    const ids = globalSeqnoToIds[seqno];
-                    if (ids) {
-                        ids.forEach(id => {
-                            const [objIndex] = id.split('-').map(Number);
-                            highlightedShapes.add(objIndex);
-                        });
-                    }
-                });
+                if (seqnos) {
+                    seqnos.forEach(seqno => {
+                        const ids = globalSeqnoToIds[seqno];
+                        if (ids) {
+                            ids.forEach(id => {
+                                const [objIndex] = id.split('-').map(Number);
+                                highlightedShapes.add(objIndex);
+                            });
+                        }
+                    });
+                }
                 highlightedShapes.forEach(objIndex => {
                     const obj = jsonShapes[objIndex];
                     let layerKey = obj[currentLayerField];
@@ -1804,6 +2239,59 @@
             }
             ctx.restore();
             applySvgTransform();
+            
+            // Draw crosshair on overlay canvas (always on top)
+            drawCrosshairOverlay();
+        }
+        
+        // Crosshair overlay function - draws on separate canvas above everything
+        function drawCrosshairOverlay() {
+            crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
+            
+            // Only draw crosshair when in draw mode
+            if (!isDrawingBbox && !isVLMBboxMode) return;
+            
+            crosshairCtx.strokeStyle = 'black';
+            crosshairCtx.lineWidth = 0.5;
+            crosshairCtx.setLineDash([]);
+            
+            // Calculate screen coordinates
+            const screenX = mouseX * zoom + offsetX;
+            const screenY = mouseY * zoom + offsetY;
+            
+            // Draw crosshair lines
+            crosshairCtx.beginPath();
+            crosshairCtx.moveTo(0, screenY);
+            crosshairCtx.lineTo(crosshairCanvas.width, screenY);
+            crosshairCtx.stroke();
+            
+            crosshairCtx.beginPath();
+            crosshairCtx.moveTo(screenX, 0);
+            crosshairCtx.lineTo(screenX, crosshairCanvas.height);
+            crosshairCtx.stroke();
+            
+            // Draw VLM bbox rectangle if exists (dashed green rectangle on overlay)
+            if (isVLMBboxMode && vlmBboxStart && vlmBboxEnd) {
+                const vlmBbox = {
+                    x: Math.min(vlmBboxStart.x, vlmBboxEnd.x),
+                    y: Math.min(vlmBboxStart.y, vlmBboxEnd.y),
+                    width: Math.abs(vlmBboxEnd.x - vlmBboxStart.x),
+                    height: Math.abs(vlmBboxEnd.y - vlmBboxStart.y)
+                };
+                if (vlmBbox.width > 0 && vlmBbox.height > 0) {
+                    const screenBbox = {
+                        x: vlmBbox.x * zoom + offsetX,
+                        y: vlmBbox.y * zoom + offsetY,
+                        width: vlmBbox.width * zoom,
+                        height: vlmBbox.height * zoom
+                    };
+                    crosshairCtx.strokeStyle = '#28a745';
+                    crosshairCtx.lineWidth = 2;
+                    crosshairCtx.setLineDash([5, 5]);
+                    crosshairCtx.strokeRect(screenBbox.x, screenBbox.y, screenBbox.width, screenBbox.height);
+                    crosshairCtx.setLineDash([]);
+                }
+            }
         }
 
         function computeShapeBbox(shape) {
@@ -1964,7 +2452,12 @@
         }
         function setupVisualization() {
             canvas.style.background = 'white';
-            if (!jsonShapes) return;
+            if (!jsonShapes) {
+                layerVisibility = {};
+                sortedLayerKeys = [];
+                dropZone.classList.remove('hidden');
+                return;
+            }
             layerVisibility = {};
             sortedLayerKeys = Object.keys(layerIndex).sort((a, b) => totalCommands[b] - totalCommands[a]);
             sortedLayerKeys.forEach(layerName => layerVisibility[layerName] = true);
@@ -2196,30 +2689,75 @@
         function resizeCanvas() {
             canvas.width = canvasContainer.clientWidth;
             canvas.height = canvasContainer.clientHeight;
+            crosshairCanvas.width = canvasContainer.clientWidth;
+            crosshairCanvas.height = canvasContainer.clientHeight;
             scheduleDraw();
         }
-        function resetView() {
-            let data = Array.isArray(jsonData) ? jsonData : jsonShapes || [];
-            if (!data.length) return;
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            data.forEach(obj => {
-                if (obj.rect) {
-                    minX = Math.min(minX, obj.rect[0]);
-                    minY = Math.min(minY, obj.rect[1]);
-                    maxX = Math.max(maxX, obj.rect[2]);
-                    maxY = Math.max(maxY, obj.rect[3]);
-                }
-            });
-            if (minX === Infinity) {
-                if (jsonData && jsonData.metadata && jsonData.metadata.bbox_all) {
-                    [minX, minY, maxX, maxY] = jsonData.metadata.bbox_all;
-                } else {
-                    offsetX = canvas.width / 2;
-                    offsetY = canvas.height / 2;
-                    zoom = 1;
-                    return;
+
+        function extractSvgViewBoxBounds(svgContent) {
+            if (!svgContent) return null;
+            const match = svgContent.match(/viewBox=["']([^"']+)["']/);
+            if (match) {
+                const parts = match[1].split(/[\s,]+/).map(Number);
+                if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+                    return { minX: parts[0], minY: parts[1], maxX: parts[0] + parts[2], maxY: parts[1] + parts[3] };
                 }
             }
+            const widthMatch = svgContent.match(/width=["'](\d+)/);
+            const heightMatch = svgContent.match(/height=["'](\d+)/);
+            if (widthMatch && heightMatch) {
+                const w = parseFloat(widthMatch[1]);
+                const h = parseFloat(heightMatch[1]);
+                if (!isNaN(w) && !isNaN(h)) {
+                    return { minX: 0, minY: 0, maxX: w, maxY: h };
+                }
+            }
+            return null;
+        }
+
+        function resetView() {
+            let data = Array.isArray(jsonData) ? jsonData : (jsonShapes || []);
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            let hasBounds = false;
+
+            if (data && data.length > 0) {
+                data.forEach(obj => {
+                    if (obj.rect) {
+                        minX = Math.min(minX, obj.rect[0]);
+                        minY = Math.min(minY, obj.rect[1]);
+                        maxX = Math.max(maxX, obj.rect[2]);
+                        maxY = Math.max(maxY, obj.rect[3]);
+                        hasBounds = true;
+                    }
+                });
+            }
+
+            if (!hasBounds && jsonData && jsonData.metadata && jsonData.metadata.bbox_all) {
+                [minX, minY, maxX, maxY] = jsonData.metadata.bbox_all;
+                hasBounds = true;
+            }
+
+            if (!hasBounds && svgData) {
+                const textSvg = svgData.text_only || '';
+                const graphicSvg = svgData.graphic_only || '';
+                const svgBounds = extractSvgViewBoxBounds(textSvg) || extractSvgViewBoxBounds(graphicSvg);
+                if (svgBounds) {
+                    minX = svgBounds.minX;
+                    minY = svgBounds.minY;
+                    maxX = svgBounds.maxX;
+                    maxY = svgBounds.maxY;
+                    hasBounds = true;
+                }
+            }
+
+            if (!hasBounds) {
+                offsetX = canvas.width / 2;
+                offsetY = canvas.height / 2;
+                zoom = 1;
+                scheduleDraw();
+                return;
+            }
+
             const contentWidth = maxX - minX, contentHeight = maxY - minY;
             zoom = Math.min(canvas.width / contentWidth, canvas.height / contentHeight) * CONFIG.ZOOM_FIT_MARGIN;
             offsetX = canvas.width / 2 - (minX + contentWidth / 2) * zoom;
@@ -2649,8 +3187,6 @@
                             const item = obj.items[itemIndex];
                             const commandType = item[0];
                             if (commandType !== 'l' && commandType !== 'c' && commandType !== 'qu') continue;
-                            const relevantPatterns = patternsByType[commandType];
-                            if (!relevantPatterns?.length) continue;
                             const commandLength = precomputedLengths[layerName]?.[objIndex]?.[itemIndex] || calculateLength(commandType, item);
                             let anchorX, anchorY;
                             if (commandType === 'l' || commandType === 'c') {
@@ -3334,6 +3870,54 @@
             }
         }
 
+        // ============================================
+        // PRE-RENDER: Cache PDF page as image for VLM crop
+        // ============================================
+        async function preRenderPageImage() {
+            if (!currentPdfFile || !currentPageNum) return;
+            if (cachedPageImageLoading) return; // Prevent duplicate calls
+            cachedPageImageLoading = true;
+            
+            const targetPage = currentPageNum; // Capture current page to detect stale results
+            console.time(`Pre-render page ${targetPage} image`);
+            
+            let pdf = null;
+            let page = null;
+            try {
+                const arrayBuffer = await currentPdfFile.arrayBuffer();
+                pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                page = await pdf.getPage(targetPage);
+                
+                const SCALE = 3;
+                const viewport = page.getViewport({ scale: SCALE });
+                
+                const offCanvas = document.createElement('canvas');
+                offCanvas.width = viewport.width;
+                offCanvas.height = viewport.height;
+                const offCtx = offCanvas.getContext('2d');
+                
+                await page.render({
+                    canvasContext: offCtx,
+                    viewport: viewport
+                }).promise;
+                
+                // Only store if user hasn't switched pages during render
+                if (currentPageNum === targetPage) {
+                    cachedPageImage = offCanvas;
+                    console.log(`Pre-rendered page ${targetPage} image: ${offCanvas.width}x${offCanvas.height}`);
+                } else {
+                    console.log(`Pre-render page ${targetPage} discarded (user switched to page ${currentPageNum})`);
+                }
+            } catch (error) {
+                console.warn(`Pre-render page ${targetPage} failed:`, error);
+            } finally {
+                if (page) try { page.cleanup(); } catch(e) {}
+                if (pdf) try { await pdf.destroy(); } catch(e) {}
+                cachedPageImageLoading = false;
+                console.timeEnd(`Pre-render page ${targetPage} image`);
+            }
+        }
+
         function hidePdfPreview() {
             const pdfPreview = document.getElementById('pdf-preview');
             pdfPreview.style.display = 'none';
@@ -3464,6 +4048,9 @@
             sortedLayerKeys = [];
             totalCommands = {};
             precomputedLengths = {}; // Clear stale length cache to avoid wrong matches on new page
+
+            // Clear cached page image for VLM crop
+            cachedPageImage = null;
 
             // Clear layer list
             layerList.innerHTML = '';
@@ -3844,6 +4431,9 @@
 
             dropZone.classList.add('hidden');
             updateSelectedThumbnail(pageNum);
+
+            // Pre-render page image in background for VLM crop
+            preRenderPageImage();
         }
 
         async function processSelectedPage(pageNum) {
@@ -3917,6 +4507,10 @@
                 dropZone.classList.add('hidden');
                 // Update selected thumbnail
                 updateSelectedThumbnail(pageNum);
+
+                // Pre-render page image in background for VLM crop
+                currentPageNum = pageNum;
+                preRenderPageImage();
             } catch (error) {
                 alert('Error processing PDF: ' + error.message);
                 hidePdfPreview();
@@ -4022,6 +4616,17 @@
         window.addEventListener('keydown', e => {
             if (e.key.toLowerCase() === 'd' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
                 btnDrawBbox.click();
+            }
+            if (e.key.toLowerCase() === 'f' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                btnVLMExtract.click();
+            }
+            // Cancel modes with Escape
+            if (e.key === 'Escape') {
+                if (isVLMBboxMode) {
+                    btnVLMExtract.click();
+                } else if (isDrawingBbox) {
+                    btnDrawBbox.click();
+                }
             }
         });
         window.addEventListener('resize', resizeCanvas);
@@ -4264,11 +4869,23 @@
             btnDrawBbox.textContent = isDrawingBbox ? 'Cancel' : '✏️ Find';
             btnDrawBbox.classList.toggle('active', isDrawingBbox);
             canvasContainer.classList.toggle('drawing-bbox', isDrawingBbox); // Update cursor style
+            
             if (isDrawingBbox) {
+                // Cancel VLM mode if active
+                if (isVLMBboxMode) {
+                    isVLMBboxMode = false;
+                    btnVLMExtract.textContent = '🤖 VLM Extract';
+                    btnVLMExtract.classList.remove('active');
+                    canvasContainer.classList.remove('vlm-bbox-mode');
+                    vlmBboxStart = null;
+                    vlmBboxEnd = null;
+                    isVLMDrawing = false;
+                }
                 mouseX = (canvas.width / zoom) / 2;
                 mouseY = (canvas.height / zoom) / 2;
-            }
-            if (!isDrawingBbox) {
+                // Show mode label
+                updateModeLabel('find');
+            } else {
                 bboxStart = null;
                 currentBbox = null;
                 cropLengths = null;
@@ -4279,6 +4896,8 @@
                 similarBboxes = [];
                 searchBboxSize = null;
                 expandedNodes = {};
+                // Hide mode label
+                updateModeLabel(null);
                 scheduleDraw();
             }
         });
@@ -4300,10 +4919,497 @@
             canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
             scheduleDraw();
         });
+
+        // VLM Extract button handler
+        const btnVLMExtract = document.getElementById('btn-vlm-extract');
+        btnVLMExtract.addEventListener('click', () => {
+            isVLMBboxMode = !isVLMBboxMode;
+            btnVLMExtract.textContent = isVLMBboxMode ? 'Cancel' : '🤖 VLM Extract';
+            btnVLMExtract.classList.toggle('active', isVLMBboxMode);
+            canvasContainer.classList.toggle('vlm-bbox-mode', isVLMBboxMode);
+
+            if (isVLMBboxMode) {
+                // Cancel other modes
+                if (isDrawingBbox) {
+                    isDrawingBbox = false;
+                    btnDrawBbox.textContent = '✏️ Find';
+                    btnDrawBbox.classList.remove('active');
+                    canvasContainer.classList.remove('drawing-bbox');
+                }
+                mouseX = (canvas.width / zoom) / 2;
+                mouseY = (canvas.height / zoom) / 2;
+                // Show mode label and crosshair immediately
+                updateModeLabel('vlm');
+                drawCrosshairOverlay();
+            } else {
+                // Reset VLM state
+                vlmBboxStart = null;
+                vlmBboxEnd = null;
+                isVLMDrawing = false;
+                // Hide mode label
+                updateModeLabel(null);
+                crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
+                scheduleDraw();
+            }
+        });
+        
+        // Helper function to update mode label
+        function updateModeLabel(mode) {
+            const label = document.getElementById('mode-label');
+            if (!mode) {
+                label.style.display = 'none';
+                return;
+            }
+            
+            label.className = 'mode-label';
+            if (mode === 'find') {
+                label.textContent = '🔍 Tìm kiếm';
+                label.classList.add('find-mode');
+            } else if (mode === 'vlm') {
+                label.textContent = '🤖 VLM';
+                label.classList.add('vlm-mode');
+            }
+            label.style.display = 'block';
+        }
+
+        // ============================================
+        // ✅ FIXED: VLM Extract Functions - Sửa lỗi preview sai
+        // ============================================
+        async function cropAndExtractVLM(bbox) {
+            try {
+                if (!currentPdfFile || !currentPageNum) {
+                    showVLMModalError('Vui lòng upload PDF trước khi sử dụng VLM Extract');
+                    return;
+                }
+
+                // Show preview state first
+                showVLMModalPreview(null, bbox);
+
+                const SCALE = 3;
+                let renderCanvas = null;
+
+                // ✅ Sử dụng cached page image nếu có (instant crop)
+                if (cachedPageImage) {
+                    renderCanvas = cachedPageImage;
+                    console.log('VLM crop: using cached page image (instant)');
+                } else {
+                    // Fallback: render PDF page nếu cache chưa sẵn sàng
+                    console.log('VLM crop: cache miss, rendering PDF page...');
+                    const arrayBuffer = await currentPdfFile.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                    const page = await pdf.getPage(currentPageNum);
+                    
+                    const originalViewport = page.getViewport({ scale: SCALE });
+                    
+                    renderCanvas = document.createElement('canvas');
+                    renderCanvas.width = originalViewport.width;
+                    renderCanvas.height = originalViewport.height;
+                    const renderCtx = renderCanvas.getContext('2d');
+                    
+                    await page.render({
+                        canvasContext: renderCtx,
+                        viewport: originalViewport
+                    }).promise;
+
+                    // Store as cache for next time
+                    cachedPageImage = renderCanvas;
+
+                    // Cleanup PDF resources
+                    if (page) try { page.cleanup(); } catch(e) {}
+                    if (pdf) try { await pdf.destroy(); } catch(e) {}
+                }
+
+                const pdfBbox = {
+                    x: bbox.x * SCALE,
+                    y: bbox.y * SCALE,
+                    width: bbox.width * SCALE,
+                    height: bbox.height * SCALE
+                };
+
+                // Tạo canvas crop
+                const cropCanvas = document.createElement('canvas');
+                cropCanvas.width = Math.max(1, Math.ceil(pdfBbox.width));
+                cropCanvas.height = Math.max(1, Math.ceil(pdfBbox.height));
+                const cropCtx = cropCanvas.getContext('2d');
+
+                // Nền trắng
+                cropCtx.fillStyle = 'white';
+                cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+
+                // ✅ Crop đúng vị trí từ cached page image
+                cropCtx.drawImage(
+                    renderCanvas,
+                    pdfBbox.x,
+                    pdfBbox.y,
+                    pdfBbox.width,
+                    pdfBbox.height,
+                    0,
+                    0,
+                    cropCanvas.width,
+                    cropCanvas.height
+                );
+
+                // Convert to base64 JPEG chất lượng cao
+                const croppedImageBase64 = cropCanvas.toDataURL('image/jpeg', 0.9);
+                
+                // Store for later use when user confirms
+                pendingVLMCrop = croppedImageBase64;
+
+                // Show preview in modal
+                showVLMModalPreview(croppedImageBase64, bbox);
+
+            } catch (error) {
+                console.error('Error cropping and extracting VLM:', error);
+                showVLMModalError('Error cropping image: ' + error.message);
+            }
+        }
+        
+        function showVLMModalPreview(imageBase64, bbox) {
+            const modal = document.getElementById('vlm-modal');
+            const preview = document.getElementById('vlm-preview');
+            const loading = document.getElementById('vlm-loading');
+            const result = document.getElementById('vlm-result');
+            const error = document.getElementById('vlm-error');
+
+            // Reset display states
+            preview.style.display = 'block';
+            loading.style.display = 'none';
+            result.style.display = 'none';
+            error.style.display = 'none';
+
+            // Set preview image
+            if (imageBase64) {
+                document.getElementById('vlm-preview-image').src = imageBase64;
+            }
+            
+            // Show bbox info
+            if (bbox) {
+                document.getElementById('vlm-preview-bbox').textContent = 
+                    `x: ${Math.round(bbox.x)}, y: ${Math.round(bbox.y)}, w: ${Math.round(bbox.width)}, h: ${Math.round(bbox.height)}`;
+            }
+
+            // Show modal
+            modal.style.display = 'block';
+        }
+
+        function showVLMModal(imageBase64) {
+            const modal = document.getElementById('vlm-modal');
+            const loading = document.getElementById('vlm-loading');
+            const result = document.getElementById('vlm-result');
+            const error = document.getElementById('vlm-error');
+
+            // Reset display states
+            loading.style.display = 'flex';
+            result.style.display = 'none';
+            error.style.display = 'none';
+
+            // Set cropped image
+            if (imageBase64) {
+                document.getElementById('vlm-cropped-image').src = imageBase64;
+            }
+
+            // Show modal
+            modal.style.display = 'block';
+        }
+
+        function showVLMModalResult(data) {
+            const loading = document.getElementById('vlm-loading');
+            const result = document.getElementById('vlm-result');
+            const error = document.getElementById('vlm-error');
+
+            loading.style.display = 'none';
+            error.style.display = 'none';
+            result.style.display = 'block';
+
+            // Display JSON result
+            const jsonContainer = document.getElementById('vlm-json-container');
+            jsonContainer.textContent = JSON.stringify(data, null, 2);
+        }
+
+        function showVLMModalError(message) {
+            const loading = document.getElementById('vlm-loading');
+            const result = document.getElementById('vlm-result');
+            const error = document.getElementById('vlm-error');
+
+            loading.style.display = 'none';
+            result.style.display = 'none';
+            error.style.display = 'block';
+
+            document.getElementById('vlm-error-message').textContent = message;
+        }
+
+        async function callVLMExtractAPI(imageBase64, fields) {
+            try {
+                const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+                
+                const requestBody = {
+                    image_b64: base64Data,
+                    fields: fields
+                };
+
+                const response = await fetch(`${ENV.PDF_API_BASE_URL}/vlm_extract`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                showVLMModalResult(data);
+
+            } catch (error) {
+                console.error('VLM Extract API Error:', error);
+                showVLMModalError('API Error: ' + error.message + '\n\nThe VLM Extract API endpoint is not yet available. Please ensure the backend is running.');
+            }
+        }
+
+        let extractionTypes = [];
+        let editingExtTypeIndex = -1;
+
+        function loadExtractionTypes() {
+            try {
+                const saved = localStorage.getItem('extractionTypes');
+                if (saved) extractionTypes = JSON.parse(saved);
+            } catch(e) {}
+            renderExtractionTypesList();
+            updateVLMExtractTypeSelect();
+        }
+
+        function saveExtractionTypes() {
+            localStorage.setItem('extractionTypes', JSON.stringify(extractionTypes));
+            renderExtractionTypesList();
+            updateVLMExtractTypeSelect();
+        }
+
+        function renderExtractionTypesList() {
+            const container = document.getElementById('ext-type-list');
+            if (!container) return;
+            if (extractionTypes.length === 0) {
+                container.innerHTML = '<div style="padding: 10px; font-size: 12px; font-style: italic; color: #999;">Chưa có loại trích xuất. Nhấn ＋ để thêm.</div>';
+                return;
+            }
+            container.innerHTML = extractionTypes.map((t, i) => `
+                <div class="ext-type-item" data-index="${i}">
+                    <div class="ext-type-header">
+                        <span class="ext-type-name">${escapeHtml(t.name)}</span>
+                        <div class="ext-type-actions">
+                            <button class="ext-edit" data-index="${i}" title="Sửa">✏️</button>
+                            <button class="ext-delete" data-index="${i}" title="Xóa">🗑️</button>
+                        </div>
+                    </div>
+                    <div class="ext-type-fields">
+                        ${t.fields.map(f => `<span class="ext-field-tag">${escapeHtml(f)}</span>`).join('')}
+                    </div>
+                </div>
+            `).join('');
+            container.querySelectorAll('.ext-edit').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openExtTypeModal(parseInt(btn.dataset.index));
+                });
+            });
+            container.querySelectorAll('.ext-delete').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (confirm('Xóa loại trích xuất này?')) {
+                        extractionTypes.splice(parseInt(btn.dataset.index), 1);
+                        saveExtractionTypes();
+                    }
+                });
+            });
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function updateVLMExtractTypeSelect() {
+            const select = document.getElementById('vlm-extract-type-select');
+            if (!select) return;
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">-- Chọn loại trích xuất --</option>';
+            extractionTypes.forEach((t, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = t.name + ' (' + t.fields.join(', ') + ')';
+                select.appendChild(opt);
+            });
+            if (currentVal && parseInt(currentVal) < extractionTypes.length) {
+                select.value = currentVal;
+            }
+        }
+
+        function openExtTypeModal(editIndex) {
+            editingExtTypeIndex = editIndex !== undefined ? editIndex : -1;
+            const overlay = document.getElementById('ext-type-modal-overlay');
+            const titleEl = document.getElementById('ext-modal-title');
+            const nameInput = document.getElementById('ext-type-name-input');
+            const fieldList = document.getElementById('ext-field-list');
+
+            if (editingExtTypeIndex >= 0) {
+                titleEl.textContent = 'Sửa Loại Trích Xuất';
+                const t = extractionTypes[editingExtTypeIndex];
+                nameInput.value = t.name;
+                fieldList.innerHTML = '';
+                t.fields.forEach(f => addExtFieldRow(f));
+            } else {
+                titleEl.textContent = 'Thêm Loại Trích Xuất';
+                nameInput.value = '';
+                fieldList.innerHTML = '';
+                addExtFieldRow();
+            }
+            overlay.classList.add('active');
+            nameInput.focus();
+        }
+
+        function addExtFieldRow(value) {
+            const fieldList = document.getElementById('ext-field-list');
+            const row = document.createElement('div');
+            row.className = 'ext-field-row';
+            row.innerHTML = `
+                <input type="text" placeholder="Tên trường (VD: chiều dài)" value="${value ? escapeHtml(value) : ''}" />
+                <button title="Xóa trường" class="ext-remove-field">✕</button>
+            `;
+            row.querySelector('.ext-remove-field').addEventListener('click', () => row.remove());
+            fieldList.appendChild(row);
+        }
+
+        document.getElementById('btn-add-ext-type').addEventListener('click', () => openExtTypeModal());
+        document.getElementById('btn-ext-add-field').addEventListener('click', () => addExtFieldRow());
+        document.getElementById('btn-ext-cancel').addEventListener('click', () => {
+            document.getElementById('ext-type-modal-overlay').classList.remove('active');
+        });
+        document.getElementById('btn-ext-save').addEventListener('click', () => {
+            const name = document.getElementById('ext-type-name-input').value.trim();
+            if (!name) { alert('Vui lòng nhập tên loại trích xuất'); return; }
+            const fieldInputs = document.querySelectorAll('#ext-field-list .ext-field-row input');
+            const fields = [];
+            fieldInputs.forEach(inp => {
+                const v = inp.value.trim();
+                if (v) fields.push(v);
+            });
+            if (fields.length === 0) { alert('Vui lòng thêm ít nhất 1 trường'); return; }
+
+            if (editingExtTypeIndex >= 0) {
+                extractionTypes[editingExtTypeIndex] = { name, fields };
+            } else {
+                extractionTypes.push({ name, fields });
+            }
+            saveExtractionTypes();
+            document.getElementById('ext-type-modal-overlay').classList.remove('active');
+        });
+        document.getElementById('ext-type-modal-overlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) e.currentTarget.classList.remove('active');
+        });
+
+        document.getElementById('vlm-extract-type-select').addEventListener('change', (e) => {
+            const idx = e.target.value;
+            const previewContainer = document.getElementById('vlm-fields-preview-container');
+            const previewDiv = document.getElementById('vlm-fields-preview');
+            
+            // Tự động ẩn lỗi khi user thay đổi (chọn lại) loại trích xuất
+            document.getElementById('vlm-error').style.display = 'none';
+            
+            if (idx !== '' && extractionTypes[parseInt(idx)]) {
+                const t = extractionTypes[parseInt(idx)];
+                previewDiv.innerHTML = t.fields.map(f => `<span class="ext-field-tag">${escapeHtml(f)}</span>`).join('');
+                previewContainer.style.display = 'block';
+            } else {
+                previewContainer.style.display = 'none';
+            }
+        });
+
+        loadExtractionTypes();
+
+        // VLM Modal Event Listeners
+        document.getElementById('vlm-modal-close').addEventListener('click', () => {
+            document.getElementById('vlm-modal').style.display = 'none';
+        });
+
+        document.getElementById('vlm-close-btn').addEventListener('click', () => {
+            document.getElementById('vlm-modal').style.display = 'none';
+        });
+        
+        // VLM Confirm button - send to API
+        document.getElementById('vlm-confirm-btn').addEventListener('click', async () => {
+            if (!pendingVLMCrop) {
+                showVLMModalError('No image to process');
+                return;
+            }
+
+            const selectEl = document.getElementById('vlm-extract-type-select');
+            const selectedIdx = selectEl.value;
+            let fields = null;
+            if (selectedIdx !== '' && extractionTypes[parseInt(selectedIdx)]) {
+                fields = extractionTypes[parseInt(selectedIdx)].fields;
+            }
+            if (!fields || fields.length === 0) {
+                showVLMModalError('Vui lòng chọn loại trích xuất trước khi gửi.');
+                return;
+            }
+            
+            const preview = document.getElementById('vlm-preview');
+            const loading = document.getElementById('vlm-loading');
+            const result = document.getElementById('vlm-result');
+            const error = document.getElementById('vlm-error');
+            
+            // Xóa lỗi và kết quả cũ, hiển thị loading nhưng giữ nguyên (không ẩn) preview
+            error.style.display = 'none';
+            result.style.display = 'none';
+            loading.style.display = 'flex';
+            
+            try {
+                await callVLMExtractAPI(pendingVLMCrop, fields);
+            } catch (error) {
+                showVLMModalError('Error calling VLM API: ' + error.message);
+            }
+        });
+        
+        // VLM Cancel button - close modal
+        document.getElementById('vlm-cancel-btn').addEventListener('click', () => {
+            document.getElementById('vlm-modal').style.display = 'none';
+            pendingVLMCrop = null;
+        });
+
+        document.getElementById('vlm-copy-btn').addEventListener('click', () => {
+            const jsonText = document.getElementById('vlm-json-container').textContent;
+            navigator.clipboard.writeText(jsonText).then(() => {
+                const btn = document.getElementById('vlm-copy-btn');
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                btn.style.backgroundColor = '#28a745';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.backgroundColor = '';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                alert('Failed to copy to clipboard');
+            });
+        });
+
+        // Close modal when clicking outside
+        window.addEventListener('click', (e) => {
+            const modal = document.getElementById('vlm-modal');
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
         canvasContainer.addEventListener('mousedown', e => {
             const rect = canvasContainer.getBoundingClientRect();
-            if (!isDrawingBbox) setInteractionState(true); // Start interaction only for pan, not bbox
-            if (isDrawingBbox) {
+            if (!isDrawingBbox && !isVLMBboxMode) setInteractionState(true); // Start interaction only for pan, not bbox
+            if (isVLMBboxMode) {
+                vlmBboxStart = { x: (e.clientX - rect.left - offsetX) / zoom, y: (e.clientY - rect.top - offsetY) / zoom };
+                vlmBboxEnd = { ...vlmBboxStart };
+                isVLMDrawing = true;
+            } else if (isDrawingBbox) {
                 bboxStart = { x: (e.clientX - rect.left - offsetX) / zoom, y: (e.clientY - rect.top - offsetY) / zoom };
                 currentBbox = null;
             } else {
@@ -4313,7 +5419,26 @@
         });
         canvasContainer.addEventListener('mouseup', () => {
             setInteractionState(false); // End interaction
-            if (isDrawingBbox) {
+            if (isVLMBboxMode) {
+                // If VLM bbox was drawn (with valid size), process it
+                if (vlmBboxStart && vlmBboxEnd) {
+                    const vlmBbox = {
+                        x: Math.min(vlmBboxStart.x, vlmBboxEnd.x),
+                        y: Math.min(vlmBboxStart.y, vlmBboxEnd.y),
+                        width: Math.abs(vlmBboxEnd.x - vlmBboxStart.x),
+                        height: Math.abs(vlmBboxEnd.y - vlmBboxStart.y)
+                    };
+                    if (vlmBbox.width > 1 && vlmBbox.height > 1) {
+                        // Auto-process VLM extraction
+                        cropAndExtractVLM(vlmBbox);
+                    }
+                }
+                // Reset VLM drawing state (but keep mode active)
+                vlmBboxStart = null;
+                vlmBboxEnd = null;
+                isVLMDrawing = false;
+                scheduleDraw();
+            } else if (isDrawingBbox) {
                 // If bbox was drawn (with valid size), show modal
                 if (currentBbox && currentBbox.width > 1 && currentBbox.height > 1) {
                     showCropModal(currentBbox);
@@ -4338,16 +5463,21 @@
             const canvasX = (e.clientX - rect.left - offsetX) / zoom;
             const canvasY = (e.clientY - rect.top - offsetY) / zoom;
             mouseX = canvasX; mouseY = canvasY;
-            if (isDrawingBbox) scheduleDraw();
-            if (isDrawingBbox && bboxStart) {
-                currentBbox = {
-                    x: Math.min(bboxStart.x, canvasX),
-                    y: Math.min(bboxStart.y, canvasY),
-                    width: Math.abs(canvasX - bboxStart.x),
-                    height: Math.abs(canvasY - bboxStart.y)
-                };
+            if (isVLMBboxMode) {
+                vlmBboxEnd = { x: canvasX, y: canvasY };
                 scheduleDraw();
-            } else if (isDragging && !isDrawingBbox) {
+            } else if (isDrawingBbox) {
+                scheduleDraw();
+                if (bboxStart) {
+                    currentBbox = {
+                        x: Math.min(bboxStart.x, canvasX),
+                        y: Math.min(bboxStart.y, canvasY),
+                        width: Math.abs(canvasX - bboxStart.x),
+                        height: Math.abs(canvasY - bboxStart.y)
+                    };
+                    scheduleDraw();
+                }
+            } else if (isDragging) {
                 setInteractionState(true); // Keep interaction active during pan
                 offsetX += e.clientX - lastX;
                 offsetY += e.clientY - lastY;
