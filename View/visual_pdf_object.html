@@ -561,12 +561,15 @@
         }
 
         #found-count {
-            margin-top: 15px;
-            text-align: center;
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--accent-color);
             display: none;
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e7f3ff;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #004085;
         }
 
         #btn-export-svg-container {
@@ -807,6 +810,7 @@
                     <p>Drag <code>layered_drawings.json</code> into the canvas area to start.</p>
                 </div>
             </div>
+            <div id="found-count"></div>
             <div id="saved-patterns-section"
                 style="margin-top: 20px; border-top: 1px solid var(--border-color-light); padding-top: 15px;">
                 <h3 style="border:none; padding-bottom:10px; font-size:1.1em; color:#333;">Saved Patterns</h3>
@@ -839,7 +843,6 @@
                     </tbody>
                 </table>
             </div>
-            <div id="found-count" style="display: none;"></div>
             <div id="btn-export-svg-container" style="margin-top: 15px; display: flex; gap: 8px;">
                 <button id="btn-export-svg" style="flex:1;">📄 SVG</button>
                 <button id="btn-export-images" style="flex:1; background-color:#6f42c1; color:white; border:none; padding:6px 8px; font-size:12px; font-weight:600; border-radius:6px; cursor:pointer;">🖼️ Images</button>
@@ -949,7 +952,7 @@
             <h3 id="ext-modal-title">Thêm Loại Trích Xuất</h3>
             <label for="ext-type-name-input">Tên loại trích xuất</label>
             <input type="text" id="ext-type-name-input" placeholder="Ví dụ: Kích thước, ABC..." />
-            <label>Các trường cần trích xuất</label>
+            <label>Ký hiệu và Mô tả các trường cần trích xuất</label>
             <div id="ext-field-list" class="ext-field-list"></div>
             <button class="ext-add-field-btn" id="btn-ext-add-field">＋ Thêm trường</button>
             <div class="ext-modal-btns">
@@ -3187,6 +3190,11 @@
                             const item = obj.items[itemIndex];
                             const commandType = item[0];
                             if (commandType !== 'l' && commandType !== 'c' && commandType !== 'qu') continue;
+                            
+                            // Get relevant patterns for this command type
+                            const relevantPatterns = patternsByType[commandType] || [];
+                            if (relevantPatterns.length === 0) continue;
+                            
                             const commandLength = precomputedLengths[layerName]?.[objIndex]?.[itemIndex] || calculateLength(commandType, item);
                             let anchorX, anchorY;
                             if (commandType === 'l' || commandType === 'c') {
@@ -3292,7 +3300,12 @@
             }
 
             const foundCountDiv = document.getElementById('found-count');
+            if (!foundCountDiv) {
+                console.error('found-count element not found!');
+                return;
+            }
             let totalFound = similarBboxes.length + (sequenceMatches ? sequenceMatches.length : 0);
+            console.log('Total found:', totalFound, 'similarBboxes:', similarBboxes.length, 'sequenceMatches:', sequenceMatches ? sequenceMatches.length : 0);
             if (totalFound > 0) {
                 let msg;
                 if (CONFIG.MERGE_RESULTS) {
@@ -3306,13 +3319,9 @@
                 foundCountDiv.textContent = msg;
                 foundCountDiv.style.display = 'block';
             } else {
-                // Updated: Always show result even if 0 found for Saved Pattern, and clear loading text
-                if (isApplyingSavedPattern) {
-                    foundCountDiv.textContent = 'Found 0 objects.';
-                    foundCountDiv.style.display = 'block';
-                } else {
-                    foundCountDiv.style.display = 'none';
-                }
+                // Always show result even if 0 found
+                foundCountDiv.textContent = 'Found 0 objects.';
+                foundCountDiv.style.display = 'block';
             }
         }
         function exportToSVG() {
@@ -5203,7 +5212,7 @@
                         </div>
                     </div>
                     <div class="ext-type-fields">
-                        ${t.fields.map(f => `<span class="ext-field-tag">${escapeHtml(f)}</span>`).join('')}
+                        ${t.fields.map(f => `<span class="ext-field-tag">${escapeHtml(f.name)}</span>`).join('')}
                     </div>
                 </div>
             `).join('');
@@ -5238,7 +5247,7 @@
             extractionTypes.forEach((t, i) => {
                 const opt = document.createElement('option');
                 opt.value = i;
-                opt.textContent = t.name + ' (' + t.fields.join(', ') + ')';
+                opt.textContent = t.name + ' (' + t.fields.map(f => f.name).join(', ') + ')';
                 select.appendChild(opt);
             });
             if (currentVal && parseInt(currentVal) < extractionTypes.length) {
@@ -5269,12 +5278,15 @@
             nameInput.focus();
         }
 
-        function addExtFieldRow(value) {
+        function addExtFieldRow(fieldData) {
             const fieldList = document.getElementById('ext-field-list');
             const row = document.createElement('div');
             row.className = 'ext-field-row';
+            const name = fieldData?.name || '';
+            const desc = fieldData?.description || '';
             row.innerHTML = `
-                <input type="text" placeholder="Tên trường (VD: chiều dài)" value="${value ? escapeHtml(value) : ''}" />
+                <input type="text" class="ext-field-name" placeholder="Ký hiệu (VD: cd)" value="${escapeHtml(name)}" style="flex: 1;" />
+                <input type="text" class="ext-field-desc" placeholder="Mô tả (VD: chiều dài tính bằng mét)" value="${escapeHtml(desc)}" style="flex: 1.5;" />
                 <button title="Xóa trường" class="ext-remove-field">✕</button>
             `;
             row.querySelector('.ext-remove-field').addEventListener('click', () => row.remove());
@@ -5289,11 +5301,24 @@
         document.getElementById('btn-ext-save').addEventListener('click', () => {
             const name = document.getElementById('ext-type-name-input').value.trim();
             if (!name) { alert('Vui lòng nhập tên loại trích xuất'); return; }
-            const fieldInputs = document.querySelectorAll('#ext-field-list .ext-field-row input');
+            const fieldRows = document.querySelectorAll('#ext-field-list .ext-field-row');
             const fields = [];
-            fieldInputs.forEach(inp => {
-                const v = inp.value.trim();
-                if (v) fields.push(v);
+            fieldRows.forEach(row => {
+                const nameInp = row.querySelector('.ext-field-name');
+                const descInp = row.querySelector('.ext-field-desc');
+                const fieldName = nameInp.value.trim();
+                const fieldDesc = descInp.value.trim();
+                if (fieldName) {
+                    if (!fieldDesc) {
+                        alert(`Trường "${fieldName}" thiếu mô tả. Vui lòng nhập mô tả.`);
+                        nameInp.focus();
+                        return;
+                    }
+                    fields.push({
+                        name: fieldName,
+                        description: fieldDesc
+                    });
+                }
             });
             if (fields.length === 0) { alert('Vui lòng thêm ít nhất 1 trường'); return; }
 
@@ -5319,7 +5344,7 @@
             
             if (idx !== '' && extractionTypes[parseInt(idx)]) {
                 const t = extractionTypes[parseInt(idx)];
-                previewDiv.innerHTML = t.fields.map(f => `<span class="ext-field-tag">${escapeHtml(f)}</span>`).join('');
+                previewDiv.innerHTML = t.fields.map(f => `<span class="ext-field-tag">${escapeHtml(f.name)}</span>`).join('');
                 previewContainer.style.display = 'block';
             } else {
                 previewContainer.style.display = 'none';
