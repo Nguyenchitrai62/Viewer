@@ -537,6 +537,28 @@
         <div class="panel-header">
             <span>Project Explorer</span>
         </div>
+        <!-- Search Bar -->
+        <div style="padding: 12px; border-bottom: 1px solid var(--glass-border);">
+            <div style="position: relative;">
+                <input type="text" id="search-input" placeholder="Search by ID..." 
+                    style="width: 100%; padding: 8px 32px 8px 12px; background: rgba(255,255,255,0.05); 
+                    border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text-primary); 
+                    font-family: var(--font-main); font-size: 12px; transition: all 0.2s;"
+                    onkeyup="handleSearchKeyup(event)"
+                    onfocus="this.style.borderColor='var(--primary)'; this.style.background='rgba(59,130,246,0.08)';"
+                    onblur="this.style.borderColor='var(--glass-border)'; this.style.background='rgba(255,255,255,0.05)';">
+                <button onclick="searchObjectById()" 
+                    style="position: absolute; right: 4px; top: 50%; transform: translateY(-50%); 
+                    background: transparent; border: none; color: var(--text-muted); cursor: pointer; 
+                    padding: 4px 8px; display: flex; align-items: center; justify-content: center;"
+                    title="Search">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                    </svg>
+                </button>
+            </div>
+            <div id="search-result" style="margin-top: 6px; font-size: 11px; color: var(--text-muted); min-height: 16px;"></div>
+        </div>
         <div class="panel-content" id="project-browser">
             <div style="text-align:center; padding: 40px 20px; color: var(--text-muted);">
                 <div style="font-size: 24px; margin-bottom: 10px; opacity: 0.5;">📂</div>
@@ -1976,6 +1998,149 @@
         }
         function showStatistics() {
             document.getElementById('stats-panel').style.display = 'flex';
+        }
+
+        // ==================== SEARCH FUNCTIONALITY ====================
+        function handleSearchKeyup(event) {
+            if (event.key === 'Enter') {
+                searchObjectById();
+            }
+        }
+
+        function searchObjectById() {
+            const searchInput = document.getElementById('search-input');
+            const searchResult = document.getElementById('search-result');
+            const searchId = searchInput.value.trim();
+
+            if (!searchId) {
+                searchResult.textContent = '';
+                searchResult.style.color = 'var(--text-muted)';
+                return;
+            }
+
+            // Clear previous selection
+            if (state.selectedObject) {
+                restoreObjectColor(state.selectedObject, state.selectedInstanceId, state.selectedFittingId);
+                state.selectedObject = null;
+                state.selectedInstanceId = null;
+                state.selectedFittingId = null;
+            }
+
+            let found = false;
+            let foundObject = null;
+            let foundInstanceId = null;
+            let foundFittingId = null;
+            let foundType = '';
+            let foundPosition = null;
+
+            // Search in pipes
+            if (state.instancedPipesMap) {
+                for (let [instanceId, info] of state.instancedPipesMap.entries()) {
+                    if (String(info.data.Id) === searchId) {
+                        if (!info.visible) {
+                            searchResult.textContent = `Found pipe (ID: ${searchId}) but it's hidden by filters`;
+                            searchResult.style.color = '#ff9800';
+                            return;
+                        }
+                        found = true;
+                        foundObject = state.instancedPipes;
+                        foundInstanceId = instanceId;
+                        foundType = 'Pipe';
+                        
+                        // Get position from matrix
+                        const pos = new THREE.Vector3();
+                        const quat = new THREE.Quaternion();
+                        const scale = new THREE.Vector3();
+                        info.originalMatrix.decompose(pos, quat, scale);
+                        foundPosition = pos;
+                        break;
+                    }
+                }
+            }
+
+            // Search in fittings if not found in pipes
+            if (!found && state.fittingGroups) {
+                for (let [fittingId, group] of state.fittingGroups.entries()) {
+                    if (String(group.data.Id) === searchId) {
+                        if (!group.visible) {
+                            searchResult.textContent = `Found fitting (ID: ${searchId}) but it's hidden by filters`;
+                            searchResult.style.color = '#ff9800';
+                            return;
+                        }
+                        found = true;
+                        foundFittingId = fittingId;
+                        foundType = 'Fitting';
+                        
+                        // Get position from first part's matrix
+                        if (group.parts.length > 0) {
+                            const pos = new THREE.Vector3();
+                            const quat = new THREE.Quaternion();
+                            const scale = new THREE.Vector3();
+                            group.parts[0].originalMatrix.decompose(pos, quat, scale);
+                            foundPosition = pos;
+                        }
+                        
+                        // Use the fitting's instanced mesh for selection
+                        if (group.parts.length > 0) {
+                            foundObject = state.instancedFittings[group.parts[0].type];
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (found) {
+                // Update selection
+                state.selectedObject = foundObject;
+                state.selectedInstanceId = foundInstanceId;
+                state.selectedFittingId = foundFittingId;
+
+                // Highlight object
+                if (foundInstanceId !== null) {
+                    highlightObject(foundObject, foundInstanceId, null);
+                    const info = state.instancedPipesMap.get(foundInstanceId);
+                    updatePropertiesPanel({ userData: info });
+                } else if (foundFittingId !== null) {
+                    highlightObject(foundObject, null, foundFittingId);
+                    const group = state.fittingGroups.get(foundFittingId);
+                    updatePropertiesPanel({ userData: group });
+                }
+
+                // Focus camera on object
+                if (foundPosition) {
+                    const distance = 10; // Distance from object
+                    const direction = new THREE.Vector3(1, -1, 0.8).normalize();
+                    const newPos = foundPosition.clone().add(direction.multiplyScalar(distance));
+                    
+                    // Smooth camera transition
+                    const startPos = state.camera.position.clone();
+                    const startTarget = state.controls.target.clone();
+                    const duration = 800; // ms
+                    const startTime = Date.now();
+
+                    function animateCamera() {
+                        const elapsed = Date.now() - startTime;
+                        const progress = Math.min(elapsed / duration, 1);
+                        const eased = 1 - Math.pow(1 - progress, 3); // Ease out cubic
+
+                        state.camera.position.lerpVectors(startPos, newPos, eased);
+                        state.controls.target.lerpVectors(startTarget, foundPosition, eased);
+                        state.controls.update();
+
+                        if (progress < 1) {
+                            requestAnimationFrame(animateCamera);
+                        }
+                    }
+                    animateCamera();
+                }
+
+                searchResult.textContent = `✓ Found ${foundType} (ID: ${searchId})`;
+                searchResult.style.color = '#4caf50';
+            } else {
+                searchResult.textContent = `✗ No object found with ID: ${searchId}`;
+                searchResult.style.color = '#f44336';
+                updatePropertiesPanel(null);
+            }
         }
 
         document.addEventListener('DOMContentLoaded', init);
