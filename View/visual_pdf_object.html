@@ -1452,33 +1452,48 @@
             setupVisualization();
         }
 
-        function loadParsedJsonDocument(parsed, options = {}) {
+        function convertParsedToNormalizedDocument(parsed) {
             if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                loadNormalizedDocument({
+                return {
                     shapes: normalizeShapesArray(Array.isArray(parsed.shapes) ? parsed.shapes : []),
                     metadata: parsed.metadata || null,
-                    svg: parsed.svg || null,
-                    sourceFile: options.sourceFile || null,
-                    pageNum: options.pageNum || 1
-                });
-                return;
+                    svg: parsed.svg || null
+                };
             }
 
             if (Array.isArray(parsed)) {
-                loadNormalizedDocument({
+                return {
                     shapes: normalizeShapesArray(parsed),
                     metadata: null,
-                    svg: null,
-                    sourceFile: options.sourceFile || null,
-                    pageNum: options.pageNum || 1
-                });
-                return;
+                    svg: null
+                };
             }
 
             throw new Error('Định dạng JSON không hợp lệ (phải là mảng hoặc object).');
         }
 
-        function createStreamingJsonParser({ onShape, onMetadata, onSvg }) {
+        function extractTopLevelValuesFromParsedDocument(parsed) {
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                return {};
+            }
+            const values = {};
+            Object.keys(parsed).forEach(key => {
+                if (key === 'shapes' || key === 'metadata' || key === 'svg') return;
+                values[key] = parsed[key];
+            });
+            return values;
+        }
+
+        function loadParsedJsonDocument(parsed, options = {}) {
+            const normalizedDocument = convertParsedToNormalizedDocument(parsed);
+            loadNormalizedDocument({
+                ...normalizedDocument,
+                sourceFile: options.sourceFile || null,
+                pageNum: options.pageNum || 1
+            });
+        }
+
+        function createStreamingJsonParser({ onShape, onMetadata, onSvg, onTopLevelValue }) {
             if (!window.clarinet) {
                 throw new Error('Streaming JSON parser is unavailable in this browser.');
             }
@@ -1521,6 +1536,8 @@
                     onMetadata(frame.value);
                 } else if (frame.role === 'svg') {
                     onSvg(frame.value);
+                } else if (frame.role === 'top-level' && frame.topLevelKey && typeof onTopLevelValue === 'function') {
+                    onTopLevelValue(frame.topLevelKey, frame.value);
                 }
             }
 
@@ -1538,7 +1555,8 @@
                     builder: false,
                     value: null,
                     pendingKey: null,
-                    finalizeTarget: false
+                    finalizeTarget: false,
+                    topLevelKey: null
                 };
 
                 if (!parent) {
@@ -1550,6 +1568,12 @@
                         frame.builder = true;
                         frame.value = {};
                         frame.finalizeTarget = true;
+                    } else if (topLevelKey) {
+                        frame.role = 'top-level';
+                        frame.builder = true;
+                        frame.value = {};
+                        frame.finalizeTarget = true;
+                        frame.topLevelKey = topLevelKey;
                     }
                 } else if (parent.role === 'shapes-array' || parent.role === 'root-array') {
                     frame.role = 'shape';
@@ -1584,7 +1608,8 @@
                     builder: false,
                     value: null,
                     pendingKey: null,
-                    finalizeTarget: false
+                    finalizeTarget: false,
+                    topLevelKey: null
                 };
 
                 if (!parent) {
@@ -1598,6 +1623,12 @@
                         frame.builder = true;
                         frame.value = [];
                         frame.finalizeTarget = true;
+                    } else if (topLevelKey) {
+                        frame.role = 'top-level';
+                        frame.builder = true;
+                        frame.value = [];
+                        frame.finalizeTarget = true;
+                        frame.topLevelKey = topLevelKey;
                     }
                 } else if (parent.builder) {
                     frame.role = parent.role;
@@ -1619,6 +1650,8 @@
                         onMetadata(value);
                     } else if (topLevelKey === 'svg') {
                         onSvg(value);
+                    } else if (topLevelKey && typeof onTopLevelValue === 'function') {
+                        onTopLevelValue(topLevelKey, value);
                     }
                     return;
                 }
@@ -1661,6 +1694,7 @@
             const shapes = [];
             let metadata = null;
             let svg = null;
+            const topLevelValues = {};
             let nextShapeId = 0;
             let bytesRead = 0;
             let lastProgressBytes = 0;
@@ -1675,6 +1709,9 @@
                 },
                 onSvg(value) {
                     svg = value;
+                },
+                onTopLevelValue(key, value) {
+                    topLevelValues[key] = value;
                 }
             });
 
@@ -1702,7 +1739,7 @@
                 parser.write(trailingText);
             }
             parser.close();
-            return { shapes, metadata, svg };
+            return { shapes, metadata, svg, topLevelValues };
         }
 
         async function loadJsonFileStreaming(file) {
@@ -1734,15 +1771,18 @@
             }
         }
 
-        async function loadJsonResponseStreaming(response, { sourceLabel = 'JSON response', sessionCacheKey = null } = {}) {
+        async function loadJsonResponseStreaming(response, { sourceLabel = 'JSON response', sessionCacheKey = null, pageNum = 1 } = {}) {
             if (response.body && window.clarinet) {
                 const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10) || 0;
                 const documentData = await parseJsonByteStreamToDocument(response.body.getReader(), {
                     totalBytes: contentLength,
                     sourceLabel
                 });
-                loadNormalizedDocument({ ...documentData, pageNum: 1 });
-                return;
+                if (documentData.topLevelValues?.error) {
+                    throw new Error(documentData.topLevelValues.error);
+                }
+                loadNormalizedDocument({ ...documentData, pageNum });
+                return documentData;
             }
 
             const text = await response.text();
@@ -1753,7 +1793,16 @@
                     console.warn('Failed to cache example JSON in sessionStorage:', error);
                 }
             }
-            loadParsedJsonDocument(JSON.parse(text), { pageNum: 1 });
+            const parsed = JSON.parse(text);
+            const topLevelValues = extractTopLevelValuesFromParsedDocument(parsed);
+            if (topLevelValues.error) {
+                throw new Error(topLevelValues.error);
+            }
+            loadParsedJsonDocument(parsed, { pageNum });
+            return {
+                topLevelValues,
+                shapesCount: jsonShapes ? jsonShapes.length : 0
+            };
         }
 
         // Helpers
@@ -4538,32 +4587,60 @@
             document.querySelectorAll('.page-thumbnail').forEach(thumb => thumb.classList.remove('selected'));
         }
 
-        // Decompress base64-gzipped data using DecompressionStream API
-        async function decompressGzipBase64(gzipB64) {
-            const binaryStr = atob(gzipB64);
-            const bytes = new Uint8Array(binaryStr.length);
-            for (let i = 0; i < binaryStr.length; i++) {
-                bytes[i] = binaryStr.charCodeAt(i);
+        function getBase64DecodedByteLength(base64Value) {
+            if (!base64Value || typeof base64Value !== 'string') return 0;
+            const trimmed = base64Value.trim();
+            if (!trimmed) return 0;
+            let padding = 0;
+            if (trimmed.endsWith('==')) {
+                padding = 2;
+            } else if (trimmed.endsWith('=')) {
+                padding = 1;
             }
-            const ds = new DecompressionStream('gzip');
-            const writer = ds.writable.getWriter();
-            writer.write(bytes);
-            writer.close();
-            const reader = ds.readable.getReader();
-            const chunks = [];
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
+            return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
+        }
+
+        function decodeBase64ToUint8Array(base64Value) {
+            const sanitized = (base64Value || '').replace(/\s+/g, '');
+            const outputLength = getBase64DecodedByteLength(sanitized);
+            const bytes = new Uint8Array(outputLength);
+            if (!outputLength) {
+                return bytes;
             }
-            const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-            const combined = new Uint8Array(totalLength);
-            let offset = 0;
-            for (const chunk of chunks) {
-                combined.set(chunk, offset);
-                offset += chunk.length;
+
+            const chunkChars = 4 * 8192; // keep each chunk aligned to base64 quantum
+            let byteOffset = 0;
+            for (let i = 0; i < sanitized.length; i += chunkChars) {
+                const chunk = sanitized.slice(i, i + chunkChars);
+                if (!chunk) continue;
+                const binary = atob(chunk);
+                for (let j = 0; j < binary.length; j++) {
+                    bytes[byteOffset++] = binary.charCodeAt(j);
+                }
             }
-            return JSON.parse(new TextDecoder().decode(combined));
+            return bytes;
+        }
+
+        async function parseGzipBase64ToDocumentStreaming(gzipB64, { sourceLabel = 'JSON gzip' } = {}) {
+            const gzipBytes = decodeBase64ToUint8Array(gzipB64);
+            if (!gzipBytes.length) {
+                throw new Error('Empty gzip payload.');
+            }
+
+            const decompressedStream = new Blob([gzipBytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+
+            if (window.clarinet) {
+                return parseJsonByteStreamToDocument(decompressedStream.getReader(), { sourceLabel });
+            }
+
+            // Fallback for browsers without clarinet: still decode gzip, then parse full JSON.
+            const decompressedText = await new Response(decompressedStream).text();
+            const parsed = JSON.parse(decompressedText);
+            const normalizedDocument = convertParsedToNormalizedDocument(parsed);
+            return {
+                ...normalizedDocument,
+                topLevelValues: extractTopLevelValuesFromParsedDocument(parsed)
+            };
         }
 
         async function compressStreamToGzipBase64(stream) {
@@ -4887,18 +4964,33 @@
             // This prevents holding two unzipped pages in memory at the same time
             clearVisualization();
 
-            console.time(`Decompress page ${pageNum}`);
-            const responseData = await decompressGzipBase64(gzipB64);
-            console.timeEnd(`Decompress page ${pageNum}`);
+            const compressedBytes = getBase64DecodedByteLength(gzipB64);
+            showLoadingPopup(`Loading page ${pageNum}...`, `Compressed: ${formatBytes(compressedBytes)}`);
 
-            loadParsedJsonDocument(responseData, { pageNum });
-            console.log(`Page ${pageNum}: ${jsonShapes.length} shapes`);
+            try {
+                console.time(`Stream parse page ${pageNum}`);
+                const documentData = await parseGzipBase64ToDocumentStreaming(gzipB64, {
+                    sourceLabel: `cached page ${pageNum}`
+                });
+                console.timeEnd(`Stream parse page ${pageNum}`);
 
-            dropZone.classList.add('hidden');
-            updateSelectedThumbnail(pageNum);
+                if (documentData.topLevelValues?.error) {
+                    throw new Error(documentData.topLevelValues.error);
+                }
 
-            // Pre-render page image in background for VLM crop
-            preRenderPageImage();
+                updateLoadingPopup('Finalizing page...', `${documentData.shapes.length.toLocaleString()} shapes ready`);
+                await yieldToBrowser();
+                loadNormalizedDocument({ ...documentData, pageNum });
+                console.log(`Page ${pageNum}: ${jsonShapes.length} shapes`);
+
+                dropZone.classList.add('hidden');
+                updateSelectedThumbnail(pageNum);
+
+                // Pre-render page image in background for VLM crop
+                preRenderPageImage();
+            } finally {
+                hideLoadingPopup();
+            }
         }
 
         async function processSelectedPage(pageNum) {
@@ -4937,6 +5029,7 @@
             // Show PDF preview while processing
             await renderPdfPreview(file, pageNum);
             console.time('API Call');
+            showLoadingPopup('Loading page JSON...', `Page ${pageNum}`);
             try {
                 const formData = new FormData();
                 formData.append('pdf_file', file);
@@ -4949,17 +5042,15 @@
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const responseData = await response.json();
-                console.log('Received JSON:', responseData);
-                if (responseData.processing_time) {
-                    console.log(`API processing time: ${responseData.processing_time} seconds`);
-                }
-                if (responseData.error) {
-                    throw new Error(responseData.error);
+                const documentData = await loadJsonResponseStreaming(response, {
+                    sourceLabel: `page ${pageNum}`,
+                    pageNum
+                });
+                if (documentData?.topLevelValues?.processing_time) {
+                    console.log(`API processing time: ${documentData.topLevelValues.processing_time} seconds`);
                 }
                 // Hide preview and load visualization
                 hidePdfPreview();
-                loadParsedJsonDocument(responseData, { pageNum });
                 console.log('jsonShapes length:', jsonShapes.length);
                 console.log('Visualization setup completed');
                 dropZone.classList.add('hidden');
@@ -4972,6 +5063,8 @@
             } catch (error) {
                 alert('Error processing PDF: ' + error.message);
                 hidePdfPreview();
+            } finally {
+                hideLoadingPopup();
             }
         }
 
