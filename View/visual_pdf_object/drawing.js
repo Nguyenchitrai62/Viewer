@@ -874,6 +874,31 @@ function draw() {
     }
 
     // ============================================
+    // PERFORMANCE OPTIMIZATION: Fast path for high-zoom pan/zoom
+    // Skip quadtree query, SVG transform, vector highlights during interaction
+    // ============================================
+    const useCropFilter = Boolean(cropLengths);
+    if (
+        isInteracting &&
+        !isDrawingBbox &&
+        !isVLMBboxMode &&
+        !annotationMode &&
+        !useCropFilter &&
+        !mainLayers &&
+        shapeRasterCache
+    ) {
+        drawShapeRasterCache(ctx);
+        drawViewportOverlays(ctx, false);
+        ctx.restore();
+        if (svgData) {
+            document.getElementById('svg-text-layer').style.display = 'none';
+            document.getElementById('svg-graphic-layer').style.display = 'none';
+        }
+        drawCrosshairOverlay();
+        return;
+    }
+
+    // ============================================
     // PERFORMANCE OPTIMIZATION: Use Quadtree for visible shapes
     // ============================================
     const viewMinX = -offsetX / zoom;
@@ -881,7 +906,6 @@ function draw() {
     const viewMaxX = (canvas.width - offsetX) / zoom;
     const viewMaxY = (canvas.height - offsetY) / zoom;
 
-    // Add padding to viewport to prevent shapes "popping" at edges
     const viewportPadding = 50 / zoom;
     const shapesToRender = getVisibleShapesForView(
         viewMinX,
@@ -889,23 +913,6 @@ function draw() {
         viewMaxX,
         viewMaxY,
         viewportPadding
-    );
-
-    const useCropFilter = Boolean(cropLengths);
-    const useShapeRasterPreview = Boolean(preferShapeRasterPreview && shapeRasterCache);
-    const useShapeRasterCache = Boolean(
-        shapeRasterCache &&
-        (
-            useShapeRasterPreview ||
-            (
-                isInteracting &&
-                !isDrawingBbox &&
-                !isVLMBboxMode &&
-                !annotationMode &&
-                !useCropFilter &&
-                !mainLayers
-            )
-        )
     );
 
     let currentStrokeStyle = null;
@@ -934,9 +941,7 @@ function draw() {
     // ============================================
     // UNIFIED RENDER LOOP: Both pipeline and shape layers use same logic
     // ============================================
-    if (useShapeRasterCache) {
-        drawShapeRasterCache(ctx);
-    } else {
+    {
         shapesToRender.forEach(obj => {
             const layerName = obj.layer;
             if (!layerVisibility[layerName]) return;
@@ -953,59 +958,7 @@ function draw() {
 
             if (useCropFilter && mainLayers && !mainLayers.includes(layerName) && !isApplyingSavedPattern && !obj._isPipelineLayer) return;
 
-            if (isInteracting && !isDrawingBbox) {
-                if (obj.fill) {
-                    const fillStyle = obj._fillStyle || toRgbString(obj.fill);
-                    if (currentFillStyle !== fillStyle || strokePending) {
-                        flushFills();
-                        flushStrokes();
-                        currentFillStyle = fillStyle;
-                        ctx.beginPath();
-                    }
-                    addShapeToPath(ctx, obj);
-                    fillPending = true;
-                }
-                if (obj.color && obj.items) {
-                    const styleKey = obj._strokeStyle || toRgbString(obj.color);
-                    const widthKey = obj._effectiveWidth || getEffectiveWidth(obj.width);
-                    if (currentStrokeStyle !== styleKey || currentLineWidth !== widthKey || fillPending) {
-                        flushFills();
-                        flushStrokes();
-                        currentStrokeStyle = styleKey;
-                        currentLineWidth = widthKey;
-                        ctx.beginPath();
-                    }
-                    obj.items?.forEach(item => {
-                        const type = item[0];
-                        if (type === 'l') {
-                            ctx.moveTo(item[1][0], item[1][1]);
-                            ctx.lineTo(item[2][0], item[2][1]);
-                        } else if (type === 'c') {
-                            ctx.moveTo(item[1][0], item[1][1]);
-                            ctx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
-                        } else if (type === 'qu') {
-                            const points = item[1];
-                            if (points?.length === 4) {
-                                ctx.moveTo(points[0][0], points[0][1]);
-                                ctx.lineTo(points[1][0], points[1][1]);
-                                ctx.lineTo(points[3][0], points[3][1]);
-                                ctx.lineTo(points[2][0], points[2][1]);
-                                ctx.closePath();
-                            }
-                        } else if (type === 'poly') {
-                            const points = item[1];
-                            if (points?.length > 0) {
-                                ctx.moveTo(points[0][0], points[0][1]);
-                                for (let i = 1; i < points.length; i++) {
-                                    ctx.lineTo(points[i][0], points[i][1]);
-                                }
-                                ctx.closePath();
-                            }
-                        }
-                    });
-                    strokePending = true;
-                }
-            } else if (cropLengths && mainLayers) {
+            if (cropLengths && mainLayers) {
                 flushFills();
                 flushStrokes();
                 drawShapeOnCtx(ctx, obj);
