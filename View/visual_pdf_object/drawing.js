@@ -246,14 +246,7 @@ let shapeRasterCacheBuildPromise = null;
 let shapeRasterPreviewMountedCanvas = null;
 let _perLayerBounds = {};
 let crosshairOverlayVisible = false;
-<<<<<<< HEAD
 let crosshairDrawScheduled = false;
-=======
-<<<<<<< HEAD
-let crosshairDrawScheduled = false;
-=======
->>>>>>> 3fd1002 (Implement high-zoom vector rendering optimizations and enhance interaction handling)
->>>>>>> 32dc9e2a602a72fe446516deced1942e350e79bf
 let highZoomVectorRenderToken = 0;
 let highZoomVectorRenderPromise = null;
 let highZoomVectorRenderViewKey = '';
@@ -530,19 +523,9 @@ function drawRasterFallbackFrame() {
     ctx.translate(offsetX, offsetY);
     ctx.scale(zoom, zoom);
     drawShapeRasterCache(ctx);
-<<<<<<< HEAD
     drawViewportOverlays(ctx, {
         allowVectorHighlights: false
     });
-=======
-<<<<<<< HEAD
-    drawViewportOverlays(ctx, {
-        allowVectorHighlights: false
-    });
-=======
-    drawViewportOverlays(ctx, false);
->>>>>>> 3fd1002 (Implement high-zoom vector rendering optimizations and enhance interaction handling)
->>>>>>> 32dc9e2a602a72fe446516deced1942e350e79bf
     ctx.restore();
     hideSvgVectorLayers();
     drawCrosshairOverlay();
@@ -617,19 +600,9 @@ function drawReadyHighZoomVectorFrame(viewState) {
     ctx.drawImage(highZoomVectorFrameCache.canvas, 0, 0);
     ctx.translate(offsetX, offsetY);
     ctx.scale(zoom, zoom);
-<<<<<<< HEAD
     drawViewportOverlays(ctx, {
         allowVectorHighlights: true
     });
-=======
-<<<<<<< HEAD
-    drawViewportOverlays(ctx, {
-        allowVectorHighlights: true
-    });
-=======
-    drawViewportOverlays(ctx, true);
->>>>>>> 3fd1002 (Implement high-zoom vector rendering optimizations and enhance interaction handling)
->>>>>>> 32dc9e2a602a72fe446516deced1942e350e79bf
     ctx.restore();
     applySvgTransform();
     drawCrosshairOverlay();
@@ -785,16 +758,6 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
     let fillPending = false;
     targetCtx.lineCap = 'butt';
     targetCtx.lineJoin = 'miter';
-<<<<<<< HEAD
-=======
-
-    function isCancelled() {
-        if (typeof shouldAbort === 'function' && shouldAbort()) {
-            return true;
-        }
-        return token !== null && token !== shapeRasterCacheToken;
-    }
->>>>>>> 32dc9e2a602a72fe446516deced1942e350e79bf
 
     function isCancelled() {
         if (typeof shouldAbort === 'function' && shouldAbort()) {
