@@ -91,11 +91,9 @@ function buildShapePath(targetCtx, shape) {
     });
     if (shape.closePath) targetCtx.closePath();
 }
-function strokeShapeItems(targetCtx, shape) {
-    if (!shape.color || !shape.items) return;
-    targetCtx.strokeStyle = shape._strokeStyle || toRgbString(shape.color);
-    targetCtx.lineWidth = shape._effectiveWidth || getEffectiveWidth(shape.width);
-    targetCtx.beginPath();
+
+function addShapeStrokeToPath(targetCtx, shape) {
+    if (!shape?.items) return;
     shape.items.forEach(item => {
         const type = item[0];
         if (type === 'l') {
@@ -124,8 +122,64 @@ function strokeShapeItems(targetCtx, shape) {
             }
         }
     });
+}
+
+function strokeShapeItems(targetCtx, shape) {
+    if (!shape.color || !shape.items) return;
+    targetCtx.strokeStyle = shape._strokeStyle || toRgbString(shape.color);
+    targetCtx.lineWidth = getEffectiveWidth(shape.width, targetCtx);
+    applyShapeStrokeGeometry(targetCtx, shape);
+    targetCtx.beginPath();
+    addShapeStrokeToPath(targetCtx, shape);
     targetCtx.stroke();
 }
+
+function isCropPreviewRenderableType(type) {
+    return type === 'l' || type === 'c' || type === 'qu';
+}
+
+function drawShapeWithCropPreviewRenderer(targetCtx, shape, overrideColor = null, alpha = 1) {
+    if (!shape?.items) return false;
+
+    const strokeColor = Array.isArray(overrideColor)
+        ? toRgbString(overrideColor, alpha)
+        : toRgbString(shape.color || [0, 0, 0], alpha);
+
+    let drewAny = false;
+    targetCtx.strokeStyle = strokeColor;
+    targetCtx.lineWidth = getEffectiveWidth(shape.width, targetCtx);
+    applyShapeStrokeGeometry(targetCtx, shape);
+    targetCtx.beginPath();
+
+    shape.items.forEach(item => {
+        const type = item[0];
+        if (!isCropPreviewRenderableType(type)) return;
+        if (type === 'l') {
+            targetCtx.moveTo(item[1][0], item[1][1]);
+            targetCtx.lineTo(item[2][0], item[2][1]);
+            drewAny = true;
+        } else if (type === 'c') {
+            targetCtx.moveTo(item[1][0], item[1][1]);
+            targetCtx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
+            drewAny = true;
+        } else if (type === 'qu') {
+            const pts = item[1];
+            if (pts?.length === 4) {
+                targetCtx.moveTo(pts[0][0], pts[0][1]);
+                targetCtx.lineTo(pts[1][0], pts[1][1]);
+                targetCtx.lineTo(pts[3][0], pts[3][1]);
+                targetCtx.lineTo(pts[2][0], pts[2][1]);
+                targetCtx.closePath();
+                drewAny = true;
+            }
+        }
+    });
+
+    if (!drewAny) return false;
+    targetCtx.stroke();
+    return true;
+}
+
 function drawShapeOnCtx(targetCtx, shape) {
     if (shape.fill) {
         buildShapePath(targetCtx, shape);
@@ -142,7 +196,8 @@ function drawShapeOnCtxWithColor(targetCtx, shape, overrideColor) {
     }
     if (!shape.color || !shape.items) return;
     targetCtx.strokeStyle = toRgbString(overrideColor);
-    targetCtx.lineWidth = getEffectiveWidth(shape.width);
+    targetCtx.lineWidth = getEffectiveWidth(shape.width, targetCtx);
+    applyShapeStrokeGeometry(targetCtx, shape);
     targetCtx.beginPath();
     shape.items.forEach(item => {
         const type = item[0];
@@ -191,6 +246,7 @@ let shapeRasterCacheBuildPromise = null;
 let shapeRasterPreviewMountedCanvas = null;
 let _perLayerBounds = {};
 let crosshairOverlayVisible = false;
+let crosshairDrawScheduled = false;
 let highZoomVectorRenderToken = 0;
 let highZoomVectorRenderPromise = null;
 let highZoomVectorRenderViewKey = '';
@@ -239,6 +295,10 @@ function getLowZoomRasterThreshold() {
 
 function shouldPreferShapeRasterPreview() {
     return zoom <= getLowZoomRasterThreshold();
+}
+
+function shouldForceInteractionRasterPreview() {
+    return isInteracting && zoom > getLowZoomRasterThreshold();
 }
 
 function getActiveRasterPreviewSource() {
@@ -463,7 +523,9 @@ function drawRasterFallbackFrame() {
     ctx.translate(offsetX, offsetY);
     ctx.scale(zoom, zoom);
     drawShapeRasterCache(ctx);
-    drawViewportOverlays(ctx, false);
+    drawViewportOverlays(ctx, {
+        allowVectorHighlights: false
+    });
     ctx.restore();
     hideSvgVectorLayers();
     drawCrosshairOverlay();
@@ -538,7 +600,9 @@ function drawReadyHighZoomVectorFrame(viewState) {
     ctx.drawImage(highZoomVectorFrameCache.canvas, 0, 0);
     ctx.translate(offsetX, offsetY);
     ctx.scale(zoom, zoom);
-    drawViewportOverlays(ctx, true);
+    drawViewportOverlays(ctx, {
+        allowVectorHighlights: true
+    });
     ctx.restore();
     applySvgTransform();
     drawCrosshairOverlay();
@@ -692,6 +756,8 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
     let strokePending = false;
     let currentFillStyle = null;
     let fillPending = false;
+    targetCtx.lineCap = 'butt';
+    targetCtx.lineJoin = 'miter';
 
     function isCancelled() {
         if (typeof shouldAbort === 'function' && shouldAbort()) {
@@ -748,15 +814,19 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
 
         if (obj.color) {
             const strokeStyle = obj._strokeStyle || toRgbString(obj.color);
-            const lineWidth = obj._effectiveWidth || getEffectiveWidth(obj.width);
-            if (currentStrokeStyle !== strokeStyle || currentLineWidth !== lineWidth || fillPending) {
+            const lineWidth = getEffectiveWidth(obj.width, targetCtx);
+            if (
+                currentStrokeStyle !== strokeStyle ||
+                currentLineWidth !== lineWidth ||
+                fillPending
+            ) {
                 flushFills();
                 flushStrokes();
                 currentStrokeStyle = strokeStyle;
                 currentLineWidth = lineWidth;
                 targetCtx.beginPath();
             }
-            addShapeToPath(targetCtx, obj);
+            addShapeStrokeToPath(targetCtx, obj);
             strokePending = true;
         }
 
@@ -912,33 +982,27 @@ function redrawCropPreview(previewCtx, croppedObjs, bboxRef, cropCanvas) {
     previewCtx.translate(-bboxRef.x, -bboxRef.y);
     croppedObjs.forEach(({ obj }) => {
         if (obj.type === 'text' || !obj.items) return;
+        const selectedItems = [];
+        const hiddenItems = [];
+
         obj.items.forEach((item, itemIndex) => {
             const type = item[0];
-            if (!(type === 'l' || type === 'c' || type === 'qu')) return;
+            if (!isCropPreviewRenderableType(type)) return;
             const found = cropItems.find(ci => ci.obj === obj && ci.itemIndex === itemIndex);
             if (!found) return;
-            const selected = cropSelectedItemIds.has(found.id);
-            previewCtx.strokeStyle = selected ? toRgbString(obj.color || [0, 0, 0]) : toRgbString(obj.color || [0, 0, 0], 0.02);
-            previewCtx.lineWidth = getEffectiveWidth(obj.width);
-            previewCtx.beginPath();
-            if (type === 'l') {
-                previewCtx.moveTo(item[1][0], item[1][1]);
-                previewCtx.lineTo(item[2][0], item[2][1]);
-            } else if (type === 'c') {
-                previewCtx.moveTo(item[1][0], item[1][1]);
-                previewCtx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
-            } else if (type === 'qu') {
-                const pts = item[1];
-                if (pts?.length === 4) {
-                    previewCtx.moveTo(pts[0][0], pts[0][1]);
-                    previewCtx.lineTo(pts[1][0], pts[1][1]);
-                    previewCtx.lineTo(pts[3][0], pts[3][1]);
-                    previewCtx.lineTo(pts[2][0], pts[2][1]);
-                    previewCtx.closePath();
-                }
+            if (cropSelectedItemIds.has(found.id)) {
+                selectedItems.push(item);
+            } else {
+                hiddenItems.push(item);
             }
-            previewCtx.stroke();
         });
+
+        if (hiddenItems.length) {
+            drawShapeWithCropPreviewRenderer(previewCtx, { ...obj, items: hiddenItems }, null, 0.02);
+        }
+        if (selectedItems.length) {
+            drawShapeWithCropPreviewRenderer(previewCtx, { ...obj, items: selectedItems });
+        }
     });
     previewCtx.restore();
 }
@@ -980,29 +1044,34 @@ function applySvgTransform() {
     graphicLayer.style.display = graphicVisible ? 'block' : 'none';
 }
 
-function drawViewportOverlays(targetCtx, allowVectorHighlights = zoom > getLowZoomRasterThreshold()) {
-    if (currentBbox && currentBbox.width > 0 && currentBbox.height > 0) {
+function drawViewportOverlays(targetCtx, {
+    allowVectorHighlights = zoom > getLowZoomRasterThreshold(),
+    allowSearchOverlays = true
+} = {}) {
+    if (allowSearchOverlays && !isDrawingBbox && currentBbox && currentBbox.width > 0 && currentBbox.height > 0) {
         targetCtx.strokeStyle = 'red';
         targetCtx.lineWidth = 2 / zoom;
         targetCtx.strokeRect(currentBbox.x, currentBbox.y, currentBbox.width, currentBbox.height);
     }
 
-    if (anchorBbox && !isApplyingSavedPattern) {
+    if (allowSearchOverlays && anchorBbox && !isApplyingSavedPattern) {
         targetCtx.strokeStyle = 'blue';
         targetCtx.lineWidth = 2 / zoom;
         targetCtx.strokeRect(anchorBbox.x, anchorBbox.y, anchorBbox.width, anchorBbox.height);
     }
 
-    similarBboxes.forEach(rect => {
-        targetCtx.strokeStyle = 'green';
-        targetCtx.lineWidth = CONFIG.SIMILAR_BBOX_LINE_WIDTH / zoom;
-        targetCtx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-        targetCtx.fillStyle = 'green';
-        targetCtx.font = `${12 / zoom}px Arial`;
-        targetCtx.fillText(`${(rect.score * 100).toFixed(0)}%`, rect.x, rect.y - 5 / zoom);
-    });
+    if (allowSearchOverlays) {
+        similarBboxes.forEach(rect => {
+            targetCtx.strokeStyle = 'green';
+            targetCtx.lineWidth = CONFIG.SIMILAR_BBOX_LINE_WIDTH / zoom;
+            targetCtx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+            targetCtx.fillStyle = 'green';
+            targetCtx.font = `${12 / zoom}px Arial`;
+            targetCtx.fillText(`${(rect.score * 100).toFixed(0)}%`, rect.x, rect.y - 5 / zoom);
+        });
+    }
 
-    if (sequenceMatches?.length) {
+    if (allowSearchOverlays && sequenceMatches?.length) {
         sequenceMatches.forEach(m => {
             if (CONFIG.MERGE_RESULTS) {
                 targetCtx.strokeStyle = 'green';
@@ -1053,28 +1122,37 @@ function drawViewportOverlays(targetCtx, allowVectorHighlights = zoom > getLowZo
 
 function draw() {
     const preferShapeRasterPreview = shouldPreferShapeRasterPreview();
-    const activeRasterPreviewSource = preferShapeRasterPreview ? getActiveRasterPreviewSource() : null;
-    if (preferShapeRasterPreview && !getActiveRasterPreviewSource()) {
+    const forceInteractionRasterPreview = shouldForceInteractionRasterPreview();
+    const activeRasterPreviewSource = (preferShapeRasterPreview || forceInteractionRasterPreview)
+        ? getActiveRasterPreviewSource()
+        : null;
+    if ((preferShapeRasterPreview || forceInteractionRasterPreview) && !getActiveRasterPreviewSource()) {
         scheduleActiveRasterPreviewBuild();
     }
-    updateZoomIndicator(preferShapeRasterPreview);
+    updateZoomIndicator(preferShapeRasterPreview || forceInteractionRasterPreview);
     updateRenderSurfaceMode(preferShapeRasterPreview);
 
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!jsonShapes || !jsonShapes.length) {
-        if (preferShapeRasterPreview && activeRasterPreviewSource) {
+        if ((preferShapeRasterPreview || forceInteractionRasterPreview) && activeRasterPreviewSource) {
             ctx.translate(offsetX, offsetY);
             ctx.scale(zoom, zoom);
             drawRasterPreviewOnCtx(ctx, activeRasterPreviewSource);
-            drawViewportOverlays(ctx, false);
+            drawViewportOverlays(ctx, {
+                allowVectorHighlights: false
+            });
         } else if (svgData && !preferShapeRasterPreview) {
             ctx.translate(offsetX, offsetY);
             ctx.scale(zoom, zoom);
         }
         ctx.restore();
-        applySvgTransform();
+        if (forceInteractionRasterPreview && activeRasterPreviewSource) {
+            hideSvgVectorLayers();
+        } else {
+            applySvgTransform();
+        }
         // Draw crosshair overlay even when no shapes
         drawCrosshairOverlay();
         return;
@@ -1085,7 +1163,9 @@ function draw() {
 
     if (preferShapeRasterPreview) {
         drawRasterPreviewOnCtx(ctx, activeRasterPreviewSource);
-        drawViewportOverlays(ctx, false);
+        drawViewportOverlays(ctx, {
+            allowVectorHighlights: false
+        });
         ctx.restore();
         applySvgTransform();
         drawCrosshairOverlay();
@@ -1099,15 +1179,12 @@ function draw() {
     const useCropFilter = Boolean(cropLengths);
     if (
         isInteracting &&
-        !isDrawingBbox &&
-        !isVLMBboxMode &&
-        !annotationMode &&
-        !useCropFilter &&
-        !mainLayers &&
         shapeRasterCache
     ) {
         drawShapeRasterCache(ctx);
-        drawViewportOverlays(ctx, false);
+        drawViewportOverlays(ctx, {
+            allowVectorHighlights: false
+        });
         ctx.restore();
         hideSvgVectorLayers();
         drawCrosshairOverlay();
@@ -1148,6 +1225,8 @@ function draw() {
     
     let currentFillStyle = null;
     let fillPending = false;
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
 
     function flushFills() {
         if (fillPending) {
@@ -1255,8 +1334,12 @@ function draw() {
 
                 if (obj.color && obj.items) {
                     const styleKey = obj._strokeStyle || toRgbString(obj.color);
-                    const widthKey = obj._effectiveWidth || getEffectiveWidth(obj.width);
-                    if (currentStrokeStyle !== styleKey || currentLineWidth !== widthKey || fillPending) {
+                    const widthKey = getEffectiveWidth(obj.width, ctx);
+                    if (
+                        currentStrokeStyle !== styleKey ||
+                        currentLineWidth !== widthKey ||
+                        fillPending
+                    ) {
                         flushFills();
                         flushStrokes();
                         currentStrokeStyle = styleKey;
@@ -1302,7 +1385,9 @@ function draw() {
     flushFills();
     flushStrokes();
 
-    drawViewportOverlays(ctx, true);
+    drawViewportOverlays(ctx, {
+        allowVectorHighlights: true
+    });
     ctx.restore();
     applySvgTransform();
     
@@ -1352,6 +1437,19 @@ function drawCrosshairOverlay() {
     crosshairCtx.moveTo(screenX, 0);
     crosshairCtx.lineTo(screenX, crosshairCanvas.height);
     crosshairCtx.stroke();
+
+    if (isDrawingBbox && currentBbox && currentBbox.width > 0 && currentBbox.height > 0) {
+        const screenBbox = {
+            x: currentBbox.x * zoom + offsetX,
+            y: currentBbox.y * zoom + offsetY,
+            width: currentBbox.width * zoom,
+            height: currentBbox.height * zoom
+        };
+        crosshairCtx.strokeStyle = '#dc3545';
+        crosshairCtx.lineWidth = 2;
+        crosshairCtx.setLineDash([]);
+        crosshairCtx.strokeRect(screenBbox.x, screenBbox.y, screenBbox.width, screenBbox.height);
+    }
     
     // Draw VLM bbox rectangle if exists (dashed green rectangle on overlay)
     if (isVLMBboxMode && vlmBboxStart && vlmBboxEnd) {
@@ -1375,6 +1473,15 @@ function drawCrosshairOverlay() {
             crosshairCtx.setLineDash([]);
         }
     }
+}
+
+function scheduleCrosshairOverlayDraw() {
+    if (crosshairDrawScheduled) return;
+    crosshairDrawScheduled = true;
+    requestAnimationFrame(() => {
+        crosshairDrawScheduled = false;
+        drawCrosshairOverlay();
+    });
 }
 
 function scheduleDraw() {

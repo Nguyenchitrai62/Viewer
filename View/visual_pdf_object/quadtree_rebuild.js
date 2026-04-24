@@ -7,7 +7,7 @@ function prepareShapeForDraw(obj, renderLayerPriority = 1, isPipelineLayer = fal
     obj._sortSeqno = obj.seqno || 0;
     obj._strokeStyle = obj.color ? toRgbString(obj.color) : null;
     obj._fillStyle = obj.fill ? toRgbString(obj.fill) : null;
-    obj._effectiveWidth = getEffectiveWidth(obj.width);
+    obj._effectiveWidth = getShapeVisibilityPadding(obj.width);
     return obj;
 }
 
