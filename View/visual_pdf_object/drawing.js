@@ -246,7 +246,10 @@ let shapeRasterCacheBuildPromise = null;
 let shapeRasterPreviewMountedCanvas = null;
 let _perLayerBounds = {};
 let crosshairOverlayVisible = false;
+<<<<<<< HEAD
 let crosshairDrawScheduled = false;
+=======
+>>>>>>> 3fd1002 (Implement high-zoom vector rendering optimizations and enhance interaction handling)
 let highZoomVectorRenderToken = 0;
 let highZoomVectorRenderPromise = null;
 let highZoomVectorRenderViewKey = '';
@@ -523,9 +526,13 @@ function drawRasterFallbackFrame() {
     ctx.translate(offsetX, offsetY);
     ctx.scale(zoom, zoom);
     drawShapeRasterCache(ctx);
+<<<<<<< HEAD
     drawViewportOverlays(ctx, {
         allowVectorHighlights: false
     });
+=======
+    drawViewportOverlays(ctx, false);
+>>>>>>> 3fd1002 (Implement high-zoom vector rendering optimizations and enhance interaction handling)
     ctx.restore();
     hideSvgVectorLayers();
     drawCrosshairOverlay();
@@ -600,9 +607,13 @@ function drawReadyHighZoomVectorFrame(viewState) {
     ctx.drawImage(highZoomVectorFrameCache.canvas, 0, 0);
     ctx.translate(offsetX, offsetY);
     ctx.scale(zoom, zoom);
+<<<<<<< HEAD
     drawViewportOverlays(ctx, {
         allowVectorHighlights: true
     });
+=======
+    drawViewportOverlays(ctx, true);
+>>>>>>> 3fd1002 (Implement high-zoom vector rendering optimizations and enhance interaction handling)
     ctx.restore();
     applySvgTransform();
     drawCrosshairOverlay();
@@ -758,6 +769,13 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
     let fillPending = false;
     targetCtx.lineCap = 'butt';
     targetCtx.lineJoin = 'miter';
+
+    function isCancelled() {
+        if (typeof shouldAbort === 'function' && shouldAbort()) {
+            return true;
+        }
+        return token !== null && token !== shapeRasterCacheToken;
+    }
 
     function isCancelled() {
         if (typeof shouldAbort === 'function' && shouldAbort()) {
