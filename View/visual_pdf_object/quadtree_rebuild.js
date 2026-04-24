@@ -8,8 +8,6 @@ function prepareShapeForDraw(obj, renderLayerPriority = 1, isPipelineLayer = fal
     obj._strokeStyle = obj.color ? toRgbString(obj.color) : null;
     obj._fillStyle = obj.fill ? toRgbString(obj.fill) : null;
     obj._effectiveWidth = getShapeVisibilityPadding(obj.width);
-    obj._strokeLineCap = getCanvasLineCap(obj);
-    obj._strokeLineJoin = getCanvasLineJoin(obj);
     return obj;
 }
 

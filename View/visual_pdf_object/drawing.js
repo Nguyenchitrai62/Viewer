@@ -753,11 +753,11 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
 
     let currentStrokeStyle = null;
     let currentLineWidth = null;
-    let currentLineCap = 'butt';
-    let currentLineJoin = 'miter';
     let strokePending = false;
     let currentFillStyle = null;
     let fillPending = false;
+    targetCtx.lineCap = 'butt';
+    targetCtx.lineJoin = 'miter';
 
     function isCancelled() {
         if (typeof shouldAbort === 'function' && shouldAbort()) {
@@ -781,16 +781,12 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
         if (strokePending) {
             targetCtx.strokeStyle = currentStrokeStyle;
             targetCtx.lineWidth = currentLineWidth;
-            targetCtx.lineCap = currentLineCap;
-            targetCtx.lineJoin = currentLineJoin;
             targetCtx.stroke();
             strokePending = false;
         }
         if (resetStyle) {
             currentStrokeStyle = null;
             currentLineWidth = null;
-            currentLineCap = 'butt';
-            currentLineJoin = 'miter';
         }
     }
 
@@ -819,21 +815,15 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
         if (obj.color) {
             const strokeStyle = obj._strokeStyle || toRgbString(obj.color);
             const lineWidth = getEffectiveWidth(obj.width, targetCtx);
-            const lineCap = obj._strokeLineCap || getCanvasLineCap(obj);
-            const lineJoin = obj._strokeLineJoin || getCanvasLineJoin(obj);
             if (
                 currentStrokeStyle !== strokeStyle ||
                 currentLineWidth !== lineWidth ||
-                currentLineCap !== lineCap ||
-                currentLineJoin !== lineJoin ||
                 fillPending
             ) {
                 flushFills();
                 flushStrokes();
                 currentStrokeStyle = strokeStyle;
                 currentLineWidth = lineWidth;
-                currentLineCap = lineCap;
-                currentLineJoin = lineJoin;
                 targetCtx.beginPath();
             }
             addShapeStrokeToPath(targetCtx, obj);
@@ -1231,12 +1221,12 @@ function draw() {
 
     let currentStrokeStyle = null;
     let currentLineWidth = null;
-    let currentLineCap = 'butt';
-    let currentLineJoin = 'miter';
     let strokePending = false;
     
     let currentFillStyle = null;
     let fillPending = false;
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
 
     function flushFills() {
         if (fillPending) {
@@ -1249,8 +1239,6 @@ function draw() {
         if (strokePending) {
             ctx.strokeStyle = currentStrokeStyle;
             ctx.lineWidth = currentLineWidth;
-            ctx.lineCap = currentLineCap;
-            ctx.lineJoin = currentLineJoin;
             ctx.stroke();
             strokePending = false;
         }
@@ -1347,21 +1335,15 @@ function draw() {
                 if (obj.color && obj.items) {
                     const styleKey = obj._strokeStyle || toRgbString(obj.color);
                     const widthKey = getEffectiveWidth(obj.width, ctx);
-                    const lineCap = obj._strokeLineCap || getCanvasLineCap(obj);
-                    const lineJoin = obj._strokeLineJoin || getCanvasLineJoin(obj);
                     if (
                         currentStrokeStyle !== styleKey ||
                         currentLineWidth !== widthKey ||
-                        currentLineCap !== lineCap ||
-                        currentLineJoin !== lineJoin ||
                         fillPending
                     ) {
                         flushFills();
                         flushStrokes();
                         currentStrokeStyle = styleKey;
                         currentLineWidth = widthKey;
-                        currentLineCap = lineCap;
-                        currentLineJoin = lineJoin;
                         ctx.beginPath();
                     }
 
