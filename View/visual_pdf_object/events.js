@@ -339,6 +339,7 @@ btnDrawBbox.addEventListener('click', () => {
         mouseY = (canvas.height / zoom) / 2;
         // Show mode label
         updateModeLabel('find');
+        scheduleCrosshairOverlayDraw();
     } else {
         bboxStart = null;
         currentBbox = null;
@@ -352,6 +353,7 @@ btnDrawBbox.addEventListener('click', () => {
         expandedNodes = {};
         // Hide mode label
         updateModeLabel(null);
+        scheduleCrosshairOverlayDraw();
         scheduleDraw();
     }
 });
@@ -371,6 +373,7 @@ btnResetFilter.addEventListener('click', () => {
     btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
     btnDrawBbox.classList.remove('active');
     canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
+    scheduleCrosshairOverlayDraw();
     scheduleDraw();
 });
 
@@ -396,7 +399,7 @@ btnVLMExtract.addEventListener('click', () => {
         mouseY = (canvas.height / zoom) / 2;
         // Show mode label and crosshair immediately
         updateModeLabel('vlm');
-        drawCrosshairOverlay();
+        scheduleCrosshairOverlayDraw();
     } else {
         // Reset VLM state
         vlmBboxStart = null;
@@ -404,7 +407,7 @@ btnVLMExtract.addEventListener('click', () => {
         isVLMDrawing = false;
         // Hide mode label
         updateModeLabel(null);
-        crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
+        scheduleCrosshairOverlayDraw();
         scheduleDraw();
     }
 });
@@ -462,9 +465,11 @@ canvasContainer.addEventListener('mousedown', e => {
         vlmBboxStart = { x: worldX, y: worldY };
         vlmBboxEnd = { ...vlmBboxStart };
         isVLMDrawing = true;
+        scheduleCrosshairOverlayDraw();
     } else if (isDrawingBbox) {
         bboxStart = { x: worldX, y: worldY };
         currentBbox = null;
+        scheduleCrosshairOverlayDraw();
     } else {
         isDragging = true;
         lastX = e.clientX; lastY = e.clientY;
@@ -505,6 +510,7 @@ canvasContainer.addEventListener('mouseup', e => {
         vlmBboxStart = null;
         vlmBboxEnd = null;
         isVLMDrawing = false;
+        scheduleCrosshairOverlayDraw();
         scheduleDraw();
     } else if (isDrawingBbox) {
         // If bbox was drawn (with valid size), show modal
@@ -518,6 +524,7 @@ canvasContainer.addEventListener('mouseup', e => {
         canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
         bboxStart = null;
         currentBbox = null;
+        scheduleCrosshairOverlayDraw();
         scheduleDraw();
     }
     isDragging = false;
@@ -553,9 +560,8 @@ canvasContainer.addEventListener('mousemove', e => {
         scheduleDraw();
     } else if (isVLMBboxMode) {
         vlmBboxEnd = { x: canvasX, y: canvasY };
-        scheduleDraw();
+        scheduleCrosshairOverlayDraw();
     } else if (isDrawingBbox) {
-        scheduleDraw();
         if (bboxStart) {
             currentBbox = {
                 x: Math.min(bboxStart.x, canvasX),
@@ -563,8 +569,8 @@ canvasContainer.addEventListener('mousemove', e => {
                 width: Math.abs(canvasX - bboxStart.x),
                 height: Math.abs(canvasY - bboxStart.y)
             };
-            scheduleDraw();
         }
+        scheduleCrosshairOverlayDraw();
     } else {
         if (shouldPreferShapeRasterPreview()) {
             if (hoveredGroup !== null) {

@@ -98,11 +98,74 @@ function toRgbString(color, alpha = 1) {
     if (typeof color === 'number') return `rgba(${(color >> 16) & 255}, ${(color >> 8) & 255}, ${color & 255}, ${alpha})`;
     return `rgba(0, 0, 0, ${alpha})`;
 }
-function getEffectiveWidth(width) {
-    if (width === undefined || width === null || width <= 0) {
+
+function getShapeStyleIndex(rawValue, fallback = 0) {
+    const numeric = Array.isArray(rawValue) ? Number(rawValue[0]) : Number(rawValue);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.max(0, Math.min(2, Math.trunc(numeric)));
+}
+
+function getCanvasLineCap(shape) {
+    switch (getShapeStyleIndex(shape?.lineCap, 0)) {
+        case 1:
+            return 'round';
+        case 2:
+            return 'square';
+        default:
+            return 'butt';
+    }
+}
+
+function getCanvasLineJoin(shape) {
+    switch (getShapeStyleIndex(shape?.lineJoin, 0)) {
+        case 1:
+            return 'round';
+        case 2:
+            return 'bevel';
+        default:
+            return 'miter';
+    }
+}
+
+function applyShapeStrokeGeometry(targetCtx, shape) {
+    if (!targetCtx) return;
+    targetCtx.lineCap = shape?._strokeLineCap || getCanvasLineCap(shape);
+    targetCtx.lineJoin = shape?._strokeLineJoin || getCanvasLineJoin(shape);
+}
+
+function getContextStrokeScale(targetCtx) {
+    if (!targetCtx || typeof targetCtx.getTransform !== 'function') {
+        return 1;
+    }
+
+    const transform = targetCtx.getTransform();
+    const scaleX = Math.hypot(transform.a, transform.b);
+    const scaleY = Math.hypot(transform.c, transform.d);
+    const scale = Math.max(scaleX, scaleY);
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+function getEffectiveWidth(width, targetCtx = null) {
+    if (width === undefined || width === null) {
         return CONFIG.MIN_LINE_WIDTH;
     }
-    return width;
+
+    const numeric = Number(width);
+    if (!Number.isFinite(numeric)) {
+        return CONFIG.MIN_LINE_WIDTH;
+    }
+    if (numeric <= 0) {
+        return Math.max(1 / getContextStrokeScale(targetCtx), 0.01);
+    }
+    return numeric;
+}
+
+function getShapeVisibilityPadding(width) {
+    const numeric = Number(width);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return CONFIG.MIN_LINE_WIDTH;
+    }
+    return Math.max(numeric, CONFIG.MIN_LINE_WIDTH);
 }
 function calculateLength(type, item) {
     // PERFORMANCE: Check cache first
