@@ -34,6 +34,9 @@ function resizeCanvas() {
     canvas.height = canvasContainer.clientHeight;
     crosshairCanvas.width = canvasContainer.clientWidth;
     crosshairCanvas.height = canvasContainer.clientHeight;
+    if (typeof cancelPendingVectorRender === 'function') {
+        cancelPendingVectorRender();
+    }
     scheduleDraw();
 }
 
@@ -95,6 +98,14 @@ function resetView() {
 }
 
 function clearVisualization() {
+    if (typeof interactionTimer !== 'undefined' && interactionTimer) {
+        clearTimeout(interactionTimer);
+        interactionTimer = null;
+    }
+    if (typeof cancelPendingVectorRender === 'function') {
+        cancelPendingVectorRender();
+    }
+
     if (typeof invalidateShapeRasterCache === 'function') {
         invalidateShapeRasterCache();
     }
@@ -125,6 +136,7 @@ function clearVisualization() {
     totalCommands = {};
     allShapesSorted = [];
     shapeQuadtree = null;
+    _perLayerBounds = {};
     precomputedLengths = {}; // Clear stale length cache to avoid wrong matches on new page
     pipelineRawResults = null;
     pipelineLayerNames = [];

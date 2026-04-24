@@ -10,6 +10,9 @@ function setInteractionState(active) {
     if (active) {
         isInteracting = true;
         if (interactionTimer) clearTimeout(interactionTimer);
+        if (typeof cancelPendingVectorRender === 'function') {
+            cancelPendingVectorRender();
+        }
     } else {
         if (interactionTimer) clearTimeout(interactionTimer);
         interactionTimer = setTimeout(() => {

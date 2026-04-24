@@ -181,13 +181,20 @@ const SHAPE_RASTER_SCALE_EPSILON = 0.001;
 const SHAPE_RASTER_CACHE_MAX_SIDE = 12288;
 const SHAPE_RASTER_CACHE_MAX_PIXELS = 72 * 1024 * 1024;
 const SHAPE_RASTER_BUILD_YIELD_EVERY = 8000;
+const HIGH_ZOOM_VECTOR_RENDER_YIELD_EVERY = 1000;
+const HIGH_ZOOM_VECTOR_RENDER_MIN_SHAPES = 1;
 
 let shapeRasterCache = null;
 let shapeRasterCacheBuildScheduled = false;
 let shapeRasterCacheToken = 0;
 let shapeRasterCacheBuildPromise = null;
 let shapeRasterPreviewMountedCanvas = null;
+let _perLayerBounds = {};
 let crosshairOverlayVisible = false;
+let highZoomVectorRenderToken = 0;
+let highZoomVectorRenderPromise = null;
+let highZoomVectorRenderViewKey = '';
+let highZoomVectorFrameCache = null;
 
 function getShapeRasterCacheTargetScale() {
     if (currentPdfFile && Number.isFinite(CONFIG?.PDF_PAGE_CACHE_SCALE)) {
@@ -331,6 +338,8 @@ function invalidateShapeRasterCache() {
     shapeRasterCacheToken += 1;
     shapeRasterCacheBuildScheduled = false;
     shapeRasterPreviewMountedCanvas = null;
+    highZoomVectorFrameCache = null;
+    cancelPendingVectorRender();
     hideShapeRasterPreview();
 }
 
@@ -391,11 +400,12 @@ function getShapeRasterCacheBounds() {
         );
     }
 
-    for (const obj of allShapesSorted || []) {
-        if (!obj.bbox || !layerVisibility[obj.layer]) continue;
-        bounds = typeof mergeBounds === 'function'
-            ? mergeBounds(bounds, obj.bbox)
-            : bounds;
+    for (const layerName in _perLayerBounds) {
+        if (layerVisibility[layerName]) {
+            bounds = typeof mergeBounds === 'function'
+                ? mergeBounds(bounds, _perLayerBounds[layerName])
+                : bounds;
+        }
     }
 
     if (!bounds) {
@@ -428,6 +438,189 @@ function drawRasterPreviewOnCtx(targetCtx, previewSource = getActiveRasterPrevie
         previewSource.bounds.height
     );
     return true;
+}
+
+function cancelPendingVectorRender() {
+    highZoomVectorRenderToken += 1;
+    highZoomVectorRenderViewKey = '';
+    highZoomVectorFrameCache = null;
+}
+
+function hideSvgVectorLayers() {
+    const textLayer = document.getElementById('svg-text-layer');
+    const graphicLayer = document.getElementById('svg-graphic-layer');
+    if (textLayer) {
+        textLayer.style.display = 'none';
+    }
+    if (graphicLayer) {
+        graphicLayer.style.display = 'none';
+    }
+}
+
+function drawRasterFallbackFrame() {
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(zoom, zoom);
+    drawShapeRasterCache(ctx);
+    drawViewportOverlays(ctx, false);
+    ctx.restore();
+    hideSvgVectorLayers();
+    drawCrosshairOverlay();
+}
+
+function shouldUseAsyncHighZoomVectorRender(useCropFilter, shapesToRender) {
+    return Boolean(
+        !isInteracting &&
+        !isDrawingBbox &&
+        !isVLMBboxMode &&
+        !annotationMode &&
+        !useCropFilter &&
+        !mainLayers &&
+        shapeRasterCache &&
+        Array.isArray(shapesToRender) &&
+        shapesToRender.length >= HIGH_ZOOM_VECTOR_RENDER_MIN_SHAPES
+    );
+}
+
+function captureHighZoomVectorViewState() {
+    const key = [
+        canvas.width,
+        canvas.height,
+        zoom.toFixed(4),
+        offsetX.toFixed(2),
+        offsetY.toFixed(2),
+        shapeRasterCacheToken,
+        currentPageNum ?? 'json',
+        annotationMode || '',
+        Number(Boolean(cropLengths)),
+        Number(Boolean(mainLayers)),
+        Number(Boolean(isDrawingBbox)),
+        Number(Boolean(isVLMBboxMode))
+    ].join('|');
+
+    return {
+        key,
+        zoom,
+        offsetX,
+        offsetY,
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height
+    };
+}
+
+function hasReadyHighZoomVectorFrame(viewState) {
+    return Boolean(highZoomVectorFrameCache?.canvas && highZoomVectorFrameCache.key === viewState.key);
+}
+
+function isHighZoomVectorRenderStale(token, viewState) {
+    return (
+        token !== highZoomVectorRenderToken ||
+        isInteracting ||
+        shouldPreferShapeRasterPreview() ||
+        !shapeRasterCache ||
+        Boolean(cropLengths) ||
+        Boolean(mainLayers) ||
+        Boolean(annotationMode) ||
+        Boolean(isDrawingBbox) ||
+        Boolean(isVLMBboxMode) ||
+        captureHighZoomVectorViewState().key !== viewState.key
+    );
+}
+
+function drawReadyHighZoomVectorFrame(viewState) {
+    if (!hasReadyHighZoomVectorFrame(viewState)) {
+        return false;
+    }
+
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(highZoomVectorFrameCache.canvas, 0, 0);
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(zoom, zoom);
+    drawViewportOverlays(ctx, true);
+    ctx.restore();
+    applySvgTransform();
+    drawCrosshairOverlay();
+    return true;
+}
+
+function commitHighZoomVectorFrame(renderCanvas, token, viewState) {
+    if (isHighZoomVectorRenderStale(token, viewState)) {
+        return false;
+    }
+
+    highZoomVectorFrameCache = {
+        canvas: renderCanvas,
+        key: viewState.key
+    };
+    scheduleDraw();
+    return true;
+}
+
+function startHighZoomVectorRender(shapesToRender, viewState = captureHighZoomVectorViewState()) {
+    if (hasReadyHighZoomVectorFrame(viewState)) {
+        return;
+    }
+
+    if (highZoomVectorRenderPromise) {
+        if (highZoomVectorRenderViewKey !== viewState.key) {
+            cancelPendingVectorRender();
+        }
+        return;
+    }
+
+    const token = highZoomVectorRenderToken;
+    highZoomVectorRenderViewKey = viewState.key;
+    const shapesSnapshot = Array.isArray(shapesToRender) ? shapesToRender.slice() : [];
+
+    const renderCanvas = document.createElement('canvas');
+    renderCanvas.width = viewState.canvasWidth;
+    renderCanvas.height = viewState.canvasHeight;
+
+    const renderCtx = renderCanvas.getContext('2d', { alpha: false, desynchronized: true }) || renderCanvas.getContext('2d');
+    if (!renderCtx) {
+        highZoomVectorRenderViewKey = '';
+        return;
+    }
+
+    const buildPromise = (async () => {
+        renderCtx.fillStyle = '#fff';
+        renderCtx.fillRect(0, 0, renderCanvas.width, renderCanvas.height);
+        renderCtx.save();
+        renderCtx.translate(viewState.offsetX, viewState.offsetY);
+        renderCtx.scale(viewState.zoom, viewState.zoom);
+
+        const rendered = await renderShapesToContextBatched(renderCtx, shapesSnapshot, {
+            yieldEvery: HIGH_ZOOM_VECTOR_RENDER_YIELD_EVERY,
+            shouldAbort: () => isHighZoomVectorRenderStale(token, viewState)
+        });
+
+        renderCtx.restore();
+        if (!rendered) {
+            return false;
+        }
+
+        return commitHighZoomVectorFrame(renderCanvas, token, viewState);
+    })()
+        .catch(error => {
+            console.warn('High zoom vector render failed:', error);
+            return false;
+        })
+        .finally(() => {
+            if (highZoomVectorRenderPromise === buildPromise) {
+                highZoomVectorRenderPromise = null;
+                highZoomVectorRenderViewKey = '';
+                if (!isInteracting && !shouldPreferShapeRasterPreview()) {
+                    const currentViewState = captureHighZoomVectorViewState();
+                    if (!hasReadyHighZoomVectorFrame(currentViewState)) {
+                        scheduleDraw();
+                    }
+                }
+            }
+        });
+
+    highZoomVectorRenderPromise = buildPromise;
 }
 
 function isShapeVisibleInView(obj, minX, minY, maxX, maxY, padding = 0) {
@@ -463,6 +656,15 @@ function getVisibleShapesForView(viewMinX, viewMinY, viewMaxX, viewMaxY, viewpor
             maxX: paddedMaxX,
             maxY: paddedMaxY
         }, shapesDrawBuffer);
+        if (shapesDrawBuffer.length > 0) {
+            let w = 0;
+            for (let i = 0; i < shapesDrawBuffer.length; i++) {
+                if (layerVisibility[shapesDrawBuffer[i].layer]) {
+                    shapesDrawBuffer[w++] = shapesDrawBuffer[i];
+                }
+            }
+            shapesDrawBuffer.length = w;
+        }
         sortShapesForDraw(shapesDrawBuffer);
         return shapesDrawBuffer;
     }
@@ -478,7 +680,8 @@ function getVisibleShapesForView(viewMinX, viewMinY, viewMaxX, viewMaxY, viewpor
 
 async function renderShapesToContextBatched(targetCtx, shapes, {
     token = null,
-    yieldEvery = 0
+    yieldEvery = 0,
+    shouldAbort = null
 } = {}) {
     if (!targetCtx || !Array.isArray(shapes) || shapes.length === 0) {
         return true;
@@ -489,6 +692,13 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
     let strokePending = false;
     let currentFillStyle = null;
     let fillPending = false;
+
+    function isCancelled() {
+        if (typeof shouldAbort === 'function' && shouldAbort()) {
+            return true;
+        }
+        return token !== null && token !== shapeRasterCacheToken;
+    }
 
     function flushFills(resetStyle = false) {
         if (fillPending) {
@@ -515,7 +725,7 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
     }
 
     for (let index = 0; index < shapes.length; index++) {
-        if (token !== null && token !== shapeRasterCacheToken) {
+        if (isCancelled()) {
             flushFills(true);
             flushStrokes(true);
             return false;
@@ -554,12 +764,15 @@ async function renderShapesToContextBatched(targetCtx, shapes, {
             flushFills(true);
             flushStrokes(true);
             await yieldToBrowser();
+            if (isCancelled()) {
+                return false;
+            }
         }
     }
 
     flushFills(true);
     flushStrokes(true);
-    return token === null || token === shapeRasterCacheToken;
+    return !isCancelled();
 }
 
 async function buildShapeRasterCache(token, buildPlan) {
@@ -569,7 +782,13 @@ async function buildShapeRasterCache(token, buildPlan) {
     if (!bounds) return null;
 
     const rasterScale = buildPlan?.rasterScale || getShapeRasterScaleForBounds(bounds, getShapeRasterCacheTargetScale());
-    const shapesForRaster = allShapesSorted || [];
+    const allShapes = allShapesSorted || [];
+    const visibleShapesForRaster = [];
+    for (let i = 0; i < allShapes.length; i++) {
+        if (layerVisibility[allShapes[i].layer]) {
+            visibleShapesForRaster.push(allShapes[i]);
+        }
+    }
     const rasterWidth = Math.max(1, Math.floor(bounds.width * rasterScale));
     const rasterHeight = Math.max(1, Math.floor(bounds.height * rasterScale));
 
@@ -586,7 +805,7 @@ async function buildShapeRasterCache(token, buildPlan) {
     rasterCtx.scale(rasterScale, rasterScale);
     rasterCtx.translate(-bounds.minX, -bounds.minY);
 
-    const rendered = await renderShapesToContextBatched(rasterCtx, shapesForRaster, {
+    const rendered = await renderShapesToContextBatched(rasterCtx, visibleShapesForRaster, {
         token,
         yieldEvery: SHAPE_RASTER_BUILD_YIELD_EVERY
     });
@@ -890,10 +1109,7 @@ function draw() {
         drawShapeRasterCache(ctx);
         drawViewportOverlays(ctx, false);
         ctx.restore();
-        if (svgData) {
-            document.getElementById('svg-text-layer').style.display = 'none';
-            document.getElementById('svg-graphic-layer').style.display = 'none';
-        }
+        hideSvgVectorLayers();
         drawCrosshairOverlay();
         return;
     }
@@ -914,6 +1130,17 @@ function draw() {
         viewMaxY,
         viewportPadding
     );
+
+    if (shouldUseAsyncHighZoomVectorRender(useCropFilter, shapesToRender)) {
+        const viewState = captureHighZoomVectorViewState();
+        ctx.restore();
+        if (drawReadyHighZoomVectorFrame(viewState)) {
+            return;
+        }
+        drawRasterFallbackFrame();
+        startHighZoomVectorRender(shapesToRender, viewState);
+        return;
+    }
 
     let currentStrokeStyle = null;
     let currentLineWidth = null;

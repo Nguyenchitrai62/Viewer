@@ -64,6 +64,22 @@ function buildLayerIndex() {
 
     sortShapesForDraw(allShapesSorted);
 
+    _perLayerBounds = {};
+    for (const ln in layerIndex) {
+        let lMinX = Infinity, lMinY = Infinity, lMaxX = -Infinity, lMaxY = -Infinity;
+        for (const obj of layerIndex[ln]) {
+            if (obj.bbox) {
+                lMinX = Math.min(lMinX, obj.bbox.minX);
+                lMinY = Math.min(lMinY, obj.bbox.minY);
+                lMaxX = Math.max(lMaxX, obj.bbox.maxX);
+                lMaxY = Math.max(lMaxY, obj.bbox.maxY);
+            }
+        }
+        if (lMinX !== Infinity) {
+            _perLayerBounds[ln] = { minX: lMinX, minY: lMinY, maxX: lMaxX, maxY: lMaxY, width: Math.max(1, lMaxX - lMinX), height: Math.max(1, lMaxY - lMinY) };
+        }
+    }
+
     if (svgData) {
         layerVisibility['svg_text'] = true;
         layerVisibility['svg_graphic'] = true;
@@ -106,12 +122,14 @@ function rebuildQuadtree() {
 
     // Add padding to bounds
     const padding = 100;
+    const shapeCount = allShapesSorted.length;
+    const capacity = shapeCount > 100000 ? 128 : shapeCount > 10000 ? 64 : 25;
     shapeQuadtree = new Quadtree({
         x: minX - padding,
         y: minY - padding,
         width: (maxX - minX) + padding * 2,
         height: (maxY - minY) + padding * 2
-    }, 25, 10);
+    }, capacity, 14);
 
     // Insert all shapes into quadtree
     allShapesSorted.forEach(obj => {

@@ -575,26 +575,48 @@ canvasContainer.addEventListener('mousemove', e => {
         // Hover detection for group highlight
         let hoveredSeqno = null;
         const tol = 15 / zoom;
-        // FIXED: Sß╗¡ dß╗Ñng globalSeqnoToIds cho main hover
-        for (const seqno in globalSeqnoToIds) {
-            const ids = globalSeqnoToIds[seqno];
-            let groupMatch = false;
-            for (const id of ids) {
-                const [objIndex, itemIndex] = id.split('-').map(Number);
-                const obj = jsonShapes[objIndex];
-                if (obj.bbox) {
-                    if (canvasX < obj.bbox.minX - tol || canvasX > obj.bbox.maxX + tol ||
-                        canvasY < obj.bbox.minY - tol || canvasY > obj.bbox.maxY + tol) {
-                        continue;
+        if (shapeQuadtree) {
+            const hoverBuf = [];
+            shapeQuadtree.query({
+                minX: canvasX - tol,
+                minY: canvasY - tol,
+                maxX: canvasX + tol,
+                maxY: canvasY + tol
+            }, hoverBuf);
+            for (let ni = 0; ni < hoverBuf.length; ni++) {
+                const shape = hoverBuf[ni];
+                if (!shape.color || !Array.isArray(shape.color) || shape.color.length < 3 ||
+                    shape.color[0] !== 0 || shape.color[1] !== 0 || shape.color[2] !== 0) continue;
+                if (!layerVisibility[shape.layer]) continue;
+                for (let ii = 0; ii < shape.items.length; ii++) {
+                    if (pointNearItem(canvasX, canvasY, { obj: shape, itemIndex: ii }, tol)) {
+                        hoveredSeqno = shape.seqno || 0;
+                        break;
                     }
                 }
-                if (pointNearItem(canvasX, canvasY, { obj: obj, itemIndex: itemIndex }, tol)) {
-                    hoveredSeqno = parseInt(seqno);
-                    groupMatch = true;
-                    break;
-                }
+                if (hoveredSeqno !== null) break;
             }
-            if (groupMatch) break;
+        } else {
+            for (const seqno in globalSeqnoToIds) {
+                const ids = globalSeqnoToIds[seqno];
+                let groupMatch = false;
+                for (const id of ids) {
+                    const [objIndex, itemIndex] = id.split('-').map(Number);
+                    const obj = jsonShapes[objIndex];
+                    if (obj.bbox) {
+                        if (canvasX < obj.bbox.minX - tol || canvasX > obj.bbox.maxX + tol ||
+                            canvasY < obj.bbox.minY - tol || canvasY > obj.bbox.maxY + tol) {
+                            continue;
+                        }
+                    }
+                    if (pointNearItem(canvasX, canvasY, { obj: obj, itemIndex: itemIndex }, tol)) {
+                        hoveredSeqno = parseInt(seqno);
+                        groupMatch = true;
+                        break;
+                    }
+                }
+                if (groupMatch) break;
+            }
         }
         const newHoveredGroup = hoveredSeqno !== null ? seqnoGroups[hoveredSeqno] : null;
         if (newHoveredGroup !== hoveredGroup) {
