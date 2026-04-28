@@ -222,12 +222,19 @@ async function detectPipeline() {
             // Add to allShapesSorted directly (like loadJSON does)
             properShapes.forEach(shapeObj => {
                 allShapesSorted.push(shapeObj);
+                allShapesBounds = mergeBounds(allShapesBounds, getBoundsFromBbox(shapeObj.bbox));
             });
         });
 
         console.log(`Total pipeline shapes added: ${totalPipelineShapes}, allShapesSorted length: ${allShapesSorted.length}`);
 
         sortShapesForDraw(allShapesSorted);
+        if (typeof invalidateSeqnoHoverIndex === 'function') {
+            invalidateSeqnoHoverIndex();
+        }
+        if (typeof invalidateSnapPointIndex === 'function') {
+            invalidateSnapPointIndex();
+        }
 
         // Rebuild quadtree to include new pipeline shapes
         rebuildQuadtree();

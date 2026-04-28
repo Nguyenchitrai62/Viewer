@@ -22,9 +22,10 @@ function setupVisualization() {
         applySvgTransform();
     }
     expandedNodes = {};
-    updateLayerList();
-    if (typeof scheduleShapeRasterCacheBuild === 'function') {
-        scheduleShapeRasterCacheBuild();
+    if (typeof scheduleLayerListRender === 'function') {
+        scheduleLayerListRender();
+    } else {
+        updateLayerList();
     }
     resetView();
 }
@@ -44,29 +45,35 @@ function resetView() {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     let hasBounds = false;
 
-    const visibleShapes = (allShapesSorted && allShapesSorted.length > 0) ? allShapesSorted : (jsonShapes || []);
-
-    if (visibleShapes && visibleShapes.length > 0) {
-        visibleShapes.forEach(obj => {
-            if (obj.bbox) {
-                minX = Math.min(minX, obj.bbox.minX);
-                minY = Math.min(minY, obj.bbox.minY);
-                maxX = Math.max(maxX, obj.bbox.maxX);
-                maxY = Math.max(maxY, obj.bbox.maxY);
-                hasBounds = true;
-            } else if (obj.rect) {
-                minX = Math.min(minX, obj.rect[0]);
-                minY = Math.min(minY, obj.rect[1]);
-                maxX = Math.max(maxX, obj.rect[2]);
-                maxY = Math.max(maxY, obj.rect[3]);
-                hasBounds = true;
-            }
-        });
+    if (allShapesBounds) {
+        ({ minX, minY, maxX, maxY } = allShapesBounds);
+        hasBounds = true;
     }
 
     if (!hasBounds && documentMetadata && documentMetadata.bbox_all) {
         [minX, minY, maxX, maxY] = documentMetadata.bbox_all;
         hasBounds = true;
+    }
+
+    if (!hasBounds) {
+        const visibleShapes = (allShapesSorted && allShapesSorted.length > 0) ? allShapesSorted : (jsonShapes || []);
+        if (visibleShapes && visibleShapes.length > 0) {
+            visibleShapes.forEach(obj => {
+                if (obj.bbox) {
+                    minX = Math.min(minX, obj.bbox.minX);
+                    minY = Math.min(minY, obj.bbox.minY);
+                    maxX = Math.max(maxX, obj.bbox.maxX);
+                    maxY = Math.max(maxY, obj.bbox.maxY);
+                    hasBounds = true;
+                } else if (obj.rect) {
+                    minX = Math.min(minX, obj.rect[0]);
+                    minY = Math.min(minY, obj.rect[1]);
+                    maxX = Math.max(maxX, obj.rect[2]);
+                    maxY = Math.max(maxY, obj.rect[3]);
+                    hasBounds = true;
+                }
+            });
+        }
     }
 
     if (!hasBounds && svgData) {
@@ -90,8 +97,11 @@ function resetView() {
         return;
     }
 
-    const contentWidth = maxX - minX, contentHeight = maxY - minY;
-    zoom = Math.min(canvas.width / contentWidth, canvas.height / contentHeight) * CONFIG.ZOOM_FIT_MARGIN;
+    const contentWidth = maxX - minX;
+    const contentHeight = maxY - minY;
+    const safeContentWidth = Math.max(1, contentWidth);
+    const safeContentHeight = Math.max(1, contentHeight);
+    zoom = Math.min(canvas.width / safeContentWidth, canvas.height / safeContentHeight) * CONFIG.ZOOM_FIT_MARGIN;
     offsetX = canvas.width / 2 - (minX + contentWidth / 2) * zoom;
     offsetY = canvas.height / 2 - (minY + contentHeight / 2) * zoom;
     scheduleDraw();
@@ -135,6 +145,7 @@ function clearVisualization() {
     sortedLayerKeys = [];
     totalCommands = {};
     allShapesSorted = [];
+    allShapesBounds = null;
     shapeQuadtree = null;
     _perLayerBounds = {};
     precomputedLengths = {}; // Clear stale length cache to avoid wrong matches on new page
@@ -210,6 +221,8 @@ function clearVisualization() {
     manualAnnotationHistory = [];
     snapPoints = [];
     snapPointQuadtree = null;
+    snapPointIndexReady = false;
+    snapPointIndexBuildPromise = null;
     annotationFeedbackMessage = '';
     annotationFeedbackTone = 'info';
     hoveredAnnotationId = null;
@@ -228,9 +241,12 @@ function clearVisualization() {
     // Clear seqno mapping
     globalSeqnoToIds = {};
     cropSeqnoToIds = {};
+    seqnoEndpoints = {};
     seqnoToLayer = {};
     seqnoGroups = {};
     groupToSeqnos = {};
+    hoveredGroup = null;
+    seqnoHoverIndexReady = false;
 
     // Clear selected thumbnail
     document.querySelectorAll('.page-thumbnail').forEach(thumb => thumb.classList.remove('selected'));

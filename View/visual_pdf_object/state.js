@@ -87,6 +87,7 @@ let mainLayers = null;
 let anchorBbox = null;
 let cropPreviewBbox = null;
 let allShapesSorted = [];
+let allShapesBounds = null;
 let similarBboxes = [];
 let sequenceMatches = [];
 let sequencePatternTokens = null;
@@ -121,6 +122,8 @@ let manualAnnotationId = 0;
 let manualAnnotationHistory = [];
 let snapPoints = [];
 let snapPointQuadtree = null;
+let snapPointIndexReady = false;
+let snapPointIndexBuildPromise = null;
 let annotationFeedbackMessage = '';
 let annotationFeedbackTone = 'info';
 let hoveredAnnotationId = null;
@@ -156,11 +159,13 @@ let shapesDrawBuffer = [];
 
 let globalSeqnoToIds = {};
 let cropSeqnoToIds = {};
+let seqnoEndpoints = {};
 
 let seqnoToLayer = {};
 let seqnoGroups = {};
 let groupToSeqnos = {};
 let hoveredGroup = null;
+let seqnoHoverIndexReady = false;
 const icons = {
     text: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4h14v2H5V4zm7 3L8.5 17h2l1-3h1l1 3h2L12 7zm-1 5l1.5-4.5L14 12h-3z"></path></svg>',
     shape: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>',

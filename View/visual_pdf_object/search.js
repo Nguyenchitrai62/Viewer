@@ -59,7 +59,11 @@ function recomputeAnchorBboxFromSelection() {
         minX = Math.min(minX, x1); minY = Math.min(minY, y1);
         maxX = Math.max(maxX, x2); maxY = Math.max(maxY, y2);
     });
-    if (minX === Infinity) return;
+    if (minX === Infinity) {
+        anchorBbox = null;
+        searchBboxSize = null;
+        return;
+    }
     const padding = CONFIG.TIGHT_BBOX_PADDING_RATIO;
     anchorBbox = { x: minX - padding, y: minY - padding, width: (maxX - minX) + 2 * padding, height: (maxY - minY) + 2 * padding };
     searchBboxSize = { width: anchorBbox.width, height: anchorBbox.height };
@@ -78,8 +82,11 @@ function updateCommandCountSummary() {
 
 function recomputeCropDataFromSelection() {
     cropLengthsFull = { l: [], c: [], qu: [] };
+    cropLengthsFiltered = { l: [], c: [], qu: [] };
+    cropLengths = null;
     anchorPatterns = [];
     rawAnchorPatternCount = 0;
+    sequencePatternTokens = null;
     if (!anchorBbox) return;
     cropItems.forEach(ci => {
         if (!cropSelectedItemIds.has(ci.id)) return;
@@ -873,7 +880,7 @@ function showCropModal(rect) {
     };
 
     closeBtn.onclick = () => restoreAndClose(false);
-    window.onclick = event => {
+    modal.onclick = event => {
         if (event.target === modal) restoreAndClose(false);
     };
 
@@ -893,16 +900,16 @@ function showCropModal(rect) {
             saveCurrentPattern();
         };
     }
-    btnHideMode.addEventListener('click', () => {
+    btnHideMode.onclick = () => {
         selectionMode = 'hide';
         btnHideMode.classList.add('active');
         btnShowMode.classList.remove('active');
-    });
-    btnShowMode.addEventListener('click', () => {
+    };
+    btnShowMode.onclick = () => {
         selectionMode = 'show';
         btnShowMode.classList.add('active');
         btnHideMode.classList.remove('active');
-    });
+    };
     cropCanvas.addEventListener('mousedown', e => {
         dragSelecting = true;
         const rect = cropCanvas.getBoundingClientRect();

@@ -101,9 +101,42 @@ dropZone.addEventListener('drop', async e => {
 
         // Replace export button with Back-to-Portfolio link in the left panel
         const exportContainer = document.getElementById('btn-export-svg-container');
-        const originalExportHTML = exportContainer ? exportContainer.innerHTML : null;
+        let hiddenExportButtons = [];
+        let backButtonLink = null;
+        const restoreExportContainer = () => {
+            if (!exportContainer) return;
+            if (backButtonLink && backButtonLink.parentNode === exportContainer) {
+                backButtonLink.remove();
+            }
+            hiddenExportButtons.forEach(button => {
+                button.style.display = button.dataset.exampleHiddenDisplay || '';
+                delete button.dataset.exampleHiddenDisplay;
+            });
+            hiddenExportButtons = [];
+            backButtonLink = null;
+        };
         if (exportContainer) {
-            exportContainer.innerHTML = `\n                        <a href="index.html" id="back-btn-panel" style="display:inline-flex; align-items:center; gap:8px; padding:8px 12px; background:#fff; border-radius:6px; text-decoration:none; color:#333; font-weight:600; box-shadow:0 2px 8px rgba(0,0,0,0.08);">\n                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>\n                            Back to Portfolio\n                        </a>\n                    `;
+            hiddenExportButtons = Array.from(exportContainer.children);
+            hiddenExportButtons.forEach(button => {
+                button.dataset.exampleHiddenDisplay = button.style.display || '';
+                button.style.display = 'none';
+            });
+
+            backButtonLink = document.createElement('a');
+            backButtonLink.href = 'index.html';
+            backButtonLink.id = 'back-btn-panel';
+            backButtonLink.style.display = 'inline-flex';
+            backButtonLink.style.alignItems = 'center';
+            backButtonLink.style.gap = '8px';
+            backButtonLink.style.padding = '8px 12px';
+            backButtonLink.style.background = '#fff';
+            backButtonLink.style.borderRadius = '6px';
+            backButtonLink.style.textDecoration = 'none';
+            backButtonLink.style.color = '#333';
+            backButtonLink.style.fontWeight = '600';
+            backButtonLink.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+            backButtonLink.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>Back to Portfolio';
+            exportContainer.appendChild(backButtonLink);
         }
 
         // Show loading overlay while fetching/parsing
@@ -119,7 +152,7 @@ dropZone.addEventListener('drop', async e => {
             // restore drop zone and export button on failure
             dropZone.classList.remove('hidden');
             dropZone.style.pointerEvents = '';
-            if (exportContainer && originalExportHTML !== null) exportContainer.innerHTML = originalExportHTML;
+            restoreExportContainer();
         };
 
         const processText = async (text) => {
@@ -292,11 +325,14 @@ btnExportRevitJson.addEventListener('click', async () => {
 });
 
 btnExportSvg.addEventListener('click', exportToSVG);
-document.getElementById('btn-export-images').addEventListener('click', exportLayerImages);
-btnLabelJunction.addEventListener('click', () => setAnnotationMode('junction'));
-btnLabelConnect.addEventListener('click', () => setAnnotationMode('connect'));
+const btnExportImages = document.getElementById('btn-export-images');
+if (btnExportImages) {
+    btnExportImages.addEventListener('click', exportLayerImages);
+}
+btnLabelJunction.addEventListener('click', () => { void setAnnotationMode('junction'); });
+btnLabelConnect.addEventListener('click', () => { void setAnnotationMode('connect'); });
 btnUndoLabel.addEventListener('click', undoManualAnnotation);
-btnClearLabels.addEventListener('click', () => setAnnotationMode('delete'));
+btnClearLabels.addEventListener('click', () => { void setAnnotationMode('delete'); });
 btnExportLabelPackage.addEventListener('click', exportAnnotatedLayerPackage);
 canvasContainer.addEventListener('contextmenu', e => {
     e.preventDefault();
@@ -611,11 +647,12 @@ canvasContainer.addEventListener('mousemove', e => {
                 if (hoveredSeqno !== null) break;
             }
         } else {
+            ensureSeqnoHoverIndex();
             for (const seqno in globalSeqnoToIds) {
                 const ids = globalSeqnoToIds[seqno];
                 let groupMatch = false;
                 for (const id of ids) {
-                    const [objIndex, itemIndex] = id.split('-').map(Number);
+                    const [objIndex, itemIndex] = getSeqnoEntryIndices(id);
                     const obj = jsonShapes[objIndex];
                     if (obj.bbox) {
                         if (canvasX < obj.bbox.minX - tol || canvasX > obj.bbox.maxX + tol ||
@@ -631,6 +668,9 @@ canvasContainer.addEventListener('mousemove', e => {
                 }
                 if (groupMatch) break;
             }
+        }
+        if (hoveredSeqno !== null && !seqnoHoverIndexReady) {
+            ensureSeqnoHoverIndex();
         }
         const newHoveredGroup = hoveredSeqno !== null ? seqnoGroups[hoveredSeqno] : null;
         if (newHoveredGroup !== hoveredGroup) {

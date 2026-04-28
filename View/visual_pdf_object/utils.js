@@ -231,14 +231,86 @@ function getDisplayLengths(arr) {
     return `${first3} ... ${last3}`;
 }
 
+function getSeqnoEntryIndices(entry) {
+    if (Array.isArray(entry)) return entry;
+    if (typeof entry === 'string') return entry.split('-').map(Number);
+    return [null, null];
+}
+
+function invalidateSeqnoHoverIndex() {
+    globalSeqnoToIds = {};
+    seqnoEndpoints = {};
+    seqnoToLayer = {};
+    seqnoGroups = {};
+    groupToSeqnos = {};
+    hoveredGroup = null;
+    seqnoHoverIndexReady = false;
+}
+
+function ensureSeqnoHoverIndex() {
+    if (seqnoHoverIndexReady) return;
+
+    invalidateSeqnoHoverIndex();
+
+    const shapes = Array.isArray(allShapesSorted) ? allShapesSorted : [];
+    for (let objIndex = 0; objIndex < shapes.length; objIndex += 1) {
+        const obj = shapes[objIndex];
+        if (!obj?.items || !Array.isArray(obj.items)) continue;
+        if (!obj.color || !Array.isArray(obj.color) || obj.color.length < 3) continue;
+        if (obj.color[0] !== 0 || obj.color[1] !== 0 || obj.color[2] !== 0) continue;
+
+        const seqno = obj.seqno || 0;
+        globalSeqnoToIds[seqno] ??= [];
+        seqnoEndpoints[seqno] ??= { start: null, end: null };
+        seqnoToLayer[seqno] = obj.layer;
+
+        for (let itemIndex = 0; itemIndex < obj.items.length; itemIndex += 1) {
+            const item = obj.items[itemIndex];
+            globalSeqnoToIds[seqno].push([objIndex, itemIndex]);
+
+            let startPoint = null;
+            let endPoint = null;
+            const type = item?.[0];
+            if (type === 'l') {
+                startPoint = item[1];
+                endPoint = item[2];
+            } else if (type === 'c') {
+                startPoint = item[1];
+                endPoint = item[4];
+            } else if (type === 'qu') {
+                const points = item[1];
+                if (points?.length === 4) {
+                    startPoint = points[0];
+                    endPoint = points[2];
+                }
+            }
+
+            if (startPoint && !seqnoEndpoints[seqno].start) {
+                seqnoEndpoints[seqno].start = startPoint;
+            }
+            if (endPoint) {
+                seqnoEndpoints[seqno].end = endPoint;
+            }
+        }
+    }
+
+    seqnoHoverIndexReady = true;
+    linkConsecutiveSeqnos();
+}
+
 // FIXED: Sß╗¡ dß╗Ñng globalSeqnoToIds
 function getSeqnoStartEnd(seqno) {
+    const endpoints = seqnoEndpoints[seqno];
+    if (endpoints) {
+        return [endpoints.start || null, endpoints.end || null];
+    }
     const ids = globalSeqnoToIds[seqno];
     if (!ids || !ids.length) return [null, null];
     let start = null, end = null;
     for (const id of ids) {
-        const [objIndex, itemIndex] = id.split('-').map(Number);
-        const obj = jsonShapes[objIndex];
+        const [objIndex, itemIndex] = getSeqnoEntryIndices(id);
+        const obj = allShapesSorted?.[objIndex];
+        if (!obj?.items?.[itemIndex]) continue;
         const item = obj.items[itemIndex];
         const type = item[0];
         if (type === 'l') {
@@ -441,6 +513,22 @@ function mergeBounds(boundsA, boundsB) {
     const maxX = Math.max(boundsA.maxX, boundsB.maxX);
     const maxY = Math.max(boundsA.maxY, boundsB.maxY);
 
+    return {
+        minX,
+        minY,
+        maxX,
+        maxY,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY)
+    };
+}
+
+function getBoundsFromBbox(bbox) {
+    if (!bbox) return null;
+    const { minX, minY, maxX, maxY } = bbox;
+    if (![minX, minY, maxX, maxY].every(Number.isFinite)) {
+        return null;
+    }
     return {
         minX,
         minY,

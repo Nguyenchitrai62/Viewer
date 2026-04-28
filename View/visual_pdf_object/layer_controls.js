@@ -1,5 +1,21 @@
 // layer_controls.js
 // Layer Controls (giữ nguyên)
+let pendingLayerListRenderToken = 0;
+
+function scheduleLayerListRender() {
+    pendingLayerListRenderToken += 1;
+    const currentToken = pendingLayerListRenderToken;
+    const render = () => {
+        if (currentToken !== pendingLayerListRenderToken) return;
+        updateLayerList();
+    };
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(render);
+        return;
+    }
+    setTimeout(render, 0);
+}
+
 function createLayerControl(layerName) {
     const itemDiv = document.createElement('div');
     itemDiv.className = 'layer-item';
@@ -35,7 +51,7 @@ function createLayerControl(layerName) {
             type = 'shape';
         } else {
             const firstObj = layerObjs[0];
-            color = toRgbString(firstObj.color);
+            color = firstObj._strokeStyle || toRgbString(firstObj.color);
             type = firstObj.fill ? 'filled' : 'shape';
         }
     }
@@ -56,6 +72,7 @@ function createLayerControl(layerName) {
 
 function updateLayerList() {
     layerList.innerHTML = '';
+    const fragment = document.createDocumentFragment();
     const typeGroups = { shape: [], svg_graphic: [], svg_text: [], pipeline: [] };
     sortedLayerKeys.forEach(layerName => {
         const isDefaultShapeLayer = layerName === '__default_shape_layer__';
@@ -137,7 +154,7 @@ function updateLayerList() {
                 const layerObjs = layerIndex[layerName];
                 if (!layerObjs || !layerObjs.length) return;
                 const firstObj = layerObjs[0];
-                const color = toRgbString(firstObj.color);
+                const color = firstObj._strokeStyle || toRgbString(firstObj.color);
                 colorGroups[color] ??= [];
                 colorGroups[color].push(layerName);
             });
@@ -217,7 +234,8 @@ function updateLayerList() {
                 typeCheckbox.dispatchEvent(new Event('change'));
             }
         });
-        layerList.appendChild(typeNode);
-        layerList.appendChild(colorSubtree);
+        fragment.appendChild(typeNode);
+        fragment.appendChild(colorSubtree);
     });
+    layerList.appendChild(fragment);
 }

@@ -853,12 +853,6 @@ async function buildShapeRasterCache(token, buildPlan) {
 
     const rasterScale = buildPlan?.rasterScale || getShapeRasterScaleForBounds(bounds, getShapeRasterCacheTargetScale());
     const allShapes = allShapesSorted || [];
-    const visibleShapesForRaster = [];
-    for (let i = 0; i < allShapes.length; i++) {
-        if (layerVisibility[allShapes[i].layer]) {
-            visibleShapesForRaster.push(allShapes[i]);
-        }
-    }
     const rasterWidth = Math.max(1, Math.floor(bounds.width * rasterScale));
     const rasterHeight = Math.max(1, Math.floor(bounds.height * rasterScale));
 
@@ -875,7 +869,7 @@ async function buildShapeRasterCache(token, buildPlan) {
     rasterCtx.scale(rasterScale, rasterScale);
     rasterCtx.translate(-bounds.minX, -bounds.minY);
 
-    const rendered = await renderShapesToContextBatched(rasterCtx, visibleShapesForRaster, {
+    const rendered = await renderShapesToContextBatched(rasterCtx, allShapes, {
         token,
         yieldEvery: SHAPE_RASTER_BUILD_YIELD_EVERY
     });
@@ -1098,7 +1092,7 @@ function drawViewportOverlays(targetCtx, {
                 const ids = globalSeqnoToIds[seqno];
                 if (ids) {
                     ids.forEach(id => {
-                        const [objIndex] = id.split('-').map(Number);
+                        const [objIndex] = getSeqnoEntryIndices(id);
                         highlightedShapes.add(objIndex);
                     });
                 }

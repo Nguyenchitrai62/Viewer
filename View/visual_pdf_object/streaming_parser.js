@@ -315,197 +315,386 @@ async function loadParsedJsonDocument(parsed, options = {}) {
     });
 }
 
-function createStreamingJsonParser({ onShape, onMetadata, onSvg, onTopLevelValue }) {
-    if (!window.clarinet) {
-        throw new Error('Streaming JSON parser is unavailable in this browser.');
+function getFastFullJsonParseLimit() {
+    const limit = Number(CONFIG.FAST_FULL_JSON_PARSE_BYTES);
+    if (!Number.isFinite(limit) || limit <= 0) {
+        return 0;
+    }
+    return limit;
+}
+
+function shouldPreferFastFullJsonParse(totalBytes) {
+    if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
+        return false;
+    }
+    const limit = getFastFullJsonParseLimit();
+    return limit > 0 && totalBytes <= limit;
+}
+
+function isJsonWhitespace(char) {
+    return char === ' ' || char === '\n' || char === '\r' || char === '\t';
+}
+
+function skipJsonWhitespace(text, startIndex = 0) {
+    let index = startIndex;
+    while (index < text.length && isJsonWhitespace(text[index])) {
+        index += 1;
+    }
+    return index;
+}
+
+function scanJsonStringEnd(text, startIndex) {
+    if (text[startIndex] !== '"') {
+        throw new Error('Expected JSON string.');
     }
 
-    if (Number.isFinite(CONFIG.JSON_STREAM_TEXT_BUFFER_LIMIT) && CONFIG.JSON_STREAM_TEXT_BUFFER_LIMIT > 64 * 1024) {
-        window.clarinet.MAX_BUFFER_LENGTH = CONFIG.JSON_STREAM_TEXT_BUFFER_LIMIT;
+    let escaping = false;
+    for (let index = startIndex + 1; index < text.length; index += 1) {
+        const char = text[index];
+        if (escaping) {
+            escaping = false;
+            continue;
+        }
+        if (char === '\\') {
+            escaping = true;
+            continue;
+        }
+        if (char === '"') {
+            return index + 1;
+        }
     }
 
-    const stack = [];
-    let parserError = null;
+    return -1;
+}
 
-    function consumeObjectKey(frame) {
-        if (!frame || frame.type !== 'object') return null;
-        const key = frame.pendingKey;
-        frame.pendingKey = null;
-        return key;
+function scanJsonPrimitiveEnd(text, startIndex, isFinalChunk = false) {
+    let index = startIndex;
+    while (index < text.length) {
+        const char = text[index];
+        if (char === ',' || char === ']' || char === '}' || isJsonWhitespace(char)) {
+            break;
+        }
+        index += 1;
     }
 
-    function appendToFrame(frame, value) {
-        if (!frame || !frame.builder) return;
-        if (frame.type === 'array') {
-            frame.value.push(value);
+    if (index === text.length && !isFinalChunk) {
+        return -1;
+    }
+
+    return index;
+}
+
+function scanJsonValueEnd(text, startIndex, isFinalChunk = false) {
+    if (startIndex >= text.length) {
+        return -1;
+    }
+
+    const firstChar = text[startIndex];
+    if (firstChar === '"') {
+        return scanJsonStringEnd(text, startIndex);
+    }
+
+    if (firstChar === '{' || firstChar === '[') {
+        const stack = [firstChar];
+        let inString = false;
+        let escaping = false;
+
+        for (let index = startIndex + 1; index < text.length; index += 1) {
+            const char = text[index];
+            if (inString) {
+                if (escaping) {
+                    escaping = false;
+                } else if (char === '\\') {
+                    escaping = true;
+                } else if (char === '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (char === '"') {
+                inString = true;
+                continue;
+            }
+
+            if (char === '{' || char === '[') {
+                stack.push(char);
+                continue;
+            }
+
+            if (char === '}' || char === ']') {
+                const openChar = stack.pop();
+                const closesObject = openChar === '{' && char === '}';
+                const closesArray = openChar === '[' && char === ']';
+                if (!closesObject && !closesArray) {
+                    throw new Error('Malformed JSON structure.');
+                }
+                if (stack.length === 0) {
+                    return index + 1;
+                }
+            }
+        }
+
+        return -1;
+    }
+
+    return scanJsonPrimitiveEnd(text, startIndex, isFinalChunk);
+}
+
+function createSpecializedStreamingDocumentParser({ onShape, onMetadata, onSvg, onTopLevelValue }) {
+    let buffer = '';
+    let position = 0;
+    let rootType = null;
+    let rootClosed = false;
+    let rootArrayState = 'value-or-end';
+    let rootObjectState = 'key-or-end';
+    let shapesArrayState = 'inactive';
+    let currentKey = null;
+
+    function parseJsonSlice(startIndex, endIndex) {
+        return JSON.parse(buffer.slice(startIndex, endIndex));
+    }
+
+    function dispatchTopLevelValue(key, value) {
+        if (key === 'metadata') {
+            onMetadata(value);
             return;
         }
-        const key = consumeObjectKey(frame);
-        if (key === null) return;
-        frame.value[key] = value;
-    }
-
-    function pushFrame(frame) {
-        stack.push(frame);
-        return frame;
-    }
-
-    function finalizeFrame(frame) {
-        if (!frame?.finalizeTarget) return;
-        if (frame.role === 'shape') {
-            onShape(frame.value);
-        } else if (frame.role === 'metadata') {
-            onMetadata(frame.value);
-        } else if (frame.role === 'svg') {
-            onSvg(frame.value);
-        } else if (frame.role === 'top-level' && frame.topLevelKey && typeof onTopLevelValue === 'function') {
-            onTopLevelValue(frame.topLevelKey, frame.value);
-        }
-    }
-
-    const parser = clarinet.parser();
-
-    parser.onerror = error => {
-        parserError = error;
-    };
-
-    parser.onopenobject = firstKey => {
-        const parent = stack[stack.length - 1];
-        let frame = {
-            type: 'object',
-            role: 'ignored',
-            builder: false,
-            value: null,
-            pendingKey: null,
-            finalizeTarget: false,
-            topLevelKey: null
-        };
-
-        if (!parent) {
-            frame.role = 'root-object';
-        } else if (parent.role === 'root-object') {
-            const topLevelKey = consumeObjectKey(parent);
-            if (topLevelKey === 'metadata' || topLevelKey === 'svg') {
-                frame.role = topLevelKey;
-                frame.builder = true;
-                frame.value = {};
-                frame.finalizeTarget = true;
-            } else if (topLevelKey) {
-                frame.role = 'top-level';
-                frame.builder = true;
-                frame.value = {};
-                frame.finalizeTarget = true;
-                frame.topLevelKey = topLevelKey;
-            }
-        } else if (parent.role === 'shapes-array' || parent.role === 'root-array') {
-            frame.role = 'shape';
-            frame.builder = true;
-            frame.value = {};
-            frame.finalizeTarget = true;
-        } else if (parent.builder) {
-            frame.role = parent.role;
-            frame.builder = true;
-            frame.value = {};
-            appendToFrame(parent, frame.value);
-        }
-
-        const pushed = pushFrame(frame);
-        if (firstKey !== undefined) {
-            pushed.pendingKey = firstKey;
-        }
-    };
-
-    parser.onkey = key => {
-        const currentFrame = stack[stack.length - 1];
-        if (currentFrame && currentFrame.type === 'object') {
-            currentFrame.pendingKey = key;
-        }
-    };
-
-    parser.onopenarray = () => {
-        const parent = stack[stack.length - 1];
-        let frame = {
-            type: 'array',
-            role: 'ignored',
-            builder: false,
-            value: null,
-            pendingKey: null,
-            finalizeTarget: false,
-            topLevelKey: null
-        };
-
-        if (!parent) {
-            frame.role = 'root-array';
-        } else if (parent.role === 'root-object') {
-            const topLevelKey = consumeObjectKey(parent);
-            if (topLevelKey === 'shapes') {
-                frame.role = 'shapes-array';
-            } else if (topLevelKey === 'metadata' || topLevelKey === 'svg') {
-                frame.role = topLevelKey;
-                frame.builder = true;
-                frame.value = [];
-                frame.finalizeTarget = true;
-            } else if (topLevelKey) {
-                frame.role = 'top-level';
-                frame.builder = true;
-                frame.value = [];
-                frame.finalizeTarget = true;
-                frame.topLevelKey = topLevelKey;
-            }
-        } else if (parent.builder) {
-            frame.role = parent.role;
-            frame.builder = true;
-            frame.value = [];
-            appendToFrame(parent, frame.value);
-        }
-
-        pushFrame(frame);
-    };
-
-    parser.onvalue = value => {
-        const parent = stack[stack.length - 1];
-        if (!parent) return;
-
-        if (parent.role === 'root-object') {
-            const topLevelKey = consumeObjectKey(parent);
-            if (topLevelKey === 'metadata') {
-                onMetadata(value);
-            } else if (topLevelKey === 'svg') {
-                onSvg(value);
-            } else if (topLevelKey && typeof onTopLevelValue === 'function') {
-                onTopLevelValue(topLevelKey, value);
-            }
+        if (key === 'svg') {
+            onSvg(value);
             return;
         }
-
-        if (parent.builder) {
-            appendToFrame(parent, value);
+        if (typeof onTopLevelValue === 'function') {
+            onTopLevelValue(key, value);
         }
-    };
+    }
 
-    parser.oncloseobject = () => {
-        finalizeFrame(stack.pop());
-    };
+    function trimBufferIfPossible() {
+        if (position <= 0) return;
+        if (position < 1024 * 1024 && position * 2 < buffer.length) return;
+        buffer = buffer.slice(position);
+        position = 0;
+    }
 
-    parser.onclosearray = () => {
-        finalizeFrame(stack.pop());
-    };
+    function parseRootArray(isFinalChunk) {
+        while (true) {
+            position = skipJsonWhitespace(buffer, position);
+            if (position >= buffer.length) {
+                return false;
+            }
+
+            if (rootArrayState === 'value-or-end') {
+                if (buffer[position] === ']') {
+                    position += 1;
+                    rootClosed = true;
+                    return true;
+                }
+                const valueEnd = scanJsonValueEnd(buffer, position, isFinalChunk);
+                if (valueEnd < 0) {
+                    return false;
+                }
+                onShape(parseJsonSlice(position, valueEnd));
+                position = valueEnd;
+                rootArrayState = 'comma-or-end';
+                continue;
+            }
+
+            if (rootArrayState === 'comma-or-end') {
+                const nextChar = buffer[position];
+                if (nextChar === ',') {
+                    position += 1;
+                    rootArrayState = 'value-or-end';
+                    return true;
+                }
+                if (nextChar === ']') {
+                    position += 1;
+                    rootClosed = true;
+                    return true;
+                }
+                throw new Error('Expected , or ] in root array.');
+            }
+        }
+    }
+
+    function parseShapesArray(isFinalChunk) {
+        while (true) {
+            position = skipJsonWhitespace(buffer, position);
+            if (position >= buffer.length) {
+                return false;
+            }
+
+            if (shapesArrayState === 'value-or-end') {
+                if (buffer[position] === ']') {
+                    position += 1;
+                    shapesArrayState = 'inactive';
+                    rootObjectState = 'comma-or-end';
+                    return true;
+                }
+                const valueEnd = scanJsonValueEnd(buffer, position, isFinalChunk);
+                if (valueEnd < 0) {
+                    return false;
+                }
+                onShape(parseJsonSlice(position, valueEnd));
+                position = valueEnd;
+                shapesArrayState = 'comma-or-end';
+                continue;
+            }
+
+            if (shapesArrayState === 'comma-or-end') {
+                const nextChar = buffer[position];
+                if (nextChar === ',') {
+                    position += 1;
+                    shapesArrayState = 'value-or-end';
+                    return true;
+                }
+                if (nextChar === ']') {
+                    position += 1;
+                    shapesArrayState = 'inactive';
+                    rootObjectState = 'comma-or-end';
+                    return true;
+                }
+                throw new Error('Expected , or ] in shapes array.');
+            }
+        }
+    }
+
+    function parseRootObject(isFinalChunk) {
+        if (shapesArrayState !== 'inactive') {
+            return parseShapesArray(isFinalChunk);
+        }
+
+        while (true) {
+            position = skipJsonWhitespace(buffer, position);
+            if (position >= buffer.length) {
+                return false;
+            }
+
+            if (rootObjectState === 'key-or-end') {
+                if (buffer[position] === '}') {
+                    position += 1;
+                    rootClosed = true;
+                    return true;
+                }
+                const keyEnd = scanJsonStringEnd(buffer, position);
+                if (keyEnd < 0) {
+                    return false;
+                }
+                currentKey = parseJsonSlice(position, keyEnd);
+                position = keyEnd;
+                rootObjectState = 'colon';
+                continue;
+            }
+
+            if (rootObjectState === 'colon') {
+                if (buffer[position] !== ':') {
+                    throw new Error('Expected : after JSON object key.');
+                }
+                position += 1;
+                rootObjectState = 'value';
+                continue;
+            }
+
+            if (rootObjectState === 'value') {
+                position = skipJsonWhitespace(buffer, position);
+                if (position >= buffer.length) {
+                    return false;
+                }
+
+                if (currentKey === 'shapes') {
+                    if (buffer[position] !== '[') {
+                        throw new Error('Expected shapes to be a JSON array.');
+                    }
+                    position += 1;
+                    currentKey = null;
+                    shapesArrayState = 'value-or-end';
+                    return true;
+                }
+
+                const valueEnd = scanJsonValueEnd(buffer, position, isFinalChunk);
+                if (valueEnd < 0) {
+                    return false;
+                }
+                dispatchTopLevelValue(currentKey, parseJsonSlice(position, valueEnd));
+                currentKey = null;
+                position = valueEnd;
+                rootObjectState = 'comma-or-end';
+                continue;
+            }
+
+            if (rootObjectState === 'comma-or-end') {
+                const nextChar = buffer[position];
+                if (nextChar === ',') {
+                    position += 1;
+                    rootObjectState = 'key-or-end';
+                    return true;
+                }
+                if (nextChar === '}') {
+                    position += 1;
+                    rootClosed = true;
+                    return true;
+                }
+                throw new Error('Expected , or } in root object.');
+            }
+        }
+    }
+
+    function parseAvailable(isFinalChunk) {
+        while (true) {
+            if (rootClosed) {
+                position = skipJsonWhitespace(buffer, position);
+                if (position < buffer.length) {
+                    if (!isFinalChunk) {
+                        return;
+                    }
+                    throw new Error('Unexpected trailing JSON content.');
+                }
+                return;
+            }
+
+            if (rootType === null) {
+                position = skipJsonWhitespace(buffer, position);
+                if (position >= buffer.length) {
+                    return;
+                }
+                const firstChar = buffer[position];
+                if (firstChar === '[') {
+                    rootType = 'array';
+                    position += 1;
+                    trimBufferIfPossible();
+                    continue;
+                }
+                if (firstChar === '{') {
+                    rootType = 'object';
+                    position += 1;
+                    trimBufferIfPossible();
+                    continue;
+                }
+                throw new Error('JSON document must start with an object or array.');
+            }
+
+            const didAdvance = rootType === 'array'
+                ? parseRootArray(isFinalChunk)
+                : parseRootObject(isFinalChunk);
+
+            if (!didAdvance) {
+                return;
+            }
+
+            trimBufferIfPossible();
+        }
+    }
 
     return {
         write(chunk) {
-            parser.write(chunk);
-            if (parserError) {
-                const error = parserError;
-                parserError = null;
-                throw error;
+            if (chunk) {
+                buffer += chunk;
             }
+            parseAvailable(false);
         },
         close() {
-            parser.close();
-            if (parserError) {
-                const error = parserError;
-                parserError = null;
-                throw error;
+            parseAvailable(true);
+            if (!rootClosed) {
+                throw new Error('Unexpected end of JSON stream.');
             }
         }
     };
@@ -544,7 +733,7 @@ async function parseJsonByteStreamToDocument(reader, { totalBytes = 0, sourceLab
         }
     }
 
-    const parser = createStreamingJsonParser({
+    const parser = createSpecializedStreamingDocumentParser({
         onShape(shape) {
             const normalizedShape = normalizeShapeForViewer(shape, nextShapeId);
             shapes.push(normalizedShape);
@@ -566,7 +755,8 @@ async function parseJsonByteStreamToDocument(reader, { totalBytes = 0, sourceLab
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        bytesRead += value.byteLength ?? value.length ?? 0;
+        const chunkBytes = value.byteLength ?? value.length ?? 0;
+        bytesRead += chunkBytes;
         const chunkText = decoder.decode(value, { stream: true });
         if (chunkText) {
             parser.write(chunkText);
@@ -610,7 +800,14 @@ async function loadJsonFileStreaming(file) {
     showLoadingPopup('Loading JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${formatBytes(file.size)}`);
 
     try {
-        if (file.stream && window.clarinet) {
+        if (typeof file.text === 'function' && shouldPreferFastFullJsonParse(file.size)) {
+            updateLoadingPopup('Reading JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${formatBytes(file.size)}${UI_TEXT.BULLET_SEPARATOR}native parse`);
+            await yieldToBrowser();
+            const text = await file.text();
+            updateLoadingPopup('Parsing JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${formatBytes(file.size)}${UI_TEXT.BULLET_SEPARATOR}native parse`);
+            await yieldToBrowser();
+            await loadParsedJsonDocument(JSON.parse(text), { sourceFile: file, pageNum: 1, buildRasterPreview: false });
+        } else if (typeof file.stream === 'function') {
             const documentData = await parseJsonByteStreamToDocument(file.stream().getReader(), {
                 totalBytes: file.size,
                 sourceLabel: file.name || 'JSON',
@@ -634,8 +831,30 @@ async function loadJsonFileStreaming(file) {
 }
 
 async function loadJsonResponseStreaming(response, { sourceLabel = 'JSON response', sessionCacheKey = null, pageNum = 1 } = {}) {
-    if (response.body && window.clarinet) {
-        const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10) || 0;
+    const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10) || 0;
+
+    if (shouldPreferFastFullJsonParse(contentLength)) {
+        const text = await response.text();
+        if (sessionCacheKey && text.length <= CONFIG.JSON_SESSION_CACHE_MAX_BYTES) {
+            try {
+                sessionStorage.setItem(sessionCacheKey, text);
+            } catch (error) {
+                console.warn('Failed to cache example JSON in sessionStorage:', error);
+            }
+        }
+        const parsed = JSON.parse(text);
+        const topLevelValues = extractTopLevelValuesFromParsedDocument(parsed);
+        if (topLevelValues.error) {
+            throw new Error(topLevelValues.error);
+        }
+        await loadParsedJsonDocument(parsed, { pageNum, buildRasterPreview: false });
+        return {
+            topLevelValues,
+            shapesCount: jsonShapes ? jsonShapes.length : 0
+        };
+    }
+
+    if (response.body) {
         const documentData = await parseJsonByteStreamToDocument(response.body.getReader(), {
             totalBytes: contentLength,
             sourceLabel,
@@ -710,14 +929,14 @@ async function parseGzipBase64ToDocumentStreaming(gzipB64, { sourceLabel = 'JSON
 
     const decompressedStream = new Blob([gzipBytes]).stream().pipeThrough(new DecompressionStream('gzip'));
 
-    if (window.clarinet) {
+    if (decompressedStream && typeof decompressedStream.getReader === 'function') {
         return parseJsonByteStreamToDocument(decompressedStream.getReader(), {
             sourceLabel,
             buildRasterPreview: false
         });
     }
 
-    // Fallback for browsers without clarinet: still decode gzip, then parse full JSON.
+    // Fallback for environments without ReadableStream reader support.
     const decompressedText = await new Response(decompressedStream).text();
     const parsed = JSON.parse(decompressedText);
     const normalizedDocument = convertParsedToNormalizedDocument(parsed);

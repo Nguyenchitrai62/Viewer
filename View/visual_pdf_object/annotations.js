@@ -304,8 +304,10 @@ function rebuildSnapPointIndex() {
     snapPoints = [];
     snapPointQuadtree = null;
     hoveredSnapPoint = null;
+    snapPointIndexReady = false;
 
     if (!allShapesSorted || !allShapesSorted.length) {
+        snapPointIndexReady = true;
         updateManualLabelUI();
         return;
     }
@@ -320,9 +322,9 @@ function rebuildSnapPointIndex() {
         const layerName = getShapeLayerNameForField(shape, currentLayerField);
         if (!isExportableAnnotationLayer(layerName) || !Array.isArray(shape.items)) return;
 
-        shape.items.forEach((item, itemIndex) => {
+        shape.items.forEach(item => {
             if (item[0] !== 'l') return;
-            [item[1], item[2]].forEach((point, endpointIndex) => {
+            [item[1], item[2]].forEach(point => {
                 if (!Array.isArray(point) || point.length < 2) return;
                 const x = Number(point[0]);
                 const y = Number(point[1]);
@@ -335,16 +337,13 @@ function rebuildSnapPointIndex() {
                         x,
                         y,
                         layerName,
-                        bbox: { minX: x, minY: y, maxX: x, maxY: y },
-                        refs: []
+                        bbox: { minX: x, minY: y, maxX: x, maxY: y }
                     });
                     minX = Math.min(minX, x);
                     minY = Math.min(minY, y);
                     maxX = Math.max(maxX, x);
                     maxY = Math.max(maxY, y);
                 }
-
-                uniquePoints.get(key).refs.push({ shapeId: shape.id, itemIndex, endpointIndex });
             });
         });
     });
@@ -352,6 +351,7 @@ function rebuildSnapPointIndex() {
     snapPoints = Array.from(uniquePoints.values());
 
     if (!snapPoints.length || minX === Infinity) {
+        snapPointIndexReady = true;
         updateManualLabelUI();
         return;
     }
@@ -365,7 +365,43 @@ function rebuildSnapPointIndex() {
     }, 25, 8);
 
     snapPoints.forEach(point => snapPointQuadtree.insert(point));
+    snapPointIndexReady = true;
     updateManualLabelUI();
+}
+
+function invalidateSnapPointIndex() {
+    snapPoints = [];
+    snapPointQuadtree = null;
+    hoveredSnapPoint = null;
+    snapPointIndexReady = false;
+    snapPointIndexBuildPromise = null;
+}
+
+async function ensureSnapPointIndex() {
+    if (snapPointIndexReady) {
+        return snapPoints.length > 0;
+    }
+    if (snapPointIndexBuildPromise) {
+        return snapPointIndexBuildPromise;
+    }
+
+    snapPointIndexBuildPromise = (async () => {
+        showLoadingPopup('Preparing manual label mode...', 'Building snap points from visible drawing lines');
+        await yieldToBrowser();
+        rebuildSnapPointIndex();
+        return snapPoints.length > 0;
+    })()
+        .catch(error => {
+            console.error('Failed to build snap point index:', error);
+            invalidateSnapPointIndex();
+            return false;
+        })
+        .finally(() => {
+            hideLoadingPopup();
+            snapPointIndexBuildPromise = null;
+        });
+
+    return snapPointIndexBuildPromise;
 }
 
 function getAnnotationSnapToleranceWorld() {
@@ -449,10 +485,14 @@ function deactivateManualLabelMode(options = {}) {
     if (typeof scheduleDraw === 'function') scheduleDraw();
 }
 
-function setAnnotationMode(mode) {
+async function setAnnotationMode(mode) {
     if (!jsonShapes || !jsonShapes.length) {
         setAnnotationFeedback('Chưa có dữ liệu để gán nhãn.', 'error');
         return;
+    }
+
+    if ((mode === 'junction' || mode === 'connect') && !snapPointIndexReady) {
+        await ensureSnapPointIndex();
     }
 
     if ((mode === 'junction' || mode === 'connect') && !snapPoints.length) {

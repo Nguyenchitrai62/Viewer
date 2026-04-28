@@ -22,7 +22,9 @@ const CONFIG = {
     MERGE_RESULTS: true, // Gop ket qua cua hai nhom tim kiem
     MIN_LINE_WIDTH: 0.5, // Do day toi thieu cho shape co width = 0
     MAX_SAFE_FULL_JSON_PARSE_BYTES: 25 * 1024 * 1024, // Gioi han fallback khi browser khong stream duoc JSON
+    FAST_FULL_JSON_PARSE_BYTES: 100 * 1024 * 1024, // File/response JSON vua phai se uu tien JSON.parse native de nhanh hon clarinet
     JSON_PROGRESS_UPDATE_BYTES: 4 * 1024 * 1024, // Moi bao nhieu byte thi cap nhat popup loading mot lan
+    JSON_STREAM_PARSE_BATCH_BYTES: 1024 * 1024, // Gom nhieu chunk text truoc khi day vao clarinet de giam overhead parser
     JSON_SESSION_CACHE_MAX_BYTES: 5 * 1024 * 1024, // Khong cache session voi JSON qua lon
     JSON_STREAM_TEXT_BUFFER_LIMIT: Number.MAX_SAFE_INTEGER, // Tang gioi han buffer de doc duoc svg lon
     MANUAL_LABEL_SCALE: 3, // Ti le xuat label, khop voi script tao du lieu train
