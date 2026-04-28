@@ -368,6 +368,14 @@ btnResetFilter.addEventListener('click', () => {
     sequencePatternTokens = null;
     searchBboxSize = null;
     expandedNodes = {};
+    pendingVLMCrop = null;
+    pendingVLMBbox = null;
+    if (typeof clearDetectedCellOverlay === 'function') {
+        clearDetectedCellOverlay();
+    } else {
+        extractedCellOverlays = [];
+        extractedCellDownloadBundle = null;
+    }
     document.getElementById('found-count').style.display = 'none';
     isDrawingBbox = false;
     btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;

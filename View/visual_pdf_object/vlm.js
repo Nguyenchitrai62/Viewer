@@ -3,6 +3,146 @@
 // ============================================
 // FIXED: VLM Extract Functions - Sửa lỗi preview sai
 // ============================================
+function clearDetectedCellOverlay() {
+    if (!Array.isArray(extractedCellOverlays) || extractedCellOverlays.length === 0) {
+        extractedCellDownloadBundle = null;
+        syncExtractedCellDownloadButton();
+        return;
+    }
+    extractedCellOverlays = [];
+    extractedCellDownloadBundle = null;
+    syncExtractedCellDownloadButton();
+    if (typeof scheduleCrosshairOverlayDraw === 'function') {
+        scheduleCrosshairOverlayDraw();
+    }
+}
+
+function hexToRgba(hexColor, alpha) {
+    const normalized = String(hexColor || '').replace('#', '');
+    if (normalized.length !== 6) {
+        return `rgba(37, 99, 235, ${alpha})`;
+    }
+
+    const red = parseInt(normalized.slice(0, 2), 16);
+    const green = parseInt(normalized.slice(2, 4), 16);
+    const blue = parseInt(normalized.slice(4, 6), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function decorateCellsForOverlay(cells) {
+    return (Array.isArray(cells) ? cells : []).map((cell, index) => {
+        const baseColor = KELLY_COLORS[index % KELLY_COLORS.length] || '#2563eb';
+        return {
+            ...cell,
+            overlayHexColor: baseColor,
+            overlayStrokeColor: hexToRgba(baseColor, 0.95),
+            overlayFillColor: hexToRgba(baseColor, 0.18),
+        };
+    });
+}
+
+function updateVLMResultActions(options = {}) {
+    const copyButton = document.getElementById('vlm-copy-btn');
+    const downloadButton = document.getElementById('vlm-download-cells-btn');
+
+    copyButton.style.display = options.showCopy === false ? 'none' : '';
+    downloadButton.style.display = options.showDownloadCells ? '' : 'none';
+    downloadButton.disabled = !options.showDownloadCells;
+}
+
+function syncExtractedCellDownloadButton() {
+    if (!btnDownloadCellsZip) {
+        return;
+    }
+
+    const cellCount = Array.isArray(extractedCellDownloadBundle?.cells)
+        ? extractedCellDownloadBundle.cells.length
+        : 0;
+
+    btnDownloadCellsZip.style.display = cellCount > 0 ? '' : 'none';
+    btnDownloadCellsZip.disabled = cellCount <= 0;
+    btnDownloadCellsZip.textContent = cellCount > 0
+        ? `🗂️ Cells ZIP (${cellCount})`
+        : '🗂️ Cells ZIP';
+    btnDownloadCellsZip.title = cellCount > 0
+        ? `Tải ${cellCount} ảnh crop cell`
+        : 'Chưa có dữ liệu cell để tải';
+}
+
+function setVLMResultContainerMode(mode) {
+    const resultContainer = document.getElementById('vlm-json-container');
+    if (mode === 'summary') {
+        resultContainer.style.background = '#ffffff';
+        resultContainer.style.border = '1px solid var(--border-color-light)';
+        resultContainer.style.fontFamily = 'Segoe UI, sans-serif';
+        resultContainer.style.fontSize = '14px';
+        resultContainer.style.lineHeight = '1.6';
+        resultContainer.style.whiteSpace = 'normal';
+        resultContainer.style.wordBreak = 'break-word';
+        return;
+    }
+
+    resultContainer.style.background = '#f8f9fa';
+    resultContainer.style.border = '1px solid var(--border-color-light)';
+    resultContainer.style.fontFamily = "'Monaco', 'Menlo', 'Ubuntu Mono', monospace";
+    resultContainer.style.fontSize = '13px';
+    resultContainer.style.lineHeight = '1.5';
+    resultContainer.style.whiteSpace = 'pre-wrap';
+    resultContainer.style.wordBreak = 'break-word';
+}
+
+function buildCellExtractSummaryHtml(summary) {
+    const cellsDetected = Number(summary?.cellCount || 0);
+    const processingTime = Number(summary?.processingTime || 0);
+    const hasCells = cellsDetected > 0;
+    const statusColor = hasCells ? '#2563eb' : '#6b7280';
+    const statusText = hasCells ? 'Cells da duoc ve mau len viewer goc.' : 'Khong tim thay cell trong vung da chon.';
+
+    return `
+        <div style="display:flex; flex-direction:column; gap:14px;">
+            <div style="font-size:15px; font-weight:600; color:#111827;">${escapeHtml(summary?.title || 'Ket qua trich xuat cell')}</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:10px;">
+                <div style="padding:12px; border-radius:10px; background:#eff6ff; border:1px solid #bfdbfe;">
+                    <div style="font-size:12px; color:#1d4ed8; text-transform:uppercase; letter-spacing:0.04em;">So cell</div>
+                    <div style="font-size:24px; font-weight:700; color:#1e3a8a;">${cellsDetected}</div>
+                </div>
+                <div style="padding:12px; border-radius:10px; background:#f9fafb; border:1px solid #e5e7eb;">
+                    <div style="font-size:12px; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em;">Xu ly</div>
+                    <div style="font-size:24px; font-weight:700; color:#111827;">${processingTime.toFixed(2)}s</div>
+                </div>
+            </div>
+            <div style="padding:12px 14px; border-radius:10px; background:${hasCells ? '#eff6ff' : '#f9fafb'}; border:1px solid ${hasCells ? '#bfdbfe' : '#e5e7eb'}; color:${statusColor};">
+                <div style="font-weight:600; margin-bottom:4px;">${escapeHtml(summary?.message || statusText)}</div>
+                <div style="font-size:13px; color:#4b5563;">${escapeHtml(summary?.hint || 'Neu can, bam Download Cells ZIP de lay toan bo anh crop cac cell.')}</div>
+            </div>
+        </div>
+    `;
+}
+
+function hideVLMModal(options = {}) {
+    const modal = document.getElementById('vlm-modal');
+    modal.style.display = 'none';
+
+    if (options.clearPending !== false) {
+        pendingVLMCrop = null;
+        pendingVLMBbox = null;
+    }
+}
+
+function showVLMLoading(message) {
+    const modal = document.getElementById('vlm-modal');
+    const loading = document.getElementById('vlm-loading');
+    const result = document.getElementById('vlm-result');
+    const error = document.getElementById('vlm-error');
+
+    loading.style.display = 'flex';
+    result.style.display = 'none';
+    error.style.display = 'none';
+    updateVLMResultActions({ showCopy: true, showDownloadCells: false });
+    document.getElementById('vlm-loading-text').textContent = message || 'Processing selected region';
+    modal.style.display = 'block';
+}
+
 async function cropAndExtractVLM(bbox) {
     try {
         if (!currentPageNum || !hasRenderableDocument()) {
@@ -64,6 +204,8 @@ async function cropAndExtractVLM(bbox) {
         
         // Store for later use when user confirms
         pendingVLMCrop = croppedImageBase64;
+        pendingVLMBbox = { ...bbox };
+        clearDetectedCellOverlay();
 
         // Show preview in modal
         showVLMModalPreview(croppedImageBase64, bbox);
@@ -90,6 +232,8 @@ function showVLMModalPreview(imageBase64, bbox) {
     // Set preview image
     if (imageBase64) {
         document.getElementById('vlm-preview-image').src = imageBase64;
+    } else {
+        document.getElementById('vlm-preview-image').removeAttribute('src');
     }
     
     // Show bbox info
@@ -122,21 +266,42 @@ function showVLMModal(imageBase64) {
     modal.style.display = 'block';
 }
 
-function showVLMModalResult(data) {
+function showVLMModalResult(data, options = {}) {
     const loading = document.getElementById('vlm-loading');
     const result = document.getElementById('vlm-result');
     const error = document.getElementById('vlm-error');
+    const resultImageWrapper = document.getElementById('vlm-result-image-wrapper');
+    const shouldShowImage = options.showImage === true;
 
     loading.style.display = 'none';
     error.style.display = 'none';
     result.style.display = 'block';
+    resultImageWrapper.style.display = shouldShowImage ? 'block' : 'none';
 
-    // Display JSON result
+    const previewImageBase64 = options.imageBase64 || pendingVLMCrop || '';
+    if (shouldShowImage && previewImageBase64) {
+        document.getElementById('vlm-cropped-image').src = previewImageBase64;
+    } else {
+        document.getElementById('vlm-cropped-image').removeAttribute('src');
+    }
+
+    updateVLMResultActions({
+        showCopy: options.showCopy !== false,
+        showDownloadCells: Boolean(options.showDownloadCells),
+    });
+
     const jsonContainer = document.getElementById('vlm-json-container');
-    jsonContainer.textContent = JSON.stringify(data, null, 2);
+    if (options.renderMode === 'summary') {
+        setVLMResultContainerMode('summary');
+        jsonContainer.innerHTML = options.htmlContent || '';
+    } else {
+        setVLMResultContainerMode('json');
+        jsonContainer.textContent = JSON.stringify(data, null, 2);
+    }
 }
 
 function showVLMModalError(message) {
+    const modal = document.getElementById('vlm-modal');
     const loading = document.getElementById('vlm-loading');
     const result = document.getElementById('vlm-result');
     const error = document.getElementById('vlm-error');
@@ -144,38 +309,194 @@ function showVLMModalError(message) {
     loading.style.display = 'none';
     result.style.display = 'none';
     error.style.display = 'block';
+    modal.style.display = 'block';
 
     document.getElementById('vlm-error-message').textContent = message;
 }
 
 async function callVLMExtractAPI(imageBase64, fields) {
-    try {
-        const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-        
-        const requestBody = {
-            image_b64: base64Data,
-            fields: fields
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const requestBody = {
+        image_b64: base64Data,
+        fields: fields
+    };
+
+    const response = await fetch(`${ENV.PDF_API_BASE_URL}/vlm_extract`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+}
+
+async function callExtractCellsAPI(imageBase64) {
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const response = await fetch(`${ENV.PDF_API_BASE_URL}/extract_cells`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            image_b64: base64Data
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+}
+
+function mapCellsToWorldCoordinates(cells, imageSize, sourceBbox) {
+    const imageWidth = Number(imageSize?.width || 0);
+    const imageHeight = Number(imageSize?.height || 0);
+    if (!imageWidth || !imageHeight) {
+        throw new Error('Kich thuoc anh crop khong hop le.');
+    }
+
+    return (Array.isArray(cells) ? cells : []).map(cell => {
+        const bbox = cell?.bbox || {};
+        return {
+            ...cell,
+            bbox: {
+                x: sourceBbox.x + ((Number(bbox.x) || 0) / imageWidth) * sourceBbox.width,
+                y: sourceBbox.y + ((Number(bbox.y) || 0) / imageHeight) * sourceBbox.height,
+                width: ((Number(bbox.width) || 0) / imageWidth) * sourceBbox.width,
+                height: ((Number(bbox.height) || 0) / imageHeight) * sourceBbox.height,
+            }
         };
+    }).filter(cell => cell.bbox.width > 0 && cell.bbox.height > 0);
+}
 
-        const response = await fetch(`${ENV.PDF_API_BASE_URL}/vlm_extract`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(requestBody)
-        });
+function buildCellZipFileName(bundle) {
+    const pageToken = currentPageNum ? `page_${String(currentPageNum).padStart(2, '0')}` : 'page';
+    const bbox = bundle?.sourceBbox || {};
+    const x = Math.round(Number(bbox.x) || 0);
+    const y = Math.round(Number(bbox.y) || 0);
+    return `${pageToken}_table_cells_${x}_${y}.zip`;
+}
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+function createImageElementFromBase64(imageBase64) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Khong the load anh crop bang.'));
+        image.src = imageBase64;
+    });
+}
+
+async function buildCellCropZip(bundle) {
+    if (!bundle?.sourceImageBase64 || !Array.isArray(bundle.cells) || bundle.cells.length === 0) {
+        throw new Error('Khong co du lieu crop cell de tai xuong.');
+    }
+
+    const sourceImage = await createImageElementFromBase64(bundle.sourceImageBase64);
+    const archive = new JSZip();
+
+    bundle.cells.forEach((cell, index) => {
+        const bbox = cell?.source_bbox || cell?.bbox || {};
+        const cropWidth = Math.max(1, Math.round(Number(bbox.width) || 0));
+        const cropHeight = Math.max(1, Math.round(Number(bbox.height) || 0));
+        if (cropWidth <= 0 || cropHeight <= 0) {
+            return;
         }
 
-        const data = await response.json();
-        showVLMModalResult(data);
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = cropWidth;
+        cropCanvas.height = cropHeight;
+        const cropContext = cropCanvas.getContext('2d');
+        cropContext.fillStyle = '#ffffff';
+        cropContext.fillRect(0, 0, cropWidth, cropHeight);
+        cropContext.drawImage(
+            sourceImage,
+            Math.round(Number(bbox.x) || 0),
+            Math.round(Number(bbox.y) || 0),
+            cropWidth,
+            cropHeight,
+            0,
+            0,
+            cropWidth,
+            cropHeight
+        );
 
-    } catch (error) {
-        console.error('VLM Extract API Error:', error);
-        showVLMModalError('API Error: ' + error.message + '\n\nThe VLM Extract API endpoint is not yet available. Please ensure the backend is running.');
+        const baseName = cell.row > 0 && cell.column > 0
+            ? `cell_r${String(cell.row).padStart(2, '0')}_c${String(cell.column).padStart(2, '0')}`
+            : `cell_${String(cell.cell_id || index + 1).padStart(2, '0')}`;
+        const dataUrl = cropCanvas.toDataURL('image/png');
+        const base64Data = dataUrl.split(',', 2)[1];
+        archive.file(`${baseName}.png`, base64Data, { base64: true });
+    });
+
+    return archive.generateAsync({ type: 'blob' });
+}
+
+async function downloadExtractedCellsZip(triggerButton = null) {
+    if (!Array.isArray(extractedCellDownloadBundle?.cells) || extractedCellDownloadBundle.cells.length === 0) {
+        alert('Chưa có dữ liệu cell để tải xuống.');
+        syncExtractedCellDownloadButton();
+        return;
     }
+
+    const sourceButton = triggerButton || btnDownloadCellsZip;
+    const originalLabel = sourceButton ? sourceButton.textContent : '';
+    const fileName = buildCellZipFileName(extractedCellDownloadBundle);
+    const totalCells = extractedCellDownloadBundle.cells.length;
+
+    try {
+        if (sourceButton) {
+            sourceButton.disabled = true;
+            sourceButton.textContent = 'Preparing ZIP...';
+        }
+
+        showLoadingPopup('Preparing Cells ZIP...', `${totalCells} cell image${totalCells === 1 ? '' : 's'}`);
+        await yieldToBrowser();
+
+        const zipBlob = await buildCellCropZip(extractedCellDownloadBundle);
+        updateLoadingPopup('Starting download...', fileName);
+        await yieldToBrowser();
+
+        triggerBlobDownload(zipBlob, fileName);
+
+        if (sourceButton) {
+            sourceButton.textContent = 'Downloaded';
+        }
+    } catch (error) {
+        console.error('Cell ZIP download error:', error);
+        alert('Không thể tạo file ZIP cell: ' + error.message);
+        if (sourceButton) {
+            sourceButton.textContent = originalLabel;
+        }
+        return;
+    } finally {
+        hideLoadingPopup();
+    }
+
+    setTimeout(() => {
+        if (sourceButton) {
+            sourceButton.textContent = originalLabel;
+            sourceButton.disabled = false;
+        }
+        syncExtractedCellDownloadButton();
+    }, 1200);
+}
+
+function triggerBlobDownload(blob, fileName) {
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
 
 let extractionTypes = [];
@@ -353,11 +674,11 @@ loadExtractionTypes();
 // VLM Modal Event Listeners
 // VLM Modal Event Listeners
 document.getElementById('vlm-modal-close').addEventListener('click', () => {
-    document.getElementById('vlm-modal').style.display = 'none';
+    hideVLMModal();
 });
 
 document.getElementById('vlm-close-btn').addEventListener('click', () => {
-    document.getElementById('vlm-modal').style.display = 'none';
+    hideVLMModal();
 });
 
 // VLM Confirm button - send to API
@@ -378,27 +699,107 @@ document.getElementById('vlm-confirm-btn').addEventListener('click', async () =>
         return;
     }
     
-    const preview = document.getElementById('vlm-preview');
-    const loading = document.getElementById('vlm-loading');
-    const result = document.getElementById('vlm-result');
-    const error = document.getElementById('vlm-error');
-    
-    // X├│a lß╗ùi v├á kß║┐t quß║ú c┼⌐, hiß╗ân thß╗ï loading nh╞░ng giß╗» nguy├¬n (kh├┤ng ß║⌐n) preview
-    error.style.display = 'none';
-    result.style.display = 'none';
-    loading.style.display = 'flex';
+    showVLMLoading('Analyzing with VLM...');
     
     try {
-        await callVLMExtractAPI(pendingVLMCrop, fields);
+        const data = await callVLMExtractAPI(pendingVLMCrop, fields);
+        showVLMModalResult(data, {
+            showImage: false,
+        });
     } catch (error) {
-        showVLMModalError('Error calling VLM API: ' + error.message);
+        console.error('VLM Extract API Error:', error);
+        showVLMModalError('API Error: ' + error.message + '\n\nThe VLM Extract API endpoint is not yet available. Please ensure the backend is running.');
+    }
+});
+
+document.getElementById('vlm-detect-cells-btn').addEventListener('click', async () => {
+    if (!pendingVLMCrop || !pendingVLMBbox) {
+        showVLMModalError('No table crop is available for cell extraction.');
+        return;
+    }
+
+    const sourceBbox = { ...pendingVLMBbox };
+    showVLMLoading('Detecting table cells...');
+
+    try {
+        const data = await callExtractCellsAPI(pendingVLMCrop);
+        if (data?.error) {
+            showVLMModalError(data.error);
+            return;
+        }
+
+        const decoratedSourceCells = decorateCellsForOverlay(Array.isArray(data?.cells) ? data.cells.map(cell => ({
+            ...cell,
+            source_bbox: cell?.bbox ? { ...cell.bbox } : null,
+        })) : []);
+        const worldCells = decorateCellsForOverlay(mapCellsToWorldCoordinates(decoratedSourceCells, data?.image_size, sourceBbox));
+        if (!worldCells.length) {
+            extractedCellOverlays = [];
+            extractedCellDownloadBundle = null;
+            syncExtractedCellDownloadButton();
+            showVLMModalResult({
+                message: 'Khong phat hien cell nao trong vung da chon.',
+                cell_count: 0,
+                processing_time: data?.processing_time || null,
+            }, {
+                imageBase64: pendingVLMCrop,
+                showCopy: false,
+                showDownloadCells: false,
+                showImage: false,
+                renderMode: 'summary',
+                htmlContent: buildCellExtractSummaryHtml({
+                    title: 'Khong co cell duoc phat hien',
+                    cellCount: 0,
+                    processingTime: data?.processing_time || 0,
+                    message: 'Khong phat hien cell nao trong vung table da chon.',
+                    hint: 'Thu ve bbox chat hon hoac chon lai vung bang roi trich xuat lai.',
+                }),
+            });
+            return;
+        }
+
+        extractedCellOverlays = worldCells;
+        extractedCellDownloadBundle = {
+            sourceImageBase64: pendingVLMCrop,
+            sourceBbox: sourceBbox,
+            imageSize: data?.image_size || null,
+            cells: decoratedSourceCells,
+        };
+        syncExtractedCellDownloadButton();
+        if (typeof scheduleCrosshairOverlayDraw === 'function') {
+            scheduleCrosshairOverlayDraw();
+        }
+        if (typeof scheduleDraw === 'function') {
+            scheduleDraw();
+        }
+        showVLMModalResult({
+            mode: 'extract_cells',
+            message: 'Da trich xuat cell va ve overlay len viewer. Dong popup de xem tren ban goc.',
+            cell_count: worldCells.length,
+            processing_time: data?.processing_time || null,
+        }, {
+            imageBase64: pendingVLMCrop,
+            showCopy: false,
+            showDownloadCells: false,
+            showImage: false,
+            renderMode: 'summary',
+            htmlContent: buildCellExtractSummaryHtml({
+                title: 'Da trich xuat cell thanh cong',
+                cellCount: worldCells.length,
+                processingTime: data?.processing_time || 0,
+                message: 'Tat ca cell da duoc to mau va ve len viewer goc.',
+                hint: 'Kiem tra overlay tren ban ve xong, bam nut Cells ZIP ngoai toolbar de tai anh crop tung cell.',
+            }),
+        });
+    } catch (error) {
+        console.error('Cell Extract API Error:', error);
+        showVLMModalError('API Error: ' + error.message + '\n\nPlease ensure the extract_cells backend endpoint is running.');
     }
 });
 
 // VLM Cancel button - close modal
 document.getElementById('vlm-cancel-btn').addEventListener('click', () => {
-    document.getElementById('vlm-modal').style.display = 'none';
-    pendingVLMCrop = null;
+    hideVLMModal();
 });
 
 document.getElementById('vlm-copy-btn').addEventListener('click', () => {
@@ -418,10 +819,22 @@ document.getElementById('vlm-copy-btn').addEventListener('click', () => {
     });
 });
 
+document.getElementById('vlm-download-cells-btn').addEventListener('click', async () => {
+    await downloadExtractedCellsZip(document.getElementById('vlm-download-cells-btn'));
+});
+
+if (btnDownloadCellsZip) {
+    btnDownloadCellsZip.addEventListener('click', async () => {
+        await downloadExtractedCellsZip(btnDownloadCellsZip);
+    });
+}
+
+syncExtractedCellDownloadButton();
+
 // Close modal when clicking outside
 window.addEventListener('click', (e) => {
     const modal = document.getElementById('vlm-modal');
     if (e.target === modal) {
-        modal.style.display = 'none';
+        hideVLMModal();
     }
 });

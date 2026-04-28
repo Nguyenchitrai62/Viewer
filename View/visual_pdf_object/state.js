@@ -39,6 +39,7 @@ const btnExportPipelineJson = document.getElementById('btn-export-pipeline-json'
 const btnExportRevitJson = document.getElementById('btn-export-revit-json');
 const btnToggleLayerMode = document.getElementById('btn-toggle-layer-mode');
 const btnVLMExtract = document.getElementById('btn-vlm-extract');
+const btnDownloadCellsZip = document.getElementById('btn-download-cells-zip');
 const btnLabelJunction = document.getElementById('btn-label-junction');
 const btnLabelConnect = document.getElementById('btn-label-connect');
 const btnUndoLabel = document.getElementById('btn-undo-label');
@@ -99,6 +100,7 @@ let precomputedLengths = {};
 let drawScheduled = false;
 let currentPageNum = null;
 let pendingVLMCrop = null;
+let pendingVLMBbox = null;
 let cachedPageImage = null;
 let cachedPageImageLoading = false;
 let cachedPageImagePageNum = null;
@@ -122,6 +124,8 @@ let snapPointQuadtree = null;
 let annotationFeedbackMessage = '';
 let annotationFeedbackTone = 'info';
 let hoveredAnnotationId = null;
+let extractedCellOverlays = [];
+let extractedCellDownloadBundle = null;
 
 const KELLY_COLORS = [
     '#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231',

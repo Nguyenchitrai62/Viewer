@@ -186,6 +186,18 @@ function clearVisualization() {
     if (typeof pendingVLMCrop !== 'undefined') {
         pendingVLMCrop = null;
     }
+    if (typeof pendingVLMBbox !== 'undefined') {
+        pendingVLMBbox = null;
+    }
+    if (typeof extractedCellOverlays !== 'undefined') {
+        extractedCellOverlays = [];
+    }
+    if (typeof extractedCellDownloadBundle !== 'undefined') {
+        extractedCellDownloadBundle = null;
+    }
+    if (typeof syncExtractedCellDownloadButton === 'function') {
+        syncExtractedCellDownloadButton();
+    }
     btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
     btnDrawBbox.classList.remove('active');
     btnVLMExtract.textContent = UI_TEXT.VLM_EXTRACT;

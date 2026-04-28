@@ -1396,17 +1396,70 @@ function draw() {
 }
 
 // Crosshair overlay function - draws on separate canvas above everything
+function drawDetectedCellOverlay() {
+    if (!Array.isArray(extractedCellOverlays) || extractedCellOverlays.length === 0) {
+        return false;
+    }
+
+    crosshairCtx.save();
+    crosshairCtx.lineJoin = 'round';
+    crosshairCtx.font = '11px "Segoe UI", sans-serif';
+
+    extractedCellOverlays.forEach(cell => {
+        const bbox = cell?.bbox;
+        if (!bbox) return;
+
+        const strokeColor = cell.overlayStrokeColor || 'rgba(37, 99, 235, 0.95)';
+        const fillColor = cell.overlayFillColor || 'rgba(37, 99, 235, 0.12)';
+
+        const screenX = bbox.x * zoom + offsetX;
+        const screenY = bbox.y * zoom + offsetY;
+        const screenWidth = bbox.width * zoom;
+        const screenHeight = bbox.height * zoom;
+
+        if (screenWidth <= 0 || screenHeight <= 0) return;
+
+        crosshairCtx.fillStyle = fillColor;
+        crosshairCtx.strokeStyle = strokeColor;
+        crosshairCtx.lineWidth = 1.5;
+        crosshairCtx.fillRect(screenX, screenY, screenWidth, screenHeight);
+        crosshairCtx.strokeRect(screenX, screenY, screenWidth, screenHeight);
+
+        if (screenWidth >= 52 && screenHeight >= 20) {
+            const label = (cell.row > 0 && cell.column > 0)
+                ? `R${cell.row}C${cell.column}`
+                : `#${cell.cell_id || ''}`;
+            const labelPaddingX = 6;
+            const labelHeight = 16;
+            const labelWidth = Math.ceil(crosshairCtx.measureText(label).width) + (labelPaddingX * 2);
+
+            crosshairCtx.fillStyle = strokeColor;
+            crosshairCtx.fillRect(screenX + 1, screenY + 1, labelWidth, labelHeight);
+            crosshairCtx.fillStyle = '#ffffff';
+            crosshairCtx.fillText(label, screenX + labelPaddingX + 1, screenY + 12);
+        }
+    });
+
+    crosshairCtx.restore();
+    return true;
+}
+
 function drawCrosshairOverlay() {
+    const hasDetectedCellOverlay = Array.isArray(extractedCellOverlays) && extractedCellOverlays.length > 0;
+
     if (typeof drawManualLabelCrosshairOverlay === 'function' && annotationMode) {
         crosshairCanvas.style.display = 'block';
         crosshairOverlayVisible = true;
         crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
+        if (hasDetectedCellOverlay) {
+            drawDetectedCellOverlay();
+        }
         drawManualLabelCrosshairOverlay();
         return;
     }
     
     // Only draw crosshair when in draw mode
-    if (!isDrawingBbox && !isVLMBboxMode) {
+    if (!isDrawingBbox && !isVLMBboxMode && !hasDetectedCellOverlay) {
         if (crosshairOverlayVisible) {
             crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
             crosshairOverlayVisible = false;
@@ -1418,6 +1471,14 @@ function drawCrosshairOverlay() {
     crosshairCanvas.style.display = 'block';
     crosshairOverlayVisible = true;
     crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
+
+    if (hasDetectedCellOverlay) {
+        drawDetectedCellOverlay();
+    }
+
+    if (!isDrawingBbox && !isVLMBboxMode) {
+        return;
+    }
     
     crosshairCtx.strokeStyle = 'black';
     crosshairCtx.lineWidth = 0.5;
@@ -1485,6 +1546,9 @@ function scheduleCrosshairOverlayDraw() {
 }
 
 function scheduleDraw() {
+    if ((Array.isArray(extractedCellOverlays) && extractedCellOverlays.length > 0) || annotationMode) {
+        scheduleCrosshairOverlayDraw();
+    }
     if (drawScheduled) return;
     drawScheduled = true;
     requestAnimationFrame(() => {

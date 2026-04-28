@@ -158,11 +158,15 @@ async function renderPdfPreview(file, pageNum) {
 
         // Scale to fit container
         const containerRect = canvasContainer.getBoundingClientRect();
-        const scale = Math.min(containerRect.width / viewport.width, containerRect.height / viewport.height) * 0.9;
-        const scaledViewport = page.getViewport({ scale });
+        const fitScale = Math.min(containerRect.width / viewport.width, containerRect.height / viewport.height) * 0.9;
+        const deviceScale = Math.max(window.devicePixelRatio || 1, 1);
+        const renderScale = fitScale * deviceScale;
+        const scaledViewport = page.getViewport({ scale: renderScale });
 
-        canvas.height = scaledViewport.height;
-        canvas.width = scaledViewport.width;
+        canvas.height = Math.max(1, Math.ceil(scaledViewport.height));
+        canvas.width = Math.max(1, Math.ceil(scaledViewport.width));
+        canvas.style.width = `${Math.max(1, Math.round(viewport.width * fitScale))}px`;
+        canvas.style.height = `${Math.max(1, Math.round(viewport.height * fitScale))}px`;
 
         const renderContext = {
             canvasContext: context,
