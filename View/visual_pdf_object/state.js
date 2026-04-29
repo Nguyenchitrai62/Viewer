@@ -18,7 +18,7 @@ function setInteractionState(active) {
         interactionTimer = setTimeout(() => {
             isInteracting = false;
             scheduleDraw();
-        }, 300);
+        }, CONFIG.INTERACTION_DEBOUNCE_MS || 80);
     }
 }
 

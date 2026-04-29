@@ -11,6 +11,19 @@ window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey || e.altKey) || isTextInput) {
         return;
     }
+    // Arrow keys for panning
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const panStep = Math.min(canvas.width, canvas.height) * 0.15;
+        if (e.key === 'ArrowLeft') offsetX += panStep;
+        if (e.key === 'ArrowRight') offsetX -= panStep;
+        if (e.key === 'ArrowUp') offsetY += panStep;
+        if (e.key === 'ArrowDown') offsetY -= panStep;
+        setInteractionState(true);
+        scheduleDraw();
+        setInteractionState(false);
+        return;
+    }
     if (e.key.toLowerCase() === 'd') {
         btnDrawBbox.click();
     }
@@ -634,6 +647,10 @@ canvasContainer.addEventListener('mousemove', e => {
                 if (hoveredSeqno !== null) break;
             }
         } else {
+            // Early exit: no need to scan if no black shapes exist
+            if (!seqnoHoverIndexReady && Object.keys(globalSeqnoToIds).length === 0) {
+                return;
+            }
             ensureSeqnoHoverIndex();
             for (const seqno in globalSeqnoToIds) {
                 const ids = globalSeqnoToIds[seqno];
@@ -672,10 +689,16 @@ canvasContainer.addEventListener('wheel', e => {
     const rect = canvasContainer.getBoundingClientRect();
     const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
     const worldX = (mouseX - offsetX) / zoom, worldY = (mouseY - offsetY) / zoom;
-    const newZoom = e.deltaY < 0 ? zoom * CONFIG.ZOOM_STEP : zoom / CONFIG.ZOOM_STEP;
-    offsetX = mouseX - worldX * newZoom;
-    offsetY = mouseY - worldY * newZoom;
-    zoom = newZoom;
+    let newZoom = e.deltaY < 0 ? zoom * CONFIG.ZOOM_STEP : zoom / CONFIG.ZOOM_STEP;
+    // Clamp zoom to safe bounds
+    const zoomMin = CONFIG.ZOOM_MIN ?? 0.02;
+    const zoomMax = CONFIG.ZOOM_MAX ?? 500;
+    newZoom = Math.min(zoomMax, Math.max(zoomMin, newZoom));
+    if (newZoom !== zoom) {
+        offsetX = mouseX - worldX * newZoom;
+        offsetY = mouseY - worldY * newZoom;
+        zoom = newZoom;
+    }
     setInteractionState(false); // End interaction (debounced)
     scheduleDraw();
 });

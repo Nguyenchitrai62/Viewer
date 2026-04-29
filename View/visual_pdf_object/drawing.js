@@ -252,6 +252,10 @@ let highZoomVectorRenderPromise = null;
 let highZoomVectorRenderViewKey = '';
 let highZoomVectorFrameCache = null;
 
+// DOM cache for hot paths
+const _svgTextLayer = document.getElementById('svg-text-layer');
+const _svgGraphicLayer = document.getElementById('svg-graphic-layer');
+
 function getShapeRasterCacheTargetScale() {
     if (currentPdfFile && Number.isFinite(CONFIG?.PDF_PAGE_CACHE_SCALE)) {
         return CONFIG.PDF_PAGE_CACHE_SCALE;
@@ -507,13 +511,11 @@ function cancelPendingVectorRender() {
 }
 
 function hideSvgVectorLayers() {
-    const textLayer = document.getElementById('svg-text-layer');
-    const graphicLayer = document.getElementById('svg-graphic-layer');
-    if (textLayer) {
-        textLayer.style.display = 'none';
+    if (_svgTextLayer) {
+        _svgTextLayer.style.display = 'none';
     }
-    if (graphicLayer) {
-        graphicLayer.style.display = 'none';
+    if (_svgGraphicLayer) {
+        _svgGraphicLayer.style.display = 'none';
     }
 }
 
@@ -1016,15 +1018,14 @@ function redrawCropPreview(previewCtx, croppedObjs, bboxRef, cropCanvas) {
 function applySvgTransform() {
     if (!svgData) return;
     
-    const textLayer = document.getElementById('svg-text-layer');
-    const graphicLayer = document.getElementById('svg-graphic-layer');
+    const textLayer = _svgTextLayer;
+    const graphicLayer = _svgGraphicLayer;
+    if (!textLayer || !graphicLayer) return;
     
-    // Always update display state - even if both layers are hidden
     const allowVectorLayers = zoom > getLowZoomRasterThreshold();
     const textVisible = allowVectorLayers && layerVisibility['svg_text'];
     const graphicVisible = allowVectorLayers && layerVisibility['svg_graphic'];
     
-    // If both layers are hidden, hide the container layers and return early
     if (!textVisible && !graphicVisible) {
         textLayer.style.display = 'none';
         graphicLayer.style.display = 'none';
