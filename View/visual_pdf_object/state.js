@@ -153,6 +153,16 @@ let selectionMode = 'hide';
 let dragSelecting = false;
 let cachedPages = {};
 let currentThumbnailTaskId = 0;
+let selectedThumbnailPageNum = null;
+let waitingPageNum = null;
+let pageLoadRequestId = 0;
+let pdfPageProcessingState = {};
+let pageThumbnailRefs = {};
+let currentBatchTaskId = 0;
+let currentBatchAbortController = null;
+let autoOpenReadyPage = false;
+let stagedPdfFile = null;
+let stagedCachedPages = {};
 
 const lengthCache = new WeakMap();
 

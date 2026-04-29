@@ -65,6 +65,13 @@
             <div id="pdf-preview"
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; background: white; z-index: 1;">
             </div>
+            <div id="page-status-overlay" class="page-status-overlay" aria-live="polite">
+                <div class="page-status-card">
+                    <div class="page-status-spinner" aria-hidden="true"></div>
+                    <div id="page-status-title" class="page-status-title">Loading page...</div>
+                    <div id="page-status-subtitle" class="page-status-subtitle" style="display:none;"></div>
+                </div>
+            </div>
             <div id="mode-label" class="mode-label" style="display: none;"></div>
             <div id="zoom-indicator" class="zoom-indicator" aria-live="polite">Zoom 1.00x | Vector</div>
             <div id="svg-text-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:5;"></div>
@@ -97,6 +104,10 @@
         </div>
         <div id="page-preview-sidebar">
             <h3>Page Previews</h3>
+            <div id="page-processing-summary" class="page-processing-summary" aria-live="polite">
+                <div id="page-processing-summary-title" class="page-processing-summary-title">Preparing pages...</div>
+                <div id="page-processing-summary-subtitle" class="page-processing-summary-subtitle"></div>
+            </div>
             <div id="page-thumbnails"></div>
         </div>
     </div>

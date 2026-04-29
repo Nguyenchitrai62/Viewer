@@ -700,7 +700,7 @@ function createSpecializedStreamingDocumentParser({ onShape, onMetadata, onSvg, 
     };
 }
 
-async function parseJsonByteStreamToDocument(reader, { totalBytes = 0, sourceLabel = 'JSON', buildRasterPreview = false } = {}) {
+async function parseJsonByteStreamToDocument(reader, { totalBytes = 0, sourceLabel = 'JSON', buildRasterPreview = false, onProgress = null } = {}) {
     const decoder = new TextDecoder('utf-8');
     const shapes = [];
     let metadata = null;
@@ -768,7 +768,17 @@ async function parseJsonByteStreamToDocument(reader, { totalBytes = 0, sourceLab
             const progressText = totalBytes > 0
                 ? `${formatBytes(bytesRead)} / ${formatBytes(totalBytes)}${UI_TEXT.BULLET_SEPARATOR}${nextShapeId.toLocaleString()} shapes`
                 : `${formatBytes(bytesRead)}${UI_TEXT.BULLET_SEPARATOR}${nextShapeId.toLocaleString()} shapes`;
-            updateLoadingPopup(`Loading ${sourceLabel}...`, progressText);
+            if (typeof onProgress === 'function') {
+                onProgress({
+                    title: `Loading ${sourceLabel}...`,
+                    subtitle: progressText,
+                    bytesRead,
+                    totalBytes,
+                    shapesCount: nextShapeId
+                });
+            } else {
+                updateLoadingPopup(`Loading ${sourceLabel}...`, progressText);
+            }
             lastProgressBytes = bytesRead;
             await yieldToBrowser();
         }
@@ -830,10 +840,22 @@ async function loadJsonFileStreaming(file) {
     }
 }
 
-async function loadJsonResponseStreaming(response, { sourceLabel = 'JSON response', sessionCacheKey = null, pageNum = 1 } = {}) {
+async function loadJsonResponseStreaming(response, { sourceLabel = 'JSON response', sessionCacheKey = null, pageNum = 1, onProgress = null, autoLoad = true } = {}) {
     const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10) || 0;
 
     if (shouldPreferFastFullJsonParse(contentLength)) {
+        if (typeof onProgress === 'function') {
+            const subtitle = contentLength > 0
+                ? `${formatBytes(contentLength)}${UI_TEXT.BULLET_SEPARATOR}native parse`
+                : 'native parse';
+            onProgress({
+                title: `Reading ${sourceLabel}...`,
+                subtitle,
+                bytesRead: 0,
+                totalBytes: contentLength,
+                shapesCount: 0
+            });
+        }
         const text = await response.text();
         if (sessionCacheKey && text.length <= CONFIG.JSON_SESSION_CACHE_MAX_BYTES) {
             try {
@@ -847,10 +869,18 @@ async function loadJsonResponseStreaming(response, { sourceLabel = 'JSON respons
         if (topLevelValues.error) {
             throw new Error(topLevelValues.error);
         }
-        await loadParsedJsonDocument(parsed, { pageNum, buildRasterPreview: false });
-        return {
+        const normalizedDocument = convertParsedToNormalizedDocument(parsed);
+        const documentData = {
+            ...normalizedDocument,
             topLevelValues,
-            shapesCount: jsonShapes ? jsonShapes.length : 0
+            initialRasterPreview: null
+        };
+        if (autoLoad !== false) {
+            loadNormalizedDocument({ ...documentData, pageNum });
+        }
+        return {
+            ...documentData,
+            shapesCount: documentData.shapes.length
         };
     }
 
@@ -858,12 +888,15 @@ async function loadJsonResponseStreaming(response, { sourceLabel = 'JSON respons
         const documentData = await parseJsonByteStreamToDocument(response.body.getReader(), {
             totalBytes: contentLength,
             sourceLabel,
-            buildRasterPreview: false
+            buildRasterPreview: false,
+            onProgress
         });
         if (documentData.topLevelValues?.error) {
             throw new Error(documentData.topLevelValues.error);
         }
-        loadNormalizedDocument({ ...documentData, pageNum });
+        if (autoLoad !== false) {
+            loadNormalizedDocument({ ...documentData, pageNum });
+        }
         return documentData;
     }
 
@@ -880,10 +913,18 @@ async function loadJsonResponseStreaming(response, { sourceLabel = 'JSON respons
     if (topLevelValues.error) {
         throw new Error(topLevelValues.error);
     }
-    await loadParsedJsonDocument(parsed, { pageNum, buildRasterPreview: false });
-    return {
+    const normalizedDocument = convertParsedToNormalizedDocument(parsed);
+    const documentData = {
+        ...normalizedDocument,
         topLevelValues,
-        shapesCount: jsonShapes ? jsonShapes.length : 0
+        initialRasterPreview: null
+    };
+    if (autoLoad !== false) {
+        loadNormalizedDocument({ ...documentData, pageNum });
+    }
+    return {
+        ...documentData,
+        shapesCount: documentData.shapes.length
     };
 }
 
@@ -921,7 +962,7 @@ function decodeBase64ToUint8Array(base64Value) {
     return bytes;
 }
 
-async function parseGzipBase64ToDocumentStreaming(gzipB64, { sourceLabel = 'JSON gzip' } = {}) {
+async function parseGzipBase64ToDocumentStreaming(gzipB64, { sourceLabel = 'JSON gzip', onProgress = null } = {}) {
     const gzipBytes = decodeBase64ToUint8Array(gzipB64);
     if (!gzipBytes.length) {
         throw new Error('Empty gzip payload.');
@@ -932,7 +973,8 @@ async function parseGzipBase64ToDocumentStreaming(gzipB64, { sourceLabel = 'JSON
     if (decompressedStream && typeof decompressedStream.getReader === 'function') {
         return parseJsonByteStreamToDocument(decompressedStream.getReader(), {
             sourceLabel,
-            buildRasterPreview: false
+            buildRasterPreview: false,
+            onProgress
         });
     }
 

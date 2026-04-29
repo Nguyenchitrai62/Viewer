@@ -34,6 +34,31 @@ function updateLoadingPopup(title = 'Processing...', subtitle = '') {
     showLoadingPopup(title, subtitle);
 }
 
+function showCanvasStatusOverlay(title = 'Loading page...', subtitle = '', tone = 'info') {
+    const overlay = document.getElementById('page-status-overlay');
+    if (!overlay) return;
+
+    overlay.classList.remove('is-info', 'is-success', 'is-warning', 'is-error');
+    overlay.classList.add('is-visible', `is-${tone}`);
+
+    const titleEl = document.getElementById('page-status-title');
+    const subtitleEl = document.getElementById('page-status-subtitle');
+    if (titleEl) {
+        titleEl.textContent = title;
+    }
+    if (subtitleEl) {
+        subtitleEl.textContent = subtitle || '';
+        subtitleEl.style.display = subtitle ? 'block' : 'none';
+    }
+}
+
+function hideCanvasStatusOverlay() {
+    const overlay = document.getElementById('page-status-overlay');
+    if (!overlay) return;
+
+    overlay.classList.remove('is-visible', 'is-info', 'is-success', 'is-warning', 'is-error');
+}
+
 function yieldToBrowser() {
     return new Promise(resolve => requestAnimationFrame(() => resolve()));
 }

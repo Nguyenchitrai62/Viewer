@@ -60,10 +60,9 @@ dropZone.addEventListener('drop', async e => {
     const file = e.dataTransfer.files[0];
 
     if (file && file.name.toLowerCase().endsWith('.pdf')) {
-        if (currentPdfFile && currentPdfFile !== file && typeof releaseCurrentPdfResources === 'function') {
-            await releaseCurrentPdfResources();
+        if (typeof cancelCurrentBatchProcessing === 'function') {
+            cancelCurrentBatchProcessing();
         }
-        currentPdfFile = file;
         try {
             // Get page count for thumbnails
             const formData = new FormData();
@@ -82,7 +81,6 @@ dropZone.addEventListener('drop', async e => {
             // Create thumbnails for all pages
             createPageThumbnails(file, data.pages);
             // Start batch processing all pages
-            clearVisualization();
             processAllPagesBatch(file);
         } catch (error) {
             alert('Error loading PDF: ' + error.message);
@@ -90,6 +88,12 @@ dropZone.addEventListener('drop', async e => {
         }
     } else if (file && file.name.toLowerCase().endsWith('.json')) {
         try {
+            if (typeof cancelCurrentBatchProcessing === 'function') {
+                cancelCurrentBatchProcessing();
+            }
+            if (typeof clearPdfPageSidebar === 'function') {
+                clearPdfPageSidebar();
+            }
             await loadJsonFileStreaming(file);
         } catch (error) {
             alert('Lỗi khi đọc tệp JSON.\n' + error.message);
@@ -170,6 +174,12 @@ dropZone.addEventListener('drop', async e => {
 
         const processText = async (text) => {
             try {
+                if (typeof cancelCurrentBatchProcessing === 'function') {
+                    cancelCurrentBatchProcessing();
+                }
+                if (typeof clearPdfPageSidebar === 'function') {
+                    clearPdfPageSidebar();
+                }
                 clearVisualization();
                 cachedPages = {};
                 if (typeof releaseCurrentPdfResources === 'function') {
@@ -203,6 +213,12 @@ dropZone.addEventListener('drop', async e => {
                 try {
                     const response = await fetch(examplePath);
                     if (!response.ok) throw new Error('Network response was not ok');
+                    if (typeof cancelCurrentBatchProcessing === 'function') {
+                        cancelCurrentBatchProcessing();
+                    }
+                    if (typeof clearPdfPageSidebar === 'function') {
+                        clearPdfPageSidebar();
+                    }
                     clearVisualization();
                     cachedPages = {};
                     if (typeof releaseCurrentPdfResources === 'function') {

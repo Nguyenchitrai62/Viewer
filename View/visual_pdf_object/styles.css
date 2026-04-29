@@ -68,7 +68,8 @@ body {
     border-radius: 4px;
     overflow: hidden;
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+    background: #fff;
 }
 
 .page-thumbnail:hover {
@@ -84,6 +85,145 @@ body {
     width: 100%;
     height: auto;
     display: block;
+}
+
+.page-thumbnail-preview {
+    min-height: 110px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+}
+
+.page-thumbnail-placeholder {
+    padding: 12px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-color-secondary);
+}
+
+.page-thumbnail-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    background-color: var(--background-button);
+}
+
+.page-thumbnail.is-processing {
+    background: #f8fbff;
+}
+
+.page-thumbnail.is-processing .page-status-badge {
+    background: rgba(0, 123, 255, 0.12);
+    color: #0b5ed7;
+}
+
+.page-thumbnail.is-ready .page-status-badge {
+    background: rgba(40, 167, 69, 0.14);
+    color: #1f7a36;
+}
+
+.page-thumbnail.is-error .page-status-badge {
+    background: rgba(220, 53, 69, 0.12);
+    color: #b42318;
+}
+
+.page-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 68px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    background: rgba(108, 117, 125, 0.14);
+    color: var(--text-color-secondary);
+}
+
+.page-processing-summary {
+    display: none;
+    margin: 0 0 14px 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef4ff 100%);
+    border: 1px solid #dbe7ff;
+}
+
+.page-processing-summary.is-visible {
+    display: block;
+}
+
+.page-processing-summary-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #24448f;
+}
+
+.page-processing-summary-subtitle {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-color-secondary);
+}
+
+.page-status-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 20;
+    background: rgba(255, 255, 255, 0.78);
+}
+
+.page-status-overlay.is-visible {
+    display: flex;
+}
+
+.page-status-card {
+    min-width: 260px;
+    max-width: 360px;
+    padding: 18px 20px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.16);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    text-align: center;
+}
+
+.page-status-spinner {
+    width: 34px;
+    height: 34px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    border: 4px solid rgba(148, 163, 184, 0.22);
+    border-top-color: var(--accent-color);
+    animation: spin 1s linear infinite;
+}
+
+.page-status-overlay.is-error .page-status-spinner {
+    border-top-color: var(--danger-color);
+}
+
+.page-status-overlay.is-success .page-status-spinner {
+    border-top-color: var(--success-color);
+}
+
+.page-status-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-color-primary);
+}
+
+.page-status-subtitle {
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--text-color-secondary);
+    line-height: 1.45;
 }
 
 .page-number {
