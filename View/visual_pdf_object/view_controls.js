@@ -176,14 +176,22 @@ function clearVisualization() {
     cropLengthsFiltered = null;
     mainLayers = null;
     anchorBbox = null;
-    anchorPatterns = null; // Reset anchor patterns
+    cropPreviewBbox = null;
+    cropPreviewTransform = null;
+    anchorPatterns = [];
+    rawAnchorPatternCount = 0;
+    lastSearchMs = 0;
+    lastSequenceSearchMs = 0;
     similarBboxes = [];
     sequenceMatches = []; // Reset sequence matches
     sequencePatternTokens = null; // Reset sequence tokens
     searchBboxSize = null;
     cropItems = [];
-    cropSelectedItemIds.clear();
+    cropSelectedItemIds = new Set();
     expandedNodes = {};
+    dragSelecting = false;
+    selectionMode = 'hide';
+    isCropModalOpen = false;
 
     // Reset transient UI modes so button labels/icons stay in sync after a reload.
     isDrawingBbox = false;

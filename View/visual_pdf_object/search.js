@@ -13,6 +13,67 @@ function getOrComputeLength(layerName, objIndex, itemIndex, type, item) {
     return len;
 }
 
+function clearCropModalWorkingSet() {
+    cropItems = [];
+    cropSelectedItemIds = new Set();
+    cropSeqnoToIds = {};
+    cropPreviewBbox = null;
+    cropPreviewTransform = null;
+    dragSelecting = false;
+    selectionMode = 'hide';
+    isCropModalOpen = false;
+}
+
+function resetSearchSessionState({
+    clearLengthCache = false,
+    clearFoundCount = false,
+    clearVlmArtifacts = false,
+    releaseTransientVectorCache = false
+} = {}) {
+    cropLengths = null;
+    cropLengthsFull = null;
+    cropLengthsFiltered = null;
+    mainLayers = null;
+    anchorBbox = null;
+    similarBboxes = [];
+    sequenceMatches = [];
+    sequencePatternTokens = null;
+    searchBboxSize = null;
+    anchorPatterns = [];
+    rawAnchorPatternCount = 0;
+    lastSearchMs = 0;
+    lastSequenceSearchMs = 0;
+    expandedNodes = {};
+    isApplyingSavedPattern = false;
+    clearCropModalWorkingSet();
+
+    if (clearLengthCache) {
+        precomputedLengths = {};
+    }
+
+    if (clearVlmArtifacts) {
+        pendingVLMCrop = null;
+        pendingVLMBbox = null;
+        if (typeof clearDetectedCellOverlay === 'function') {
+            clearDetectedCellOverlay();
+        } else {
+            extractedCellOverlays = [];
+            extractedCellDownloadBundle = null;
+        }
+    }
+
+    if (clearFoundCount) {
+        const foundCountDiv = document.getElementById('found-count');
+        if (foundCountDiv) {
+            foundCountDiv.style.display = 'none';
+        }
+    }
+
+    if (releaseTransientVectorCache && typeof cancelPendingVectorRender === 'function') {
+        cancelPendingVectorRender();
+    }
+}
+
 // FIXED: Sử dụng cropSeqnoToIds (chỉ cho crop modal)
 function applySelectionAtPoint(worldX, worldY) {
     if (!cropItems.length) return;
@@ -601,6 +662,14 @@ function findSimilarRegions() {
 function showCropModal(rect) {
     // FIXED: Kiß╗âm tra size bbox ─æß╗â tr├ính lß╗ùi Infinity khi scale
     if (!rect || !hasRenderableDocument() || rect.width <= 0 || rect.height <= 0) return;
+    const prevCropState = {
+        cropLengths,
+        cropLengthsFull,
+        cropLengthsFiltered,
+        mainLayers: mainLayers ? [...mainLayers] : null,
+        anchorBbox,
+        searchBboxSize
+    };
     selectionMode = 'hide';
     const modal = document.getElementById('crop-modal');
     const cropCanvas = document.getElementById('crop-canvas');
@@ -650,12 +719,13 @@ function showCropModal(rect) {
     anchorBbox = { x: tightMinX - padding, y: tightMinY - padding, width: (tightMaxX - tightMinX) + 2 * padding, height: (tightMaxY - tightMinY) + 2 * padding };
     cropPreviewBbox = { ...anchorBbox };
     bboxCoords.textContent = `${anchorBbox.x.toFixed(2)}, ${anchorBbox.y.toFixed(2)}, ${(anchorBbox.x + anchorBbox.width).toFixed(2)}, ${(anchorBbox.y + anchorBbox.height).toFixed(2)}`;
-    mainLayers = Array.from(layerSet);
+    const selectedLayerNames = Array.from(layerSet);
+    mainLayers = selectedLayerNames;
     searchBboxSize = { width: anchorBbox.width, height: anchorBbox.height };
     cropItems = [];
     let nextId = 0;
     const tempLayerObjIndexMap = {};
-    sortedLayerKeys.forEach(layerName => {
+    selectedLayerNames.forEach(layerName => {
         const arr = layerIndex[layerName] || [];
         tempLayerObjIndexMap[layerName] = new Map(arr.map((o, i) => [o, i]));
     });
@@ -765,19 +835,9 @@ function showCropModal(rect) {
         colorContainer.appendChild(label);
     });
 
-    // Save current visibility and crop/search state so we can restore them after modal
-    const prevLayerVisibility = { ...layerVisibility };
-    const prevCropState = {
-        cropLengths, cropLengthsFull, cropLengthsFiltered, mainLayers: mainLayers ? [...mainLayers] : null,
-        anchorBbox, searchBboxSize, similarBboxes: similarBboxes ? [...similarBboxes] : []
-    };
-
     recomputeCropDataFromSelection();
     const displayLengths = {};
     for (const type in cropLengthsFull) displayLengths[type] = [...new Set(cropLengthsFull[type])].sort((a, b) => a - b);
-    // For modal preview we temporarily show only mainLayers (optimization stays internal)
-    sortedLayerKeys.forEach(layerName => layerVisibility[layerName] = mainLayers.includes(layerName));
-    updateLayerList();
     let counts = { l: 0, c: 0, qu: 0 };
     croppedObjs.forEach(({ obj }) => {
         if (obj.type !== 'text' && obj.items) {
@@ -813,9 +873,9 @@ function showCropModal(rect) {
     const offsetY2 = (cropCanvas.height - anchorBbox.height * scale) / 2;
     cropPreviewTransform = { scale, offsetX: offsetX2, offsetY: offsetY2, rect: cropPreviewBbox };
     redrawCropPreview(ctx2, croppedObjs, cropPreviewBbox, cropCanvas);
+    isCropModalOpen = true;
     modal.style.display = 'block';
     const closeBtn = modal.querySelector('.close');
-    let searchTriggered = false;
 
     const restoreAndClose = (doSearch) => {
         // If doSearch is true we need to run search first (uses current cropLengths/mainLayers),
@@ -823,9 +883,19 @@ function showCropModal(rect) {
         // while keeping the search overlay (similarBboxes) visible.
         const finish = (results) => {
             modal.style.display = 'none';
-            // Restore user's original layer visibility by mutating the existing object
-            Object.keys(layerVisibility).forEach(k => delete layerVisibility[k]);
-            Object.entries(prevLayerVisibility).forEach(([k, v]) => layerVisibility[k] = v);
+            closeBtn.onclick = null;
+            modal.onclick = null;
+            if (btnSearchNow) btnSearchNow.onclick = null;
+            if (btnCancelSearch) btnCancelSearch.onclick = null;
+            btnHideMode.onclick = null;
+            btnShowMode.onclick = null;
+            cropCanvas.onmousedown = null;
+            cropCanvas.onmouseup = null;
+            cropCanvas.onmouseleave = null;
+            cropCanvas.onmousemove = null;
+            ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+            colorContainer.innerHTML = '';
+            commandCount.innerHTML = '';
             // Restore crop/search state (so canvas no longer filtered by the modal selection)
             cropLengths = prevCropState.cropLengths;
             cropLengthsFull = prevCropState.cropLengthsFull;
@@ -835,17 +905,8 @@ function showCropModal(rect) {
             searchBboxSize = prevCropState.searchBboxSize;
             // Set similarBboxes from search results (if any) so overlay remains
             similarBboxes = results || [];
-            updateLayerList();
-            // Ensure checkboxes match restored visibility (DOM may have been rebuilt)
-            try {
-                sortedLayerKeys.forEach(ln => {
-                    const cb = document.getElementById(`check-${ln}`);
-                    if (cb) cb.checked = !!layerVisibility[ln];
-                });
-            } catch (e) { /* ignore DOM timing issues */ }
+            clearCropModalWorkingSet();
             scheduleDraw();
-            // Apply svg layer visibility too
-            applySvgTransform();
         };
 
         if (doSearch) {
@@ -910,7 +971,7 @@ function showCropModal(rect) {
         btnShowMode.classList.add('active');
         btnHideMode.classList.remove('active');
     };
-    cropCanvas.addEventListener('mousedown', e => {
+    cropCanvas.onmousedown = e => {
         dragSelecting = true;
         const rect = cropCanvas.getBoundingClientRect();
         const x = e.clientX - rect.left, y = e.clientY - rect.top;
@@ -918,10 +979,14 @@ function showCropModal(rect) {
         const worldX = (x - cropPreviewTransform.offsetX) / cropPreviewTransform.scale + cropPreviewTransform.rect.x;
         const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
         applySelectionAtPoint(worldX, worldY);
-    });
-    cropCanvas.addEventListener('mouseup', () => dragSelecting = false);
-    cropCanvas.addEventListener('mouseleave', () => dragSelecting = false);
-    cropCanvas.addEventListener('mousemove', e => {
+    };
+    cropCanvas.onmouseup = () => {
+        dragSelecting = false;
+    };
+    cropCanvas.onmouseleave = () => {
+        dragSelecting = false;
+    };
+    cropCanvas.onmousemove = e => {
         if (!dragSelecting) return;
         const rect = cropCanvas.getBoundingClientRect();
         const x = e.clientX - rect.left, y = e.clientY - rect.top;
@@ -929,6 +994,6 @@ function showCropModal(rect) {
         const worldX = (x - cropPreviewTransform.offsetX) / cropPreviewTransform.scale + cropPreviewTransform.rect.x;
         const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
         applySelectionAtPoint(worldX, worldY);
-    });
+    };
     updateCommandCountSummary();
 }

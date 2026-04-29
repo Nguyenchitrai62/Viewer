@@ -531,14 +531,23 @@ function drawRasterFallbackFrame() {
     drawCrosshairOverlay();
 }
 
+function getMainViewCropLengths() {
+    return isCropModalOpen ? null : cropLengths;
+}
+
+function getMainViewLayerFilter() {
+    return isCropModalOpen ? null : mainLayers;
+}
+
 function shouldUseAsyncHighZoomVectorRender(useCropFilter, shapesToRender) {
+    const activeMainLayers = getMainViewLayerFilter();
     return Boolean(
         !isInteracting &&
         !isDrawingBbox &&
         !isVLMBboxMode &&
         !annotationMode &&
         !useCropFilter &&
-        !mainLayers &&
+        !activeMainLayers &&
         shapeRasterCache &&
         Array.isArray(shapesToRender) &&
         shapesToRender.length >= HIGH_ZOOM_VECTOR_RENDER_MIN_SHAPES
@@ -546,6 +555,8 @@ function shouldUseAsyncHighZoomVectorRender(useCropFilter, shapesToRender) {
 }
 
 function captureHighZoomVectorViewState() {
+    const activeCropLengths = getMainViewCropLengths();
+    const activeMainLayers = getMainViewLayerFilter();
     const key = [
         canvas.width,
         canvas.height,
@@ -555,8 +566,8 @@ function captureHighZoomVectorViewState() {
         shapeRasterCacheToken,
         currentPageNum ?? 'json',
         annotationMode || '',
-        Number(Boolean(cropLengths)),
-        Number(Boolean(mainLayers)),
+        Number(Boolean(activeCropLengths)),
+        Number(Boolean(activeMainLayers)),
         Number(Boolean(isDrawingBbox)),
         Number(Boolean(isVLMBboxMode))
     ].join('|');
@@ -576,13 +587,15 @@ function hasReadyHighZoomVectorFrame(viewState) {
 }
 
 function isHighZoomVectorRenderStale(token, viewState) {
+    const activeCropLengths = getMainViewCropLengths();
+    const activeMainLayers = getMainViewLayerFilter();
     return (
         token !== highZoomVectorRenderToken ||
         isInteracting ||
         shouldPreferShapeRasterPreview() ||
         !shapeRasterCache ||
-        Boolean(cropLengths) ||
-        Boolean(mainLayers) ||
+        Boolean(activeCropLengths) ||
+        Boolean(activeMainLayers) ||
         Boolean(annotationMode) ||
         Boolean(isDrawingBbox) ||
         Boolean(isVLMBboxMode) ||
@@ -1170,7 +1183,9 @@ function draw() {
     // PERFORMANCE OPTIMIZATION: Fast path for high-zoom pan/zoom
     // Skip quadtree query, SVG transform, vector highlights during interaction
     // ============================================
-    const useCropFilter = Boolean(cropLengths);
+    const activeCropLengths = getMainViewCropLengths();
+    const activeMainLayers = getMainViewLayerFilter();
+    const useCropFilter = Boolean(activeCropLengths);
     if (
         isInteracting &&
         shapeRasterCache
@@ -1256,18 +1271,18 @@ function draw() {
                 }
             }
 
-            if (useCropFilter && mainLayers && !mainLayers.includes(layerName) && !isApplyingSavedPattern && !obj._isPipelineLayer) return;
+            if (useCropFilter && activeMainLayers && !activeMainLayers.includes(layerName) && !isApplyingSavedPattern && !obj._isPipelineLayer) return;
 
-            if (cropLengths && mainLayers) {
+            if (activeCropLengths && activeMainLayers) {
                 flushFills();
                 flushStrokes();
                 drawShapeOnCtx(ctx, obj);
             } else {
                 const filteredItems = useCropFilter ? (obj.items?.filter((item, itemIndex) => {
                     const type = item[0];
-                    if (!cropLengths[type] || cropLengths[type].length === 0) return true;
+                    if (!activeCropLengths[type] || activeCropLengths[type].length === 0) return true;
                     const currentLength = getOrComputeLength(layerName, obj.id, itemIndex, type, item);
-                    return cropLengths[type].some(len => Math.abs(len - currentLength) <= 1);
+                    return activeCropLengths[type].some(len => Math.abs(len - currentLength) <= 1);
                 }) || []) : (obj.items || []);
 
                 if (filteredItems.length === 0) return;

@@ -86,6 +86,7 @@ let cropLengthsFiltered = null;
 let mainLayers = null;
 let anchorBbox = null;
 let cropPreviewBbox = null;
+let isCropModalOpen = false;
 let allShapesSorted = [];
 let allShapesBounds = null;
 let similarBboxes = [];

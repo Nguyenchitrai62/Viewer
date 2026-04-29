@@ -379,14 +379,11 @@ btnDrawBbox.addEventListener('click', () => {
     } else {
         bboxStart = null;
         currentBbox = null;
-        cropLengths = null;
-        cropLengthsFull = null;
-        cropLengthsFiltered = null;
-        mainLayers = null;
-        anchorBbox = null;
-        similarBboxes = [];
-        searchBboxSize = null;
-        expandedNodes = {};
+        resetSearchSessionState({
+            clearLengthCache: true,
+            clearFoundCount: true,
+            releaseTransientVectorCache: true
+        });
         // Hide mode label
         updateModeLabel(null);
         scheduleCrosshairOverlayDraw();
@@ -394,29 +391,19 @@ btnDrawBbox.addEventListener('click', () => {
     }
 });
 btnResetFilter.addEventListener('click', () => {
-    cropLengths = null;
-    cropLengthsFull = null;
-    cropLengthsFiltered = null;
-    mainLayers = null;
-    anchorBbox = null;
-    similarBboxes = [];
-    sequenceMatches = [];
-    sequencePatternTokens = null;
-    searchBboxSize = null;
-    expandedNodes = {};
-    pendingVLMCrop = null;
-    pendingVLMBbox = null;
-    if (typeof clearDetectedCellOverlay === 'function') {
-        clearDetectedCellOverlay();
-    } else {
-        extractedCellOverlays = [];
-        extractedCellDownloadBundle = null;
-    }
-    document.getElementById('found-count').style.display = 'none';
+    resetSearchSessionState({
+        clearLengthCache: true,
+        clearFoundCount: true,
+        clearVlmArtifacts: true,
+        releaseTransientVectorCache: true
+    });
     isDrawingBbox = false;
+    bboxStart = null;
+    currentBbox = null;
     btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
     btnDrawBbox.classList.remove('active');
     canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
+    updateModeLabel(null);
     scheduleCrosshairOverlayDraw();
     scheduleDraw();
 });
