@@ -14,7 +14,7 @@ const CONFIG = {
     INITIAL_ZOOM: 1.0, // Muc zoom ban dau
     ZOOM_FIT_MARGIN: 0.95, // Le de fit noi dung vao man hinh
     LOW_ZOOM_RASTER_THRESHOLD: 3, // Zoom toi da de dung raster; lon hon muc nay moi bat lai vector
-    INTERACTION_DEBOUNCE_MS: 100, // Do tre debounce sau khi ket thuc pan/zoom de ve lai vector
+    INTERACTION_DEBOUNCE_MS: 200, // Do tre debounce sau khi ket thuc pan/zoom de ve lai vector
     ZOOM_MIN: 0.1, // Zoom toi thieu
     ZOOM_MAX: 500, // Zoom toi da
     PDF_PAGE_CACHE_SCALE: 3, // Ti le render cache PDF dung chung cho VLM va low-zoom raster

@@ -100,7 +100,7 @@ async function getPdfPageBounds() {
     let page = null;
     try {
         const arrayBuffer = await currentPdfFile.arrayBuffer();
-        pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        pdf = await loadPdfDocument(arrayBuffer).promise;
         page = await pdf.getPage(currentPageNum);
         const viewport = page.getViewport({ scale: 1 });
         return {

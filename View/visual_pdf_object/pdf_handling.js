@@ -55,7 +55,7 @@ async function ensureCurrentPdfDocument() {
     pdfRasterPreviewLoadingPages = {};
 
     currentPdfDocumentPromise = currentPdfFile.arrayBuffer()
-        .then(arrayBuffer => pdfjsLib.getDocument({ data: arrayBuffer }).promise)
+        .then(arrayBuffer => loadPdfDocument(arrayBuffer).promise)
         .then(pdfDocument => {
             if (currentPdfDocumentSourceKey !== sourceKey) {
                 try {
@@ -448,7 +448,7 @@ async function createPageThumbnails(file, numPages) {
             pdf = await ensureCurrentPdfDocument();
         } else {
             const arrayBuffer = await file.arrayBuffer();
-            pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            pdf = await loadPdfDocument(arrayBuffer).promise;
             ownsPdfDocument = true;
         }
 
