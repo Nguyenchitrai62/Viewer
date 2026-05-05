@@ -339,17 +339,17 @@ async function ensurePdfUploadSession(file, { signal = null, force = false } = {
         const start = chunkIndex * resolvedChunkSize;
         const end = Math.min(file.size, start + resolvedChunkSize);
         const chunkBlob = file.slice(start, end);
-        const chunkFormData = new FormData();
-        chunkFormData.append('chunk_index', String(chunkIndex));
-        chunkFormData.append('chunk', chunkBlob, `${file.name}.part${chunkIndex}`);
-
-        const chunkResponse = await fetch(`${ENV.API_BASE_URL}/upload-sessions/${sessionId}/chunk`, {
+        const chunkResponse = await fetch(`${ENV.API_BASE_URL}/upload-sessions/${sessionId}/chunk?chunk_index=${chunkIndex}`, {
             method: 'POST',
-            body: chunkFormData,
+            headers: {
+                'Content-Type': 'application/octet-stream'
+            },
+            body: chunkBlob,
             signal,
         });
         if (!chunkResponse.ok) {
-            throw new Error(`Chunk ${chunkIndex + 1}/${expectedChunks} failed (${chunkResponse.status}).`);
+            const errorText = await chunkResponse.text().catch(() => '');
+            throw new Error(`Chunk ${chunkIndex + 1}/${expectedChunks} failed (${chunkResponse.status})${errorText ? `: ${errorText}` : ''}.`);
         }
 
         const uploadedBytes = end;
