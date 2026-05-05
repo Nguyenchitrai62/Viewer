@@ -13,31 +13,6 @@ function revokeCurrentPdfDocumentUrl() {
     currentPdfDocumentObjectUrl = null;
 }
 
-async function getLocalPdfPageCount(file) {
-    if (!file) {
-        throw new Error('No PDF file selected.');
-    }
-
-    const objectUrl = URL.createObjectURL(file);
-    let pdfDocument = null;
-    try {
-        pdfDocument = await pdfjsLib.getDocument({
-            ...window.PDFJS_DOCUMENT_OPTIONS,
-            url: objectUrl,
-        }).promise;
-        return pdfDocument.numPages;
-    } finally {
-        if (pdfDocument) {
-            try {
-                await pdfDocument.destroy();
-            } catch (error) {
-                console.warn('PDF destroy error:', error);
-            }
-        }
-        URL.revokeObjectURL(objectUrl);
-    }
-}
-
 async function releaseCurrentPdfResources() {
     const pdfToDestroy = currentPdfDocument;
     currentPdfDocument = null;
@@ -472,14 +447,14 @@ function showPendingPageOverlay(pageNum, subtitle) {
     showCanvasStatusOverlay(`Page ${pageNum} is loading`, subtitle, 'info');
 }
 
-async function createPageThumbnails(file, numPages) {
+async function createPageThumbnails(file, numPages = null) {
     const thumbnailsContainer = document.getElementById('page-thumbnails');
     thumbnailsContainer.innerHTML = '';
 
     currentThumbnailTaskId++;
     const taskId = currentThumbnailTaskId;
     resetPdfPageProcessingState();
-    autoOpenReadyPage = numPages > 0;
+    autoOpenReadyPage = false;
 
     let pdf = null;
     let ownsPdfDocument = false;
@@ -496,9 +471,12 @@ async function createPageThumbnails(file, numPages) {
             ownsPdfDocument = true;
         }
 
+        const totalPages = Number.isFinite(numPages) && numPages > 0 ? numPages : pdf.numPages;
+        autoOpenReadyPage = totalPages > 0;
+
         // Tß║ío tr╞░ß╗¢c list divs ─æß╗â giß╗» ─æ├║ng thß╗⌐ tß╗▒ c├íc trang
         const thumbnailDivs = [];
-        for (let i = 1; i <= numPages; i++) {
+        for (let i = 1; i <= totalPages; i++) {
             const div = document.createElement('div');
             div.className = 'page-thumbnail';
             div.dataset.page = i;
@@ -643,8 +621,6 @@ async function loadCachedPage(pageNum, { requestId = pageLoadRequestId, sourceFi
         hidePdfPreview();
         loadNormalizedDocument({ ...documentData, pageNum });
         console.log(`Page ${pageNum}: ${jsonShapes.length} shapes`);
-
-        dropZone.classList.add('hidden');
         updateSelectedThumbnail(pageNum);
         hideCanvasStatusOverlay();
     } catch (error) {

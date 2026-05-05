@@ -768,7 +768,7 @@
 
                 try {
                     const startTime = performance.now();
-                    const baseUrl = (typeof ENV !== 'undefined' && ENV.API_BASE_URL) ? ENV.API_BASE_URL : 'http://127.0.0.1:5000';
+                    const baseUrl = (typeof ENV !== 'undefined' && ENV.API_BASE_URL) ? ENV.API_BASE_URL : 'http://localhost:8631';
                     const response = await fetch(`${baseUrl}/export_revit`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },

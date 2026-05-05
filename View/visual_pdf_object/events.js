@@ -64,10 +64,9 @@ dropZone.addEventListener('drop', async e => {
             cancelCurrentBatchProcessing();
         }
         try {
-            showCanvasStatusOverlay('Reading PDF...', 'Counting pages locally to avoid uploading the same large file twice.', 'info');
-            const pageCount = await getLocalPdfPageCount(file);
+            showCanvasStatusOverlay('Reading PDF...', 'Preparing thumbnails and starting background extraction.', 'info');
             // Create thumbnails for all pages
-            createPageThumbnails(file, pageCount);
+            createPageThumbnails(file);
             // Start batch processing all pages
             processAllPagesBatch(file);
         } catch (error) {
