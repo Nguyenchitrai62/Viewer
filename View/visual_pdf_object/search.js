@@ -19,9 +19,79 @@ function clearCropModalWorkingSet() {
     cropSeqnoToIds = {};
     cropPreviewBbox = null;
     cropPreviewTransform = null;
+    cropPreviewObjects = [];
+    cropPreviewItemLookup = null;
     dragSelecting = false;
     selectionMode = 'hide';
     isCropModalOpen = false;
+}
+
+function rebuildCropPreviewLookup(croppedObjs) {
+    cropPreviewObjects = Array.isArray(croppedObjs) ? croppedObjs.slice() : [];
+    const nextLookup = new WeakMap();
+    for (let index = 0; index < cropItems.length; index += 1) {
+        const cropItem = cropItems[index];
+        let objectLookup = nextLookup.get(cropItem.obj);
+        if (!objectLookup) {
+            objectLookup = new Map();
+            nextLookup.set(cropItem.obj, objectLookup);
+        }
+        objectLookup.set(cropItem.itemIndex, cropItem.id);
+    }
+    cropPreviewItemLookup = nextLookup;
+}
+
+function redrawActiveCropPreview() {
+    if (!cropPreviewBbox) return;
+    const cropCanvas = document.getElementById('crop-canvas');
+    if (!cropCanvas) return;
+    const ctx2 = cropCanvas.getContext('2d');
+    ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+    redrawCropPreview(ctx2, cropPreviewObjects, cropPreviewBbox, cropCanvas);
+}
+
+function drawCropPreviewRasterPlaceholder(cropCanvas, bboxRef) {
+    if (!cropCanvas || !bboxRef || !shapeRasterCache?.canvas || !shapeRasterCache?.bounds) {
+        return false;
+    }
+
+    const previewCtx = cropCanvas.getContext('2d');
+    const rasterBounds = shapeRasterCache.bounds;
+    const rasterScale = shapeRasterCache.scale || 1;
+    const srcX = (bboxRef.x - rasterBounds.minX) * rasterScale;
+    const srcY = (bboxRef.y - rasterBounds.minY) * rasterScale;
+    const srcWidth = bboxRef.width * rasterScale;
+    const srcHeight = bboxRef.height * rasterScale;
+
+    if (!Number.isFinite(srcX) || !Number.isFinite(srcY) || srcWidth <= 0 || srcHeight <= 0) {
+        return false;
+    }
+
+    const scaleX = cropCanvas.width / bboxRef.width;
+    const scaleY = cropCanvas.height / bboxRef.height;
+    const scale = Math.min(scaleX, scaleY);
+    const drawWidth = bboxRef.width * scale;
+    const drawHeight = bboxRef.height * scale;
+    const offsetX2 = (cropCanvas.width - drawWidth) / 2;
+    const offsetY2 = (cropCanvas.height - drawHeight) / 2;
+
+    previewCtx.save();
+    previewCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+    previewCtx.fillStyle = '#ffffff';
+    previewCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+    previewCtx.drawImage(
+        shapeRasterCache.canvas,
+        srcX,
+        srcY,
+        srcWidth,
+        srcHeight,
+        offsetX2,
+        offsetY2,
+        drawWidth,
+        drawHeight
+    );
+    previewCtx.restore();
+    return true;
 }
 
 function resetSearchSessionState({
@@ -74,6 +144,163 @@ function resetSearchSessionState({
     }
 }
 
+function hasActiveSearchCanvasState() {
+    return Boolean(
+        bboxStart ||
+        currentBbox ||
+        cropLengths ||
+        cropLengthsFull ||
+        cropLengthsFiltered ||
+        mainLayers ||
+        anchorBbox ||
+        searchBboxSize ||
+        cropPreviewBbox ||
+        similarBboxes.length ||
+        sequenceMatches.length ||
+        anchorPatterns.length ||
+        rawAnchorPatternCount ||
+        sequencePatternTokens ||
+        isApplyingSavedPattern ||
+        isCropModalOpen
+    );
+}
+
+function getFindPopupPageCacheKey() {
+    return [
+        currentPageNum ?? 'json',
+        currentLayerField || '',
+        jsonShapes?.length || 0,
+        allShapesSorted?.length || 0
+    ].join('|');
+}
+
+function invalidateFindPopupPageCache() {
+    findPopupPageCache = null;
+    findPopupPageCacheBuildPromise = null;
+    findPopupPageCacheWarmScheduled = false;
+    findPopupPageCacheBuildToken += 1;
+}
+
+function buildFindPopupObjectMeta(obj, layerName, objIndex) {
+    if (!obj || obj.type === 'text' || !obj.rect || !Array.isArray(obj.items)) {
+        return null;
+    }
+
+    const commands = [];
+    const commandCounts = { l: 0, c: 0, qu: 0 };
+
+    for (let itemIndex = 0; itemIndex < obj.items.length; itemIndex += 1) {
+        const item = obj.items[itemIndex];
+        const type = item[0];
+        if (!(type === 'l' || type === 'c' || type === 'qu')) continue;
+
+        const length = getOrComputeLength(layerName, objIndex, itemIndex, type, item);
+        let anchorX;
+        let anchorY;
+        if (type === 'l' || type === 'c') {
+            [anchorX, anchorY] = item[1];
+        } else {
+            const points = item[1];
+            if (!points?.length) continue;
+            [anchorX, anchorY] = points[0];
+        }
+
+        commands.push({ type, length, anchorX, anchorY, itemIndex });
+        commandCounts[type] += 1;
+    }
+
+    return {
+        layer: layerName,
+        objIndex,
+        seqno: obj.seqno || objIndex,
+        colorStr: obj.color ? toRgbString(obj.color) : 'rgba(0, 0, 0, 1)',
+        commands,
+        commandCounts
+    };
+}
+
+async function buildFindPopupPageCache(cacheKey, token) {
+    const objectMetaByObject = new WeakMap();
+    let processedObjects = 0;
+
+    const layerNames = Object.keys(layerIndex || {});
+    for (let layerPos = 0; layerPos < layerNames.length; layerPos += 1) {
+        const layerName = layerNames[layerPos];
+        const layerArr = layerIndex[layerName] || [];
+        for (let objIndex = 0; objIndex < layerArr.length; objIndex += 1) {
+            const obj = layerArr[objIndex];
+            const meta = buildFindPopupObjectMeta(obj, layerName, objIndex);
+            if (meta) {
+                objectMetaByObject.set(obj, meta);
+            }
+
+            processedObjects += 1;
+            if (typeof yieldToBrowser === 'function' && processedObjects % 150 === 0) {
+                await yieldToBrowser();
+                if (token !== findPopupPageCacheBuildToken || getFindPopupPageCacheKey() !== cacheKey) {
+                    return null;
+                }
+            }
+        }
+    }
+
+    if (token !== findPopupPageCacheBuildToken || getFindPopupPageCacheKey() !== cacheKey) {
+        return null;
+    }
+
+    const cache = { key: cacheKey, objectMetaByObject };
+    findPopupPageCache = cache;
+    return cache;
+}
+
+async function ensureFindPopupPageCache() {
+    const cacheKey = getFindPopupPageCacheKey();
+    if (findPopupPageCache?.key === cacheKey) {
+        return findPopupPageCache;
+    }
+
+    if (findPopupPageCacheBuildPromise) {
+        const pendingCache = await findPopupPageCacheBuildPromise;
+        if (pendingCache?.key === cacheKey) {
+            return pendingCache;
+        }
+    }
+
+    const token = ++findPopupPageCacheBuildToken;
+    const buildPromise = buildFindPopupPageCache(cacheKey, token)
+        .catch(error => {
+            console.warn('Find popup page cache build failed:', error);
+            return null;
+        })
+        .finally(() => {
+            if (findPopupPageCacheBuildPromise === buildPromise) {
+                findPopupPageCacheBuildPromise = null;
+            }
+        });
+
+    findPopupPageCacheBuildPromise = buildPromise;
+    return await buildPromise;
+}
+
+function scheduleFindPopupPageCacheWarmup() {
+    if (findPopupPageCacheWarmScheduled || !allShapesSorted?.length) {
+        return;
+    }
+
+    const cacheKey = getFindPopupPageCacheKey();
+    if (findPopupPageCache?.key === cacheKey) {
+        return;
+    }
+
+    findPopupPageCacheWarmScheduled = true;
+    requestAnimationFrame(() => {
+        findPopupPageCacheWarmScheduled = false;
+        ensureFindPopupPageCache().catch(error => {
+            console.warn('Find popup page cache warmup failed:', error);
+        });
+    });
+}
+
 // FIXED: Sử dụng cropSeqnoToIds (chỉ cho crop modal)
 function applySelectionAtPoint(worldX, worldY) {
     if (!cropItems.length) return;
@@ -96,10 +323,7 @@ function applySelectionAtPoint(worldX, worldY) {
         isApplyingSavedPattern = false; // Manual crop resets this flag
         recomputeAnchorBboxFromSelection();
         recomputeCropDataFromSelection();
-        const cropCanvas = document.getElementById('crop-canvas');
-        const ctx2 = cropCanvas.getContext('2d');
-        ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-        redrawCropPreview(ctx2, cropItems.map(ci => ({ obj: ci.obj })), cropPreviewBbox, cropCanvas);
+        redrawActiveCropPreview();
         updateCommandCountSummary();
     }
 }
@@ -659,9 +883,16 @@ function findSimilarRegions() {
     }
 }
 
-function showCropModal(rect) {
+async function showCropModal(rect) {
     // FIXED: Kiß╗âm tra size bbox ─æß╗â tr├ính lß╗ùi Infinity khi scale
     if (!rect || !hasRenderableDocument() || rect.width <= 0 || rect.height <= 0) return;
+    const cropRect = {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    };
+    const cropRectArray = [cropRect.x, cropRect.y, cropRect.x + cropRect.width, cropRect.y + cropRect.height];
     const prevCropState = {
         cropLengths,
         cropLengthsFull,
@@ -675,100 +906,296 @@ function showCropModal(rect) {
     const cropCanvas = document.getElementById('crop-canvas');
     const ctx2 = cropCanvas.getContext('2d');
     const commandCount = document.getElementById('command-count');
+    const colorContainer = document.getElementById('crop-color-filters');
     const bboxCoords = document.getElementById('rect-coords');
     const btnHideMode = document.getElementById('btn-hide-mode');
     const btnShowMode = document.getElementById('btn-show-mode');
+    const btnSearchNow = document.getElementById('btn-search-now');
+    const btnCancelSearch = document.getElementById('btn-cancel-search');
+    const btnSavePattern = document.getElementById('btn-save-pattern');
+    const closeBtn = modal.querySelector('.close');
+    const requestId = ++activeCropModalRequestId;
+    let cropDataReady = false;
+    let activeSavePatternButton = btnSavePattern;
+
+    const isPrepStale = () => requestId !== activeCropModalRequestId;
+    const setPreparationState = preparing => {
+        btnHideMode.disabled = preparing;
+        btnShowMode.disabled = preparing;
+        if (btnSearchNow) btnSearchNow.disabled = preparing;
+        if (activeSavePatternButton) activeSavePatternButton.disabled = preparing;
+    };
+
+    const maybeYieldDuringCropPrep = async count => {
+        if (typeof yieldToBrowser !== 'function' || count <= 0 || count % 250 !== 0) {
+            return false;
+        }
+        await yieldToBrowser();
+        return isPrepStale();
+    };
+
     btnHideMode.classList.add('active');
     btnShowMode.classList.remove('active');
+    cropPreviewBbox = { ...cropRect };
+    bboxCoords.textContent = `${cropPreviewBbox.x.toFixed(2)}, ${cropPreviewBbox.y.toFixed(2)}, ${(cropPreviewBbox.x + cropPreviewBbox.width).toFixed(2)}, ${(cropPreviewBbox.y + cropPreviewBbox.height).toFixed(2)}`;
+    commandCount.innerHTML = '<li>Preparing selection...</li>';
+    colorContainer.innerHTML = '<div style="font-size:12px; color: var(--text-color-secondary);">Collecting objects inside bbox...</div>';
+    ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+    drawCropPreviewRasterPlaceholder(cropCanvas, cropPreviewBbox);
+    cropPreviewTransform = null;
+    cropItems = [];
+    cropSelectedItemIds = new Set();
+    cropSeqnoToIds = {};
+    isCropModalOpen = true;
+    setPreparationState(true);
+    modal.style.display = 'block';
+
+    const restoreAndClose = (doSearch) => {
+        activeCropModalRequestId += 1;
+
+        const finish = (results) => {
+            modal.style.display = 'none';
+            closeBtn.onclick = null;
+            modal.onclick = null;
+            if (btnSearchNow) btnSearchNow.onclick = null;
+            if (btnCancelSearch) btnCancelSearch.onclick = null;
+            if (activeSavePatternButton) activeSavePatternButton.onclick = null;
+            btnHideMode.onclick = null;
+            btnShowMode.onclick = null;
+            cropCanvas.onmousedown = null;
+            cropCanvas.onmouseup = null;
+            cropCanvas.onmouseleave = null;
+            cropCanvas.onmousemove = null;
+            ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+            colorContainer.innerHTML = '';
+            commandCount.innerHTML = '';
+            // Restore crop/search state (so canvas no longer filtered by the modal selection)
+            cropLengths = prevCropState.cropLengths;
+            cropLengthsFull = prevCropState.cropLengthsFull;
+            cropLengthsFiltered = prevCropState.cropLengthsFiltered;
+            mainLayers = prevCropState.mainLayers;
+            anchorBbox = prevCropState.anchorBbox;
+            searchBboxSize = prevCropState.searchBboxSize;
+            // Set similarBboxes from search results (if any) so overlay remains
+            similarBboxes = results || [];
+            clearCropModalWorkingSet();
+            scheduleDraw();
+        };
+
+        if (doSearch) {
+            if (!cropDataReady) return;
+            if (cropSelectedItemIds.size > 0) {
+                // Recalculate mainLayers based on the final selection in the crop modal
+                recomputeMainLayersFromSelection();
+
+                // Show blocking overlay then run search so UI is blocked during processing
+                const popup = document.getElementById('loading-popup');
+                if (popup) popup.style.display = 'flex';
+                // allow overlay to render
+                setTimeout(() => {
+                    try {
+                        findSimilarRegions();
+                        const results = similarBboxes ? [...similarBboxes] : [];
+                        if (popup) popup.style.display = 'none';
+                        finish(results);
+                    } catch (err) {
+                        console.error('Error during search', err);
+                        if (popup) popup.style.display = 'none';
+                        finish([]);
+                    }
+                }, 20);
+            } else {
+                alert(`No items selected${UI_TEXT.EN_DASH_SEPARATOR}skipping search.`);
+                finish([]);
+            }
+        } else {
+            // Cancel: don't perform search, restore prior state and clear any temporary similar boxes
+            finish([]);
+        }
+    };
+
+    closeBtn.onclick = () => restoreAndClose(false);
+    modal.onclick = event => {
+        if (event.target === modal) restoreAndClose(false);
+    };
+
+    btnSearchNow.onclick = () => restoreAndClose(true);
+    btnCancelSearch.onclick = () => restoreAndClose(false);
+
+    if (btnSavePattern) {
+        // Remove old listeners to prevent duplicates if creating new button
+        const newBtn = btnSavePattern.cloneNode(true);
+        btnSavePattern.parentNode.replaceChild(newBtn, btnSavePattern);
+        activeSavePatternButton = newBtn;
+        activeSavePatternButton.disabled = true;
+        activeSavePatternButton.onclick = () => {
+            if (!cropDataReady) return;
+            saveCurrentPattern();
+        };
+    }
+    btnHideMode.onclick = () => {
+        selectionMode = 'hide';
+        btnHideMode.classList.add('active');
+        btnShowMode.classList.remove('active');
+    };
+    btnShowMode.onclick = () => {
+        selectionMode = 'show';
+        btnShowMode.classList.add('active');
+        btnHideMode.classList.remove('active');
+    };
+    cropCanvas.onmousedown = e => {
+        dragSelecting = true;
+        const rect = cropCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left, y = e.clientY - rect.top;
+        if (!cropPreviewTransform) return;
+        const worldX = (x - cropPreviewTransform.offsetX) / cropPreviewTransform.scale + cropPreviewTransform.rect.x;
+        const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
+        applySelectionAtPoint(worldX, worldY);
+    };
+    cropCanvas.onmouseup = () => {
+        dragSelecting = false;
+    };
+    cropCanvas.onmouseleave = () => {
+        dragSelecting = false;
+    };
+    cropCanvas.onmousemove = e => {
+        if (!dragSelecting) return;
+        const rect = cropCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left, y = e.clientY - rect.top;
+        if (!cropPreviewTransform) return;
+        const worldX = (x - cropPreviewTransform.offsetX) / cropPreviewTransform.scale + cropPreviewTransform.rect.x;
+        const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
+        applySelectionAtPoint(worldX, worldY);
+    };
+
+    if (typeof yieldToBrowser === 'function') {
+        await yieldToBrowser();
+    }
+    if (isPrepStale()) return;
+
+    const pageCache = await ensureFindPopupPageCache();
+    if (isPrepStale()) return;
+
     const croppedObjs = [];
     const layerSet = new Set();
-    if (allShapesSorted && allShapesSorted.length > 0) {
-        allShapesSorted.forEach(obj => {
-            const layerName = obj.layer;
-            if (!layerVisibility[layerName]) return;
-            if (bboxInside(obj.rect, [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height])) {
-                croppedObjs.push({ obj, layer: layerName });
-                layerSet.add(layerName);
-            }
-        });
+    const collectIfInsideCrop = obj => {
+        const layerName = obj?.layer;
+        if (!layerName || !layerVisibility[layerName] || !obj.rect) return;
+        if (!bboxInside(obj.rect, cropRectArray)) return;
+        croppedObjs.push({ obj, layer: layerName });
+        layerSet.add(layerName);
+    };
+
+    if (shapeQuadtree) {
+        const candidateObjs = shapeQuadtree.query({
+            minX: cropRectArray[0],
+            minY: cropRectArray[1],
+            maxX: cropRectArray[2],
+            maxY: cropRectArray[3]
+        }, []);
+        for (let index = 0; index < candidateObjs.length; index += 1) {
+            collectIfInsideCrop(candidateObjs[index]);
+            if (await maybeYieldDuringCropPrep(index)) return;
+        }
+    } else if (allShapesSorted && allShapesSorted.length > 0) {
+        for (let index = 0; index < allShapesSorted.length; index += 1) {
+            collectIfInsideCrop(allShapesSorted[index]);
+            if (await maybeYieldDuringCropPrep(index)) return;
+        }
     } else {
-        sortedLayerKeys.forEach(layerName => {
-            if (!layerVisibility[layerName]) return;
+        let processed = 0;
+        for (let layerIndexPos = 0; layerIndexPos < sortedLayerKeys.length; layerIndexPos += 1) {
+            const layerName = sortedLayerKeys[layerIndexPos];
+            if (!layerVisibility[layerName]) continue;
             const layerArr = layerIndex[layerName] || [];
-            layerArr.forEach(obj => {
-                if (bboxInside(obj.rect, [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height])) {
-                    croppedObjs.push({ obj, layer: layerName });
-                    layerSet.add(layerName);
-                }
-            });
-        });
+            for (let index = 0; index < layerArr.length; index += 1) {
+                collectIfInsideCrop(layerArr[index]);
+                processed += 1;
+                if (await maybeYieldDuringCropPrep(processed)) return;
+            }
+        }
     }
-    if (!croppedObjs.length) return;
+
+    if (!croppedObjs.length) {
+        restoreAndClose(false);
+        return;
+    }
+
     let tightMinX = Infinity, tightMinY = Infinity, tightMaxX = -Infinity, tightMaxY = -Infinity;
-    croppedObjs.forEach(({ obj }) => {
-        if (!obj.rect) return;
+    for (let index = 0; index < croppedObjs.length; index += 1) {
+        const obj = croppedObjs[index].obj;
+        if (!obj.rect) continue;
         const [x1, y1, x2, y2] = obj.rect;
-        tightMinX = Math.min(tightMinX, x1); tightMinY = Math.min(tightMinY, y1);
-        tightMaxX = Math.max(tightMaxX, x2); tightMaxY = Math.max(tightMaxY, y2);
-    });
+        tightMinX = Math.min(tightMinX, x1);
+        tightMinY = Math.min(tightMinY, y1);
+        tightMaxX = Math.max(tightMaxX, x2);
+        tightMaxY = Math.max(tightMaxY, y2);
+        if (await maybeYieldDuringCropPrep(index)) return;
+    }
     if (tightMinX === Infinity) {
-        tightMinX = rect.x; tightMinY = rect.y;
-        tightMaxX = rect.x + rect.width; tightMaxY = rect.y + rect.height;
+        tightMinX = cropRect.x;
+        tightMinY = cropRect.y;
+        tightMaxX = cropRect.x + cropRect.width;
+        tightMaxY = cropRect.y + cropRect.height;
     }
     const padding = CONFIG.TIGHT_BBOX_PADDING_RATIO;
     anchorBbox = { x: tightMinX - padding, y: tightMinY - padding, width: (tightMaxX - tightMinX) + 2 * padding, height: (tightMaxY - tightMinY) + 2 * padding };
-    cropPreviewBbox = { ...anchorBbox };
-    bboxCoords.textContent = `${anchorBbox.x.toFixed(2)}, ${anchorBbox.y.toFixed(2)}, ${(anchorBbox.x + anchorBbox.width).toFixed(2)}, ${(anchorBbox.y + anchorBbox.height).toFixed(2)}`;
     const selectedLayerNames = Array.from(layerSet);
     mainLayers = selectedLayerNames;
     searchBboxSize = { width: anchorBbox.width, height: anchorBbox.height };
     cropItems = [];
+    const totalCounts = { l: 0, c: 0, qu: 0 };
     let nextId = 0;
-    const tempLayerObjIndexMap = {};
-    selectedLayerNames.forEach(layerName => {
-        const arr = layerIndex[layerName] || [];
-        tempLayerObjIndexMap[layerName] = new Map(arr.map((o, i) => [o, i]));
-    });
-    croppedObjs.forEach(({ obj, layer }) => {
-        if (obj.type === 'text' || !obj.items) return;
-        const objIndex = tempLayerObjIndexMap[layer]?.get(obj);
-        obj.items.forEach((item, itemIndex) => {
-            const type = item[0];
-            if (!(type === 'l' || type === 'c' || type === 'qu')) return;
-            // Lazy compute
-            const length = getOrComputeLength(layer, objIndex, itemIndex, type, item);
-            let anchorX, anchorY;
-            if (type === 'l' || type === 'c') [anchorX, anchorY] = item[1];
-            else if (type === 'qu') {
-                const pts = item[1];
-                if (pts?.length) [anchorX, anchorY] = pts[0];
-                else return;
-            }
-            cropItems.push({ id: nextId++, type, length, anchorX, anchorY, obj, layer, objIndex, itemIndex, seqno: obj.seqno || objIndex });
-        });
-    });
+    for (let objPos = 0; objPos < croppedObjs.length; objPos += 1) {
+        const { obj, layer } = croppedObjs[objPos];
+        const cachedMeta = pageCache?.objectMetaByObject?.get(obj) || buildFindPopupObjectMeta(obj, layer, 0);
+        if (cachedMeta?.commandCounts) {
+            totalCounts.l += cachedMeta.commandCounts.l;
+            totalCounts.c += cachedMeta.commandCounts.c;
+            totalCounts.qu += cachedMeta.commandCounts.qu;
+        }
+        if (!cachedMeta?.commands?.length) {
+            if (await maybeYieldDuringCropPrep(objPos)) return;
+            continue;
+        }
+        for (let commandPos = 0; commandPos < cachedMeta.commands.length; commandPos += 1) {
+            const command = cachedMeta.commands[commandPos];
+            cropItems.push({
+                id: nextId++,
+                type: command.type,
+                length: command.length,
+                anchorX: command.anchorX,
+                anchorY: command.anchorY,
+                obj,
+                layer,
+                objIndex: cachedMeta.objIndex,
+                itemIndex: command.itemIndex,
+                seqno: cachedMeta.seqno,
+                colorStr: cachedMeta.colorStr
+            });
+        }
+        if (await maybeYieldDuringCropPrep(objPos)) return;
+    }
     cropSelectedItemIds = new Set(cropItems.map(ci => ci.id));
     isApplyingSavedPattern = false; // Reset flag to show blue box for manual crop
 
-    // FIXED: Sß╗¡ dß╗Ñng cropSeqnoToIds thay v├¼ ghi ─æ├¿ biß║┐n global
     cropSeqnoToIds = {};
-    cropItems.forEach(ci => {
+    const colorGroups = {};
+    for (let index = 0; index < cropItems.length; index += 1) {
+        const ci = cropItems[index];
         cropSeqnoToIds[ci.seqno] ??= [];
         cropSeqnoToIds[ci.seqno].push(ci.id);
-    });
 
-    const colorContainer = document.getElementById('crop-color-filters');
-    colorContainer.innerHTML = '';
-    const colorGroups = {};
-    cropItems.forEach(ci => {
-        const colorStr = ci.obj.color ? toRgbString(ci.obj.color) : 'rgba(0, 0, 0, 1)';
+        const colorStr = ci.colorStr || 'rgba(0, 0, 0, 1)';
         if (!colorGroups[colorStr]) {
             colorGroups[colorStr] = { count: 0, items: [] };
         }
         colorGroups[colorStr].count++;
         colorGroups[colorStr].items.push(ci);
-    });
+        if (await maybeYieldDuringCropPrep(index)) return;
+    }
 
+    colorContainer.innerHTML = '';
     Object.entries(colorGroups).forEach(([colorStr, group]) => {
         const label = document.createElement('label');
         label.style.display = 'flex';
@@ -821,10 +1248,7 @@ function showCropModal(rect) {
                 isApplyingSavedPattern = false;
                 recomputeAnchorBboxFromSelection();
                 recomputeCropDataFromSelection();
-                const cropCanvas = document.getElementById('crop-canvas');
-                const ctx2 = cropCanvas.getContext('2d');
-                ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-                redrawCropPreview(ctx2, croppedObjs, cropPreviewBbox, cropCanvas);
+                redrawActiveCropPreview();
                 updateCommandCountSummary();
             }
         });
@@ -838,16 +1262,7 @@ function showCropModal(rect) {
     recomputeCropDataFromSelection();
     const displayLengths = {};
     for (const type in cropLengthsFull) displayLengths[type] = [...new Set(cropLengthsFull[type])].sort((a, b) => a - b);
-    let counts = { l: 0, c: 0, qu: 0 };
-    croppedObjs.forEach(({ obj }) => {
-        if (obj.type !== 'text' && obj.items) {
-            obj.items.forEach(item => {
-                const type = item[0];
-                if (counts.hasOwnProperty(type)) counts[type]++;
-            });
-        }
-    });
-    commandCount.innerHTML = `<li><strong>Total (within region):</strong> l=${counts.l}, c=${counts.c}, qu=${counts.qu}</li>
+    commandCount.innerHTML = `<li><strong>Total (within region):</strong> l=${totalCounts.l}, c=${totalCounts.c}, qu=${totalCounts.qu}</li>
     ${displayLengths.l.length ? `<li>l lengths: ${getDisplayLengths(displayLengths.l)}</li>` : ''}
     ${displayLengths.c.length ? `<li>c lengths: ${getDisplayLengths(displayLengths.c)}</li>` : ''}
     ${displayLengths.qu.length ? `<li>qu lengths: ${getDisplayLengths(displayLengths.qu)}</li>` : ''}
@@ -869,131 +1284,12 @@ function showCropModal(rect) {
     const scaleX = cropCanvas.width / cropPreviewBbox.width;
     const scaleY = cropCanvas.height / cropPreviewBbox.height;
     const scale = Math.min(scaleX, scaleY);
-    const offsetX2 = (cropCanvas.width - anchorBbox.width * scale) / 2;
-    const offsetY2 = (cropCanvas.height - anchorBbox.height * scale) / 2;
+    const offsetX2 = (cropCanvas.width - cropPreviewBbox.width * scale) / 2;
+    const offsetY2 = (cropCanvas.height - cropPreviewBbox.height * scale) / 2;
     cropPreviewTransform = { scale, offsetX: offsetX2, offsetY: offsetY2, rect: cropPreviewBbox };
+    rebuildCropPreviewLookup(croppedObjs);
     redrawCropPreview(ctx2, croppedObjs, cropPreviewBbox, cropCanvas);
-    isCropModalOpen = true;
-    modal.style.display = 'block';
-    const closeBtn = modal.querySelector('.close');
-
-    const restoreAndClose = (doSearch) => {
-        // If doSearch is true we need to run search first (uses current cropLengths/mainLayers),
-        // capture results, then restore previous crop state so the user's view (filters) returns to prior state,
-        // while keeping the search overlay (similarBboxes) visible.
-        const finish = (results) => {
-            modal.style.display = 'none';
-            closeBtn.onclick = null;
-            modal.onclick = null;
-            if (btnSearchNow) btnSearchNow.onclick = null;
-            if (btnCancelSearch) btnCancelSearch.onclick = null;
-            btnHideMode.onclick = null;
-            btnShowMode.onclick = null;
-            cropCanvas.onmousedown = null;
-            cropCanvas.onmouseup = null;
-            cropCanvas.onmouseleave = null;
-            cropCanvas.onmousemove = null;
-            ctx2.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-            colorContainer.innerHTML = '';
-            commandCount.innerHTML = '';
-            // Restore crop/search state (so canvas no longer filtered by the modal selection)
-            cropLengths = prevCropState.cropLengths;
-            cropLengthsFull = prevCropState.cropLengthsFull;
-            cropLengthsFiltered = prevCropState.cropLengthsFiltered;
-            mainLayers = prevCropState.mainLayers;
-            anchorBbox = prevCropState.anchorBbox;
-            searchBboxSize = prevCropState.searchBboxSize;
-            // Set similarBboxes from search results (if any) so overlay remains
-            similarBboxes = results || [];
-            clearCropModalWorkingSet();
-            scheduleDraw();
-        };
-
-        if (doSearch) {
-            if (cropSelectedItemIds.size > 0) {
-                // Recalculate mainLayers based on the final selection in the crop modal
-                recomputeMainLayersFromSelection();
-
-                // Show blocking overlay then run search so UI is blocked during processing
-                const popup = document.getElementById('loading-popup');
-                if (popup) popup.style.display = 'flex';
-                // allow overlay to render
-                setTimeout(() => {
-                    try {
-                        findSimilarRegions();
-                        const results = similarBboxes ? [...similarBboxes] : [];
-                        if (popup) popup.style.display = 'none';
-                        finish(results);
-                    } catch (err) {
-                        console.error('Error during search', err);
-                        if (popup) popup.style.display = 'none';
-                        finish([]);
-                    }
-                }, 20);
-            } else {
-                alert(`No items selected${UI_TEXT.EN_DASH_SEPARATOR}skipping search.`);
-                finish([]);
-            }
-        } else {
-            // Cancel: don't perform search, restore prior state and clear any temporary similar boxes
-            finish([]);
-        }
-    };
-
-    closeBtn.onclick = () => restoreAndClose(false);
-    modal.onclick = event => {
-        if (event.target === modal) restoreAndClose(false);
-    };
-
-    // Wire the new modal buttons
-    const btnSearchNow = document.getElementById('btn-search-now');
-    const btnCancelSearch = document.getElementById('btn-cancel-search');
-    const btnSavePattern = document.getElementById('btn-save-pattern');
-
-    btnSearchNow.onclick = () => restoreAndClose(true);
-    btnCancelSearch.onclick = () => restoreAndClose(false);
-
-    if (btnSavePattern) {
-        // Remove old listeners to prevent duplicates if creating new button
-        const newBtn = btnSavePattern.cloneNode(true);
-        btnSavePattern.parentNode.replaceChild(newBtn, btnSavePattern);
-        newBtn.onclick = () => {
-            saveCurrentPattern();
-        };
-    }
-    btnHideMode.onclick = () => {
-        selectionMode = 'hide';
-        btnHideMode.classList.add('active');
-        btnShowMode.classList.remove('active');
-    };
-    btnShowMode.onclick = () => {
-        selectionMode = 'show';
-        btnShowMode.classList.add('active');
-        btnHideMode.classList.remove('active');
-    };
-    cropCanvas.onmousedown = e => {
-        dragSelecting = true;
-        const rect = cropCanvas.getBoundingClientRect();
-        const x = e.clientX - rect.left, y = e.clientY - rect.top;
-        if (!cropPreviewTransform) return;
-        const worldX = (x - cropPreviewTransform.offsetX) / cropPreviewTransform.scale + cropPreviewTransform.rect.x;
-        const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
-        applySelectionAtPoint(worldX, worldY);
-    };
-    cropCanvas.onmouseup = () => {
-        dragSelecting = false;
-    };
-    cropCanvas.onmouseleave = () => {
-        dragSelecting = false;
-    };
-    cropCanvas.onmousemove = e => {
-        if (!dragSelecting) return;
-        const rect = cropCanvas.getBoundingClientRect();
-        const x = e.clientX - rect.left, y = e.clientY - rect.top;
-        if (!cropPreviewTransform) return;
-        const worldX = (x - cropPreviewTransform.offsetX) / cropPreviewTransform.scale + cropPreviewTransform.rect.x;
-        const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
-        applySelectionAtPoint(worldX, worldY);
-    };
+    cropDataReady = true;
+    setPreparationState(false);
     updateCommandCountSummary();
 }

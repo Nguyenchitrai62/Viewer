@@ -119,9 +119,39 @@ function buildCellExtractSummaryHtml(summary) {
     `;
 }
 
+async function canvasToDataUrlAsync(canvas, mimeType = 'image/jpeg', quality = 0.9) {
+    if (typeof canvas.toBlob !== 'function') {
+        return canvas.toDataURL(mimeType, quality);
+    }
+
+    const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob(result => {
+            if (result) {
+                resolve(result);
+                return;
+            }
+            reject(new Error('Khong the tao blob tu vung crop.'));
+        }, mimeType, quality);
+    });
+
+    return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                resolve(reader.result);
+                return;
+            }
+            reject(new Error('Khong the doc du lieu crop thanh base64.'));
+        };
+        reader.onerror = () => reject(new Error('Khong the doc blob crop.'));
+        reader.readAsDataURL(blob);
+    });
+}
+
 function hideVLMModal(options = {}) {
     const modal = document.getElementById('vlm-modal');
     modal.style.display = 'none';
+    activeVlmCropRequestId += 1;
 
     if (options.clearPending !== false) {
         pendingVLMCrop = null;
@@ -150,8 +180,13 @@ async function cropAndExtractVLM(bbox) {
             return;
         }
 
+        const requestId = ++activeVlmCropRequestId;
+
         // Show preview state first
         showVLMModalPreview(null, bbox);
+        if (typeof yieldToBrowser === 'function') {
+            await yieldToBrowser();
+        }
 
         const targetScale = typeof getShapeRasterCacheTargetScale === 'function'
             ? getShapeRasterCacheTargetScale()
@@ -159,6 +194,10 @@ async function cropAndExtractVLM(bbox) {
         const rasterPreview = typeof ensureShapeRasterCache === 'function'
             ? await ensureShapeRasterCache(targetScale)
             : null;
+
+        if (requestId !== activeVlmCropRequestId) {
+            return;
+        }
 
         if (!rasterPreview?.canvas || !rasterPreview?.bounds) {
             throw new Error('Khong tao duoc cache anh viewer cho VLM');
@@ -199,8 +238,16 @@ async function cropAndExtractVLM(bbox) {
             cropCanvas.height
         );
 
-        // Convert to base64 JPEG chß║Ñt l╞░ß╗úng cao
-        const croppedImageBase64 = cropCanvas.toDataURL('image/jpeg', 0.9);
+        if (typeof yieldToBrowser === 'function') {
+            await yieldToBrowser();
+        }
+
+        // Convert to base64 asynchronously so the modal can paint first.
+        const croppedImageBase64 = await canvasToDataUrlAsync(cropCanvas, 'image/jpeg', 0.9);
+
+        if (requestId !== activeVlmCropRequestId) {
+            return;
+        }
         
         // Store for later use when user confirms
         pendingVLMCrop = croppedImageBase64;

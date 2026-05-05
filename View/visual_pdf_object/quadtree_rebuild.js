@@ -27,6 +27,9 @@ function buildLayerIndex() {
     allShapesSorted = [];
     allShapesBounds = null;
     _perLayerBounds = {};
+    if (typeof invalidateFindPopupPageCache === 'function') {
+        invalidateFindPopupPageCache();
+    }
     if (typeof invalidateSeqnoHoverIndex === 'function') {
         invalidateSeqnoHoverIndex();
     }
@@ -83,6 +86,9 @@ function buildLayerIndex() {
     if (typeof invalidateShapeRasterCache === 'function') {
         invalidateShapeRasterCache();
         scheduleShapeRasterCacheBuild();
+    }
+    if (typeof scheduleFindPopupPageCacheWarmup === 'function') {
+        scheduleFindPopupPageCacheWarmup();
     }
 }
 

@@ -119,6 +119,9 @@ function clearVisualization() {
     if (typeof invalidateShapeRasterCache === 'function') {
         invalidateShapeRasterCache();
     }
+    if (typeof invalidateFindPopupPageCache === 'function') {
+        invalidateFindPopupPageCache();
+    }
     if (typeof hideShapeRasterPreview === 'function') {
         hideShapeRasterPreview();
     }

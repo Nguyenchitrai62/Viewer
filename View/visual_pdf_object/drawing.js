@@ -135,48 +135,29 @@ function strokeShapeItems(targetCtx, shape) {
 }
 
 function isCropPreviewRenderableType(type) {
-    return type === 'l' || type === 'c' || type === 'qu';
+    return type === 'l' || type === 'c' || type === 'qu' || type === 'poly';
 }
 
 function drawShapeWithCropPreviewRenderer(targetCtx, shape, overrideColor = null, alpha = 1) {
     if (!shape?.items) return false;
+    const renderItems = shape.items.filter(item => isCropPreviewRenderableType(item[0]));
+    if (!renderItems.length) return false;
 
-    const strokeColor = Array.isArray(overrideColor)
-        ? toRgbString(overrideColor, alpha)
-        : toRgbString(shape.color || [0, 0, 0], alpha);
+    const previewShape = {
+        ...shape,
+        items: renderItems,
+        _strokeStyle: Array.isArray(overrideColor)
+            ? toRgbString(overrideColor, alpha)
+            : toRgbString(shape.color || [0, 0, 0], alpha),
+    };
 
-    let drewAny = false;
-    targetCtx.strokeStyle = strokeColor;
-    targetCtx.lineWidth = getEffectiveWidth(shape.width, targetCtx);
-    applyShapeStrokeGeometry(targetCtx, shape);
-    targetCtx.beginPath();
+    if (shape.fill) {
+        previewShape._fillStyle = Array.isArray(overrideColor)
+            ? toRgbString(overrideColor, alpha)
+            : toRgbString(shape.fill, alpha);
+    }
 
-    shape.items.forEach(item => {
-        const type = item[0];
-        if (!isCropPreviewRenderableType(type)) return;
-        if (type === 'l') {
-            targetCtx.moveTo(item[1][0], item[1][1]);
-            targetCtx.lineTo(item[2][0], item[2][1]);
-            drewAny = true;
-        } else if (type === 'c') {
-            targetCtx.moveTo(item[1][0], item[1][1]);
-            targetCtx.bezierCurveTo(item[2][0], item[2][1], item[3][0], item[3][1], item[4][0], item[4][1]);
-            drewAny = true;
-        } else if (type === 'qu') {
-            const pts = item[1];
-            if (pts?.length === 4) {
-                targetCtx.moveTo(pts[0][0], pts[0][1]);
-                targetCtx.lineTo(pts[1][0], pts[1][1]);
-                targetCtx.lineTo(pts[3][0], pts[3][1]);
-                targetCtx.lineTo(pts[2][0], pts[2][1]);
-                targetCtx.closePath();
-                drewAny = true;
-            }
-        }
-    });
-
-    if (!drewAny) return false;
-    targetCtx.stroke();
+    drawShapeOnCtx(targetCtx, previewShape);
     return true;
 }
 
@@ -989,23 +970,37 @@ function redrawCropPreview(previewCtx, croppedObjs, bboxRef, cropCanvas) {
     previewCtx.translate(offsetX2, offsetY2);
     previewCtx.scale(scale, scale);
     previewCtx.translate(-bboxRef.x, -bboxRef.y);
+    previewCtx.beginPath();
+    previewCtx.rect(bboxRef.x, bboxRef.y, bboxRef.width, bboxRef.height);
+    previewCtx.clip();
     croppedObjs.forEach(({ obj }) => {
         if (obj.type === 'text' || !obj.items) return;
+        const objectLookup = cropPreviewItemLookup?.get(obj) || null;
+        const staticItems = [];
         const selectedItems = [];
         const hiddenItems = [];
 
         obj.items.forEach((item, itemIndex) => {
             const type = item[0];
-            if (!isCropPreviewRenderableType(type)) return;
-            const found = cropItems.find(ci => ci.obj === obj && ci.itemIndex === itemIndex);
-            if (!found) return;
-            if (cropSelectedItemIds.has(found.id)) {
+            if (!isCropPreviewRenderableType(type)) {
+                staticItems.push(item);
+                return;
+            }
+            const matchedCropItemId = objectLookup?.get(itemIndex);
+            if (matchedCropItemId == null) {
+                staticItems.push(item);
+                return;
+            }
+            if (cropSelectedItemIds.has(matchedCropItemId)) {
                 selectedItems.push(item);
             } else {
                 hiddenItems.push(item);
             }
         });
 
+        if (staticItems.length) {
+            drawShapeWithCropPreviewRenderer(previewCtx, { ...obj, items: staticItems });
+        }
         if (hiddenItems.length) {
             drawShapeWithCropPreviewRenderer(previewCtx, { ...obj, items: hiddenItems }, null, 0.02);
         }

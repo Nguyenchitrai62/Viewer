@@ -394,25 +394,29 @@ btnDrawBbox.addEventListener('click', () => {
         updateModeLabel('find');
         scheduleCrosshairOverlayDraw();
     } else {
+        const shouldRefreshSearchCanvas = typeof hasActiveSearchCanvasState === 'function' && hasActiveSearchCanvasState();
         bboxStart = null;
         currentBbox = null;
         resetSearchSessionState({
             clearLengthCache: true,
             clearFoundCount: true,
-            releaseTransientVectorCache: true
+            releaseTransientVectorCache: shouldRefreshSearchCanvas
         });
         // Hide mode label
         updateModeLabel(null);
         scheduleCrosshairOverlayDraw();
-        scheduleDraw();
+        if (shouldRefreshSearchCanvas) {
+            scheduleDraw();
+        }
     }
 });
 btnResetFilter.addEventListener('click', () => {
+    const shouldRefreshSearchCanvas = typeof hasActiveSearchCanvasState === 'function' && hasActiveSearchCanvasState();
     resetSearchSessionState({
         clearLengthCache: true,
         clearFoundCount: true,
         clearVlmArtifacts: true,
-        releaseTransientVectorCache: true
+        releaseTransientVectorCache: shouldRefreshSearchCanvas
     });
     isDrawingBbox = false;
     bboxStart = null;
@@ -422,7 +426,9 @@ btnResetFilter.addEventListener('click', () => {
     canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
     updateModeLabel(null);
     scheduleCrosshairOverlayDraw();
-    scheduleDraw();
+    if (shouldRefreshSearchCanvas) {
+        scheduleDraw();
+    }
 });
 
 // VLM Extract button handler (btnVLMExtract declared in state.js)
@@ -563,7 +569,9 @@ canvasContainer.addEventListener('mouseup', e => {
     } else if (isDrawingBbox) {
         // If bbox was drawn (with valid size), show modal
         if (currentBbox && currentBbox.width > 1 && currentBbox.height > 1) {
-            showCropModal(currentBbox);
+            showCropModal(currentBbox).catch(error => {
+                console.error('Error showing crop modal', error);
+            });
         }
         // Always reset drawing mode on mouseup to prevent stuck state
         isDrawingBbox = false;
@@ -573,7 +581,6 @@ canvasContainer.addEventListener('mouseup', e => {
         bboxStart = null;
         currentBbox = null;
         scheduleCrosshairOverlayDraw();
-        scheduleDraw();
     }
     isDragging = false;
     activeMouseButton = null;
