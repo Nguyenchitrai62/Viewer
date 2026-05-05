@@ -1395,7 +1395,7 @@
             const startTime = Date.now();
 
             try {
-                const response = await fetch(`${ENV.FLOOR_PLAN_BASE_URL}/process_floor_plan_image`, {
+                const response = await fetch(`${ENV.API_BASE_URL}/process_floor_plan_image`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ files: [base64] }),

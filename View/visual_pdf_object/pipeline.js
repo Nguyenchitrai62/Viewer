@@ -144,7 +144,7 @@ async function detectPipeline() {
     try {
         // Send to backend as JSON
         const startTime = performance.now();
-        const response = await fetch(`${ENV.PDF_API_BASE_URL}/process_pipeline`, {
+        const response = await fetch(`${ENV.API_BASE_URL}/process_pipeline`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

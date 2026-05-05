@@ -443,12 +443,16 @@ async function createPageThumbnails(file, numPages) {
 
     let pdf = null;
     let ownsPdfDocument = false;
+    let ownedPdfUrl = null;
     try {
         if (currentPdfFile === file) {
             pdf = await ensureCurrentPdfDocument();
         } else {
-            const arrayBuffer = await file.arrayBuffer();
-            pdf = await loadPdfDocument(arrayBuffer).promise;
+            ownedPdfUrl = URL.createObjectURL(file);
+            pdf = await pdfjsLib.getDocument({
+                ...window.PDFJS_DOCUMENT_OPTIONS,
+                url: ownedPdfUrl,
+            }).promise;
             ownsPdfDocument = true;
         }
 
@@ -536,6 +540,9 @@ async function createPageThumbnails(file, numPages) {
     } finally {
         if (pdf && ownsPdfDocument) {
             try { await pdf.destroy(); } catch (e) { console.warn('PDF destroy error:', e); }
+        }
+        if (ownedPdfUrl) {
+            URL.revokeObjectURL(ownedPdfUrl);
         }
     }
 }
@@ -669,7 +676,7 @@ async function processSelectedPage(pageNum) {
         const formData = new FormData();
         formData.append('pdf_file', file);
         formData.append('page_num', pageNum);
-        const response = await fetch(`${ENV.PDF_API_BASE_URL}/process_page`, {
+        const response = await fetch(`${ENV.API_BASE_URL}/process_page`, {
             method: 'POST',
             body: formData
         });
@@ -739,7 +746,7 @@ async function processAllPagesBatch(file) {
     formData.append('pdf_file', file);
 
     try {
-        const response = await fetch(`${ENV.PDF_API_BASE_URL}/process_all_pages`, {
+        const response = await fetch(`${ENV.API_BASE_URL}/process_all_pages`, {
             method: 'POST',
             body: formData,
             signal: controller.signal

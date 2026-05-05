@@ -67,7 +67,7 @@ dropZone.addEventListener('drop', async e => {
             // Get page count for thumbnails
             const formData = new FormData();
             formData.append('file', file);
-            const response = await fetch(`${ENV.PDF_API_BASE_URL}/get_pdf_pages`, {
+            const response = await fetch(`${ENV.API_BASE_URL}/get_pdf_pages`, {
                 method: 'POST',
                 body: formData
             });
@@ -315,7 +315,7 @@ btnExportRevitJson.addEventListener('click', async () => {
     try {
         // Call export_revit endpoint
         const startTime = performance.now();
-        const response = await fetch(`${ENV.PDF_API_BASE_URL}/export_revit`, {
+        const response = await fetch(`${ENV.API_BASE_URL}/export_revit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ input_data: pipelineRawResults })

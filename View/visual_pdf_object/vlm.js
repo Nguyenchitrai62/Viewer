@@ -321,7 +321,7 @@ async function callVLMExtractAPI(imageBase64, fields) {
         fields: fields
     };
 
-    const response = await fetch(`${ENV.PDF_API_BASE_URL}/vlm_extract`, {
+    const response = await fetch(`${ENV.API_BASE_URL}/vlm_extract`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -338,7 +338,7 @@ async function callVLMExtractAPI(imageBase64, fields) {
 
 async function callExtractCellsAPI(imageBase64) {
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const response = await fetch(`${ENV.PDF_API_BASE_URL}/extract_cells`, {
+    const response = await fetch(`${ENV.API_BASE_URL}/extract_cells`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
