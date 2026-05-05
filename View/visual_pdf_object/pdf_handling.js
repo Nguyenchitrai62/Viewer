@@ -391,8 +391,8 @@ async function buildPdfRequestFormData(file, pageNum = null) {
         formData.append('page_num', String(pageNum));
     }
 
-    const uploadThreshold = Number(CONFIG.PDF_UPLOAD_CHUNK_THRESHOLD) || (64 * 1024 * 1024);
-    const shouldUseChunkUpload = Boolean(file && file.size >= uploadThreshold);
+    const uploadThreshold = Number(CONFIG.PDF_UPLOAD_CHUNK_THRESHOLD) || (80 * 1024 * 1024);
+    const shouldUseChunkUpload = Boolean(file && file.size > uploadThreshold);
     if (!shouldUseChunkUpload) {
         formData.append('pdf_file', file);
         return formData;
