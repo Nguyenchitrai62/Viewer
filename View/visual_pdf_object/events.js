@@ -64,25 +64,14 @@ dropZone.addEventListener('drop', async e => {
             cancelCurrentBatchProcessing();
         }
         try {
-            // Get page count for thumbnails
-            const formData = new FormData();
-            formData.append('file', file);
-            const response = await fetch(`${ENV.API_BASE_URL}/get_pdf_pages`, {
-                method: 'POST',
-                body: formData
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            if (data.error) {
-                throw new Error(data.error);
-            }
+            showCanvasStatusOverlay('Reading PDF...', 'Counting pages locally to avoid uploading the same large file twice.', 'info');
+            const pageCount = await getLocalPdfPageCount(file);
             // Create thumbnails for all pages
-            createPageThumbnails(file, data.pages);
+            createPageThumbnails(file, pageCount);
             // Start batch processing all pages
             processAllPagesBatch(file);
         } catch (error) {
+            hideCanvasStatusOverlay();
             alert('Error loading PDF: ' + error.message);
             dropZone.classList.remove('hidden');
         }

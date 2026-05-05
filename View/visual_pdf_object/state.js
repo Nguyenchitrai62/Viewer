@@ -112,6 +112,7 @@ let cachedPageImageRequestedPageNum = null;
 let currentPdfDocument = null;
 let currentPdfDocumentPromise = null;
 let currentPdfDocumentSourceKey = null;
+let currentPdfDocumentObjectUrl = null;
 let pdfRasterPreviewPages = {};
 let pdfRasterPreviewLoadingPages = {};
 let pipelineLayerNames = [];

@@ -7,6 +7,37 @@ function getPdfSourceKey(file = currentPdfFile) {
     return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
+function revokeCurrentPdfDocumentUrl() {
+    if (!currentPdfDocumentObjectUrl) return;
+    URL.revokeObjectURL(currentPdfDocumentObjectUrl);
+    currentPdfDocumentObjectUrl = null;
+}
+
+async function getLocalPdfPageCount(file) {
+    if (!file) {
+        throw new Error('No PDF file selected.');
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    let pdfDocument = null;
+    try {
+        pdfDocument = await pdfjsLib.getDocument({
+            ...window.PDFJS_DOCUMENT_OPTIONS,
+            url: objectUrl,
+        }).promise;
+        return pdfDocument.numPages;
+    } finally {
+        if (pdfDocument) {
+            try {
+                await pdfDocument.destroy();
+            } catch (error) {
+                console.warn('PDF destroy error:', error);
+            }
+        }
+        URL.revokeObjectURL(objectUrl);
+    }
+}
+
 async function releaseCurrentPdfResources() {
     const pdfToDestroy = currentPdfDocument;
     currentPdfDocument = null;
@@ -28,6 +59,8 @@ async function releaseCurrentPdfResources() {
             console.warn('PDF destroy error:', error);
         }
     }
+
+    revokeCurrentPdfDocumentUrl();
 }
 
 async function ensureCurrentPdfDocument() {
@@ -50,12 +83,17 @@ async function ensureCurrentPdfDocument() {
         currentPdfDocument = null;
     }
 
+    revokeCurrentPdfDocumentUrl();
     currentPdfDocumentSourceKey = sourceKey;
     pdfRasterPreviewPages = {};
     pdfRasterPreviewLoadingPages = {};
+    currentPdfDocumentObjectUrl = URL.createObjectURL(currentPdfFile);
+    const pdfObjectUrl = currentPdfDocumentObjectUrl;
 
-    currentPdfDocumentPromise = currentPdfFile.arrayBuffer()
-        .then(arrayBuffer => loadPdfDocument(arrayBuffer).promise)
+    currentPdfDocumentPromise = pdfjsLib.getDocument({
+        ...window.PDFJS_DOCUMENT_OPTIONS,
+        url: pdfObjectUrl,
+    }).promise
         .then(pdfDocument => {
             if (currentPdfDocumentSourceKey !== sourceKey) {
                 try {
@@ -63,6 +101,7 @@ async function ensureCurrentPdfDocument() {
                 } catch (error) {
                     console.warn('Discard stale PDF document error:', error);
                 }
+                URL.revokeObjectURL(pdfObjectUrl);
                 throw new Error('Discarded stale PDF document.');
             }
             currentPdfDocument = pdfDocument;
@@ -72,6 +111,7 @@ async function ensureCurrentPdfDocument() {
             if (currentPdfDocumentSourceKey === sourceKey) {
                 currentPdfDocument = null;
                 currentPdfDocumentPromise = null;
+                revokeCurrentPdfDocumentUrl();
             }
             throw error;
         });
