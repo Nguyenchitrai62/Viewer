@@ -297,23 +297,116 @@ function clearCurrentUploadController(controller = currentUploadController) {
     }
 }
 
-async function ensurePdfUploadSession(file, { signal = null, force = false } = {}) {
-    if (!file) {
-        throw new Error('No PDF file available for upload.');
+function closeCurrentUploadSocket(socket = currentUploadSocket) {
+    if (!socket) return;
+    if (currentUploadSocket === socket) {
+        currentUploadSocket = null;
+    }
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+    }
+}
+
+function getApiWebSocketUrl(pathname) {
+    const baseUrl = new URL(ENV.API_BASE_URL, window.location.href);
+    baseUrl.protocol = baseUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+    const basePath = baseUrl.pathname.endsWith('/') ? baseUrl.pathname.slice(0, -1) : baseUrl.pathname;
+    return `${baseUrl.origin}${basePath}${pathname}`;
+}
+
+function waitForWebSocketOpen(socket, signal = null) {
+    return new Promise((resolve, reject) => {
+        const cleanup = () => {
+            socket.removeEventListener('open', handleOpen);
+            socket.removeEventListener('error', handleError);
+            socket.removeEventListener('close', handleClose);
+            signal?.removeEventListener('abort', handleAbort);
+        };
+
+        const handleOpen = () => {
+            cleanup();
+            resolve();
+        };
+        const handleError = () => {
+            cleanup();
+            reject(new Error('WebSocket upload connection failed.'));
+        };
+        const handleClose = () => {
+            cleanup();
+            reject(new Error('WebSocket upload connection closed before opening.'));
+        };
+        const handleAbort = () => {
+            cleanup();
+            try {
+                socket.close();
+            } catch (error) {
+                console.warn('WebSocket close on abort failed:', error);
+            }
+            reject(new DOMException('Upload aborted.', 'AbortError'));
+        };
+
+        socket.addEventListener('open', handleOpen, { once: true });
+        socket.addEventListener('error', handleError, { once: true });
+        socket.addEventListener('close', handleClose, { once: true });
+        signal?.addEventListener('abort', handleAbort, { once: true });
+    });
+}
+
+function waitForWebSocketMessage(socket, signal = null) {
+    return new Promise((resolve, reject) => {
+        const cleanup = () => {
+            socket.removeEventListener('message', handleMessage);
+            socket.removeEventListener('error', handleError);
+            socket.removeEventListener('close', handleClose);
+            signal?.removeEventListener('abort', handleAbort);
+        };
+
+        const handleMessage = event => {
+            cleanup();
+            resolve(event);
+        };
+        const handleError = () => {
+            cleanup();
+            reject(new Error('WebSocket upload error.'));
+        };
+        const handleClose = () => {
+            cleanup();
+            reject(new Error('WebSocket upload connection closed unexpectedly.'));
+        };
+        const handleAbort = () => {
+            cleanup();
+            try {
+                socket.close();
+            } catch (error) {
+                console.warn('WebSocket close on abort failed:', error);
+            }
+            reject(new DOMException('Upload aborted.', 'AbortError'));
+        };
+
+        socket.addEventListener('message', handleMessage, { once: true });
+        socket.addEventListener('error', handleError, { once: true });
+        socket.addEventListener('close', handleClose, { once: true });
+        signal?.addEventListener('abort', handleAbort, { once: true });
+    });
+}
+
+async function waitForWebSocketBufferedAmount(socket, maxBufferedAmount, signal = null) {
+    while (socket.readyState === WebSocket.OPEN && socket.bufferedAmount > maxBufferedAmount) {
+        if (signal?.aborted) {
+            throw new DOMException('Upload aborted.', 'AbortError');
+        }
+        await new Promise(resolve => setTimeout(resolve, 20));
     }
 
-    const sessionKey = getPdfUploadSessionKey(file);
-    if (!force && currentPdfUploadSession?.sessionId && currentPdfUploadSession.sourceKey === sessionKey) {
-        return currentPdfUploadSession;
+    if (socket.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket upload connection closed during transfer.');
     }
+}
 
-    const chunkSize = Number(CONFIG.PDF_UPLOAD_CHUNK_SIZE) || (80 * 1024 * 1024);
-    const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
-
+async function createPdfUploadSession(file, signal = null) {
     const initFormData = new FormData();
     initFormData.append('filename', file.name);
     initFormData.append('file_size', String(file.size));
-    initFormData.append('total_chunks', String(totalChunks));
     initFormData.append('last_modified', String(file.lastModified || 0));
 
     const initResponse = await fetch(`${ENV.API_BASE_URL}/upload-sessions`, {
@@ -325,64 +418,95 @@ async function ensurePdfUploadSession(file, { signal = null, force = false } = {
         throw new Error(`Failed to create upload session (${initResponse.status}).`);
     }
 
-    const initResult = await initResponse.json();
+    return initResponse.json();
+}
+
+async function ensurePdfUploadSessionViaWebSocket(file, signal = null) {
+    const uploadStartedAt = performance.now();
+    const initResult = await createPdfUploadSession(file, signal);
     const sessionId = initResult.session_id;
-    const serverChunkSize = Number(initResult.chunk_size) || chunkSize;
-    const resolvedChunkSize = Math.max(1, serverChunkSize);
-    const expectedChunks = Number(initResult.total_chunks) || totalChunks;
+    const wsFrameSize = Number(CONFIG.PDF_UPLOAD_WS_FRAME_SIZE) || (8 * 1024 * 1024);
+    const wsBufferLimit = Math.max(Number(CONFIG.PDF_UPLOAD_WS_BUFFER_LIMIT) || (32 * 1024 * 1024), wsFrameSize);
+    const socket = new WebSocket(getApiWebSocketUrl(`/upload-sessions/${encodeURIComponent(sessionId)}/ws`));
+    currentUploadSocket = socket;
+    let frameCount = 0;
 
-    for (let chunkIndex = 0; chunkIndex < expectedChunks; chunkIndex += 1) {
-        if (signal?.aborted) {
-            throw new DOMException('Upload aborted.', 'AbortError');
+    try {
+        await waitForWebSocketOpen(socket, signal);
+
+        const readyEvent = await waitForWebSocketMessage(socket, signal);
+        const readyPayload = JSON.parse(readyEvent.data);
+        if (readyPayload?.type === 'error') {
+            throw new Error(readyPayload.message || 'WebSocket upload init failed.');
+        }
+        if (readyPayload?.type !== 'ready') {
+            throw new Error('Unexpected WebSocket upload handshake response.');
         }
 
-        const start = chunkIndex * resolvedChunkSize;
-        const end = Math.min(file.size, start + resolvedChunkSize);
-        const chunkBlob = file.slice(start, end);
-        const chunkResponse = await fetch(`${ENV.API_BASE_URL}/upload-sessions/${sessionId}/chunk?chunk_index=${chunkIndex}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/octet-stream'
-            },
-            body: chunkBlob,
-            signal,
-        });
-        if (!chunkResponse.ok) {
-            const errorText = await chunkResponse.text().catch(() => '');
-            throw new Error(`Chunk ${chunkIndex + 1}/${expectedChunks} failed (${chunkResponse.status})${errorText ? `: ${errorText}` : ''}.`);
+        for (let offset = 0; offset < file.size; offset += wsFrameSize) {
+            if (signal?.aborted) {
+                throw new DOMException('Upload aborted.', 'AbortError');
+            }
+
+            const end = Math.min(file.size, offset + wsFrameSize);
+            socket.send(file.slice(offset, end));
+            frameCount += 1;
+            await waitForWebSocketBufferedAmount(socket, wsBufferLimit, signal);
+
+            showCanvasStatusOverlay(
+                'Uploading PDF...',
+                `WebSocket stream · ${formatBytes(end)} / ${formatBytes(file.size)}`,
+                'info'
+            );
+            await yieldToBrowser();
         }
 
-        const uploadedBytes = end;
-        showCanvasStatusOverlay(
-            'Uploading PDF...',
-            `Chunk ${chunkIndex + 1}/${expectedChunks} · ${formatBytes(uploadedBytes)} / ${formatBytes(file.size)}`,
-            'info'
+        socket.send(JSON.stringify({
+            action: 'complete',
+            filename: file.name,
+            file_size: file.size,
+        }));
+
+        const completeEvent = await waitForWebSocketMessage(socket, signal);
+        const completePayload = JSON.parse(completeEvent.data);
+        if (completePayload?.type === 'error') {
+            throw new Error(completePayload.message || 'WebSocket upload failed.');
+        }
+        if (completePayload?.type !== 'complete') {
+            throw new Error('Unexpected WebSocket upload completion response.');
+        }
+
+        const uploadSeconds = Math.max((performance.now() - uploadStartedAt) / 1000, 0.001);
+        const uploadMbps = (file.size / 1024 / 1024) / uploadSeconds;
+        console.info(
+            `WS upload completed in ${uploadSeconds.toFixed(2)}s ` +
+            `(${uploadMbps.toFixed(2)} MB/s, ${frameCount} frames).`,
+            completePayload,
         );
-        await yieldToBrowser();
+
+        currentPdfUploadSession = {
+            sessionId,
+            sourceKey: getPdfUploadSessionKey(file),
+            fileSize: file.size,
+            transport: 'websocket',
+        };
+        return currentPdfUploadSession;
+    } finally {
+        closeCurrentUploadSocket(socket);
+    }
+}
+
+async function ensurePdfUploadSession(file, { signal = null, force = false } = {}) {
+    if (!file) {
+        throw new Error('No PDF file available for upload.');
     }
 
-    const completeFormData = new FormData();
-    completeFormData.append('filename', file.name);
-    completeFormData.append('file_size', String(file.size));
-    completeFormData.append('total_chunks', String(expectedChunks));
-
-    const completeResponse = await fetch(`${ENV.API_BASE_URL}/upload-sessions/${sessionId}/complete`, {
-        method: 'POST',
-        body: completeFormData,
-        signal,
-    });
-    if (!completeResponse.ok) {
-        throw new Error(`Failed to finalize upload session (${completeResponse.status}).`);
+    const sessionKey = getPdfUploadSessionKey(file);
+    if (!force && currentPdfUploadSession?.sessionId && currentPdfUploadSession.sourceKey === sessionKey) {
+        return currentPdfUploadSession;
     }
 
-    currentPdfUploadSession = {
-        sessionId,
-        sourceKey: sessionKey,
-        fileSize: file.size,
-        totalChunks: expectedChunks,
-        chunkSize: resolvedChunkSize,
-    };
-    return currentPdfUploadSession;
+    return ensurePdfUploadSessionViaWebSocket(file, signal);
 }
 
 async function buildPdfRequestFormData(file, pageNum = null) {
@@ -391,10 +515,7 @@ async function buildPdfRequestFormData(file, pageNum = null) {
         formData.append('page_num', String(pageNum));
     }
 
-    const uploadThreshold = Number(CONFIG.PDF_UPLOAD_CHUNK_THRESHOLD) || (80 * 1024 * 1024);
-    const shouldUseChunkUpload = Boolean(file && file.size > uploadThreshold);
-    if (!shouldUseChunkUpload) {
-        formData.append('pdf_file', file);
+    if (!file) {
         return formData;
     }
 
@@ -428,6 +549,11 @@ function cancelCurrentBatchProcessing() {
     if (currentUploadController) {
         currentUploadController.abort();
         currentUploadController = null;
+    }
+
+    if (currentUploadSocket) {
+        closeCurrentUploadSocket(currentUploadSocket);
+        currentUploadSocket = null;
     }
 }
 

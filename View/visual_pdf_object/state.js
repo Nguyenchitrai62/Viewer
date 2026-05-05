@@ -166,6 +166,7 @@ let stagedPdfFile = null;
 let stagedCachedPages = {};
 let currentPdfUploadSession = null;
 let currentUploadController = null;
+let currentUploadSocket = null;
 
 const lengthCache = new WeakMap();
 

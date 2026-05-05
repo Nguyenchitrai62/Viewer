@@ -30,8 +30,8 @@ const CONFIG = {
     JSON_STREAM_PARSE_BATCH_BYTES: 1024 * 1024, // Gom nhieu chunk text truoc khi day vao clarinet de giam overhead parser
     JSON_SESSION_CACHE_MAX_BYTES: 5 * 1024 * 1024, // Khong cache session voi JSON qua lon
     JSON_STREAM_TEXT_BUFFER_LIMIT: Number.MAX_SAFE_INTEGER, // Tang gioi han buffer de doc duoc svg lon
-    PDF_UPLOAD_CHUNK_SIZE: 80 * 1024 * 1024,
-    PDF_UPLOAD_CHUNK_THRESHOLD: 80 * 1024 * 1024,
+    PDF_UPLOAD_WS_FRAME_SIZE: 8 * 1024 * 1024,
+    PDF_UPLOAD_WS_BUFFER_LIMIT: 32 * 1024 * 1024,
     MANUAL_LABEL_SCALE: 3, // Ti le xuat label, khop voi script tao du lieu train
     MANUAL_LABEL_BBOX_PTS: 5, // Match YOLO_BBOX_PTS in training_det_sprinkler/make_data.py
     MANUAL_LABEL_SNAP_SCREEN_PX: 18,
