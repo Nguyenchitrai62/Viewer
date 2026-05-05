@@ -286,6 +286,133 @@ function hidePdfPreview() {
     pdfPreview.innerHTML = '';
 }
 
+function getPdfUploadSessionKey(file) {
+    if (!file) return null;
+    return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function clearCurrentUploadController(controller = currentUploadController) {
+    if (currentUploadController === controller) {
+        currentUploadController = null;
+    }
+}
+
+async function ensurePdfUploadSession(file, { signal = null, force = false } = {}) {
+    if (!file) {
+        throw new Error('No PDF file available for upload.');
+    }
+
+    const sessionKey = getPdfUploadSessionKey(file);
+    if (!force && currentPdfUploadSession?.sessionId && currentPdfUploadSession.sourceKey === sessionKey) {
+        return currentPdfUploadSession;
+    }
+
+    const chunkSize = Number(CONFIG.PDF_UPLOAD_CHUNK_SIZE) || (8 * 1024 * 1024);
+    const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+
+    const initFormData = new FormData();
+    initFormData.append('filename', file.name);
+    initFormData.append('file_size', String(file.size));
+    initFormData.append('total_chunks', String(totalChunks));
+    initFormData.append('last_modified', String(file.lastModified || 0));
+
+    const initResponse = await fetch(`${ENV.API_BASE_URL}/upload-sessions`, {
+        method: 'POST',
+        body: initFormData,
+        signal,
+    });
+    if (!initResponse.ok) {
+        throw new Error(`Failed to create upload session (${initResponse.status}).`);
+    }
+
+    const initResult = await initResponse.json();
+    const sessionId = initResult.session_id;
+    const serverChunkSize = Number(initResult.chunk_size) || chunkSize;
+    const resolvedChunkSize = Math.max(1, serverChunkSize);
+    const expectedChunks = Number(initResult.total_chunks) || totalChunks;
+
+    for (let chunkIndex = 0; chunkIndex < expectedChunks; chunkIndex += 1) {
+        if (signal?.aborted) {
+            throw new DOMException('Upload aborted.', 'AbortError');
+        }
+
+        const start = chunkIndex * resolvedChunkSize;
+        const end = Math.min(file.size, start + resolvedChunkSize);
+        const chunkBlob = file.slice(start, end);
+        const chunkFormData = new FormData();
+        chunkFormData.append('chunk_index', String(chunkIndex));
+        chunkFormData.append('chunk', chunkBlob, `${file.name}.part${chunkIndex}`);
+
+        const chunkResponse = await fetch(`${ENV.API_BASE_URL}/upload-sessions/${sessionId}/chunk`, {
+            method: 'POST',
+            body: chunkFormData,
+            signal,
+        });
+        if (!chunkResponse.ok) {
+            throw new Error(`Chunk ${chunkIndex + 1}/${expectedChunks} failed (${chunkResponse.status}).`);
+        }
+
+        const uploadedBytes = end;
+        showCanvasStatusOverlay(
+            'Uploading PDF...',
+            `Chunk ${chunkIndex + 1}/${expectedChunks} · ${formatBytes(uploadedBytes)} / ${formatBytes(file.size)}`,
+            'info'
+        );
+        await yieldToBrowser();
+    }
+
+    const completeFormData = new FormData();
+    completeFormData.append('filename', file.name);
+    completeFormData.append('file_size', String(file.size));
+    completeFormData.append('total_chunks', String(expectedChunks));
+
+    const completeResponse = await fetch(`${ENV.API_BASE_URL}/upload-sessions/${sessionId}/complete`, {
+        method: 'POST',
+        body: completeFormData,
+        signal,
+    });
+    if (!completeResponse.ok) {
+        throw new Error(`Failed to finalize upload session (${completeResponse.status}).`);
+    }
+
+    currentPdfUploadSession = {
+        sessionId,
+        sourceKey: sessionKey,
+        fileSize: file.size,
+        totalChunks: expectedChunks,
+        chunkSize: resolvedChunkSize,
+    };
+    return currentPdfUploadSession;
+}
+
+async function buildPdfRequestFormData(file, pageNum = null) {
+    const formData = new FormData();
+    if (pageNum !== null && pageNum !== undefined) {
+        formData.append('page_num', String(pageNum));
+    }
+
+    const uploadThreshold = Number(CONFIG.PDF_UPLOAD_CHUNK_THRESHOLD) || (64 * 1024 * 1024);
+    const shouldUseChunkUpload = Boolean(file && file.size >= uploadThreshold);
+    if (!shouldUseChunkUpload) {
+        formData.append('pdf_file', file);
+        return formData;
+    }
+
+    if (currentUploadController) {
+        currentUploadController.abort();
+    }
+
+    const controller = new AbortController();
+    currentUploadController = controller;
+    try {
+        const session = await ensurePdfUploadSession(file, { signal: controller.signal });
+        formData.append('upload_session_id', session.sessionId);
+        return formData;
+    } finally {
+        clearCurrentUploadController(controller);
+    }
+}
+
 function cancelCurrentBatchProcessing() {
     currentBatchTaskId += 1;
     pageLoadRequestId += 1;
@@ -296,6 +423,11 @@ function cancelCurrentBatchProcessing() {
     if (currentBatchAbortController) {
         currentBatchAbortController.abort();
         currentBatchAbortController = null;
+    }
+
+    if (currentUploadController) {
+        currentUploadController.abort();
+        currentUploadController = null;
     }
 }
 
@@ -689,9 +821,7 @@ async function processSelectedPage(pageNum) {
     console.time('API Call');
     showCanvasStatusOverlay(`Loading page ${pageNum}...`, 'Fetching page JSON from backend...', 'info');
     try {
-        const formData = new FormData();
-        formData.append('pdf_file', file);
-        formData.append('page_num', pageNum);
+        const formData = await buildPdfRequestFormData(file, pageNum);
         const response = await fetch(`${ENV.API_BASE_URL}/process_page`, {
             method: 'POST',
             body: formData
@@ -758,10 +888,8 @@ async function processAllPagesBatch(file) {
         showCanvasStatusOverlay('Uploading PDF...', 'Pages will appear one by one as soon as they are ready.', 'info');
     }
 
-    const formData = new FormData();
-    formData.append('pdf_file', file);
-
     try {
+        const formData = await buildPdfRequestFormData(file);
         const response = await fetch(`${ENV.API_BASE_URL}/process_all_pages`, {
             method: 'POST',
             body: formData,

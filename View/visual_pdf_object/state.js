@@ -164,6 +164,8 @@ let currentBatchAbortController = null;
 let autoOpenReadyPage = false;
 let stagedPdfFile = null;
 let stagedCachedPages = {};
+let currentPdfUploadSession = null;
+let currentUploadController = null;
 
 const lengthCache = new WeakMap();
 
