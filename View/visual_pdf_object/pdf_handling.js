@@ -307,7 +307,7 @@ async function ensurePdfUploadSession(file, { signal = null, force = false } = {
         return currentPdfUploadSession;
     }
 
-    const chunkSize = Number(CONFIG.PDF_UPLOAD_CHUNK_SIZE) || (8 * 1024 * 1024);
+    const chunkSize = Number(CONFIG.PDF_UPLOAD_CHUNK_SIZE) || (80 * 1024 * 1024);
     const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
 
     const initFormData = new FormData();
