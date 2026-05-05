@@ -17,6 +17,7 @@ const CONFIG = {
     INTERACTION_DEBOUNCE_MS: 200, // Do tre debounce sau khi ket thuc pan/zoom de ve lai vector
     ZOOM_MIN: 0.1, // Zoom toi thieu
     ZOOM_MAX: 500, // Zoom toi da
+    GZIP_PDF_UPLOAD_THRESHOLD_BYTES: 40 * 1024 * 1024, // PDF lon hon nguong nay se duoc nen gzip truoc khi goi process_all_pages
     PDF_PAGE_CACHE_SCALE: 3, // Ti le render cache PDF dung chung cho VLM va low-zoom raster
     JSON_RASTER_CACHE_SCALE: 3, // Ti le raster tam cho JSON o zoom thap, gom ca shape, text va image
     SIMILAR_BBOX_LINE_WIDTH: 5, // Do day vien bbox cho ket qua tim thay

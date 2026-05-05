@@ -38,6 +38,15 @@ async function getLocalPdfPageCount(file) {
     }
 }
 
+async function gzipPdfFile(file) {
+    if (!file?.stream || typeof CompressionStream !== 'function') {
+        return null;
+    }
+
+    const compressedStream = file.stream().pipeThrough(new CompressionStream('gzip'));
+    return await new Response(compressedStream).blob();
+}
+
 async function releaseCurrentPdfResources() {
     const pdfToDestroy = currentPdfDocument;
     currentPdfDocument = null;
@@ -782,15 +791,44 @@ async function processAllPagesBatch(file) {
         showCanvasStatusOverlay('Uploading PDF...', 'Pages will appear one by one as soon as they are ready.', 'info');
     }
 
-    const formData = new FormData();
-    formData.append('pdf_file', file);
-
     try {
-        const response = await fetch(`${ENV.API_BASE_URL}/process_all_pages`, {
-            method: 'POST',
-            body: formData,
-            signal: controller.signal
-        });
+        let response = null;
+        const gzipThreshold = CONFIG.GZIP_PDF_UPLOAD_THRESHOLD_BYTES || 0;
+        const shouldUseGzipUpload = gzipThreshold > 0 && file.size >= gzipThreshold;
+
+        if (shouldUseGzipUpload) {
+            showCanvasStatusOverlay('Compressing PDF...', `${formatBytes(file.size)} · preparing gzip upload`, 'info');
+            const gzipBlob = await gzipPdfFile(file);
+            if (taskId !== currentBatchTaskId || controller.signal.aborted) {
+                return;
+            }
+
+            if (gzipBlob) {
+                showCanvasStatusOverlay('Uploading gzipped PDF...', `${formatBytes(gzipBlob.size)} from ${formatBytes(file.size)}`, 'info');
+                const gzipFormData = new FormData();
+                gzipFormData.append('pdf_file_gzip', gzipBlob, `${file.name || 'upload.pdf'}.gz`);
+
+                response = await fetch(`${ENV.API_BASE_URL}/process_all_pages_gzip`, {
+                    method: 'POST',
+                    body: gzipFormData,
+                    signal: controller.signal
+                });
+
+                if (!response.ok && response.status === 404) {
+                    response = null;
+                }
+            }
+        }
+
+        if (!response) {
+            const formData = new FormData();
+            formData.append('pdf_file', file);
+            response = await fetch(`${ENV.API_BASE_URL}/process_all_pages`, {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+            });
+        }
 
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
