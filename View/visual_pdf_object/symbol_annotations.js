@@ -219,6 +219,10 @@ function normalizeSymbolLabelDefinition(rawLabel, fallbackClassId = null) {
         : resolveSymbolClassId(fallbackClassId, getNextSymbolClassId());
     const labelId = rawLabel.id || rawLabel.label_id || `symbol_label_${slug}_${classId}`;
     const vectorPattern = normalizeSymbolVectorPattern(rawLabel.vectorPattern || rawLabel.vector_pattern);
+    const rawAnnotationCount = rawLabel.documentAnnotationCount ?? rawLabel.annotationCount ?? rawLabel.annotation_count;
+    const documentAnnotationCount = Number.isFinite(Number(rawAnnotationCount))
+        ? Math.max(0, Number(rawAnnotationCount))
+        : null;
 
     return {
         id: String(labelId),
@@ -226,7 +230,8 @@ function normalizeSymbolLabelDefinition(rawLabel, fallbackClassId = null) {
         slug,
         classId,
         color: isSupportedSymbolColor(rawLabel.color) ? rawLabel.color : null,
-        vectorPattern
+        vectorPattern,
+        documentAnnotationCount
     };
 }
 
@@ -248,7 +253,12 @@ function mergeSymbolLabelDefinitionLists(...labelLists) {
             name: existingLabel.name || normalizedLabel.name,
             classId: Number.isFinite(Number(existingLabel.classId)) ? existingLabel.classId : normalizedLabel.classId,
             color: isSupportedSymbolColor(existingLabel.color) ? existingLabel.color : normalizedLabel.color,
-            vectorPattern: existingLabel.vectorPattern || normalizedLabel.vectorPattern
+            vectorPattern: existingLabel.vectorPattern || normalizedLabel.vectorPattern,
+            documentAnnotationCount: Number.isFinite(Number(existingLabel.documentAnnotationCount)) && Number.isFinite(Number(normalizedLabel.documentAnnotationCount))
+                ? Math.max(Number(existingLabel.documentAnnotationCount), Number(normalizedLabel.documentAnnotationCount))
+                : (Number.isFinite(Number(existingLabel.documentAnnotationCount))
+                    ? Number(existingLabel.documentAnnotationCount)
+                    : normalizedLabel.documentAnnotationCount)
         });
     });
 
@@ -312,6 +322,61 @@ function serializeSymbolLabelDefinition(label) {
 function getSymbolLabelsWithVectorPatterns() {
     return mergeSymbolLabelDefinitionLists(symbolAnnotationDocumentLabels, symbolLabelDefinitions)
         .filter(label => normalizeSymbolVectorPattern(label.vectorPattern));
+}
+
+function getDocumentAnnotationCountForLabel(label) {
+    const labelSlug = label?.slug || label?.labelSlug || label?.label_slug;
+    if (!labelSlug) {
+        return 0;
+    }
+
+    const matchingLabel = symbolAnnotationDocumentLabels.find(candidate => candidate.slug === labelSlug)
+        || symbolLabelDefinitions.find(candidate => candidate.slug === labelSlug)
+        || (symbolAnnotationDocumentSummary?.labels || []).find(candidate => (
+            (candidate?.slug || candidate?.label_slug) === labelSlug
+        ))
+        || null;
+
+    const rawCount = matchingLabel?.documentAnnotationCount
+        ?? matchingLabel?.annotationCount
+        ?? matchingLabel?.annotation_count;
+    return Number.isFinite(Number(rawCount)) ? Math.max(0, Number(rawCount)) : 0;
+}
+
+function removeSymbolLabelFromCachedPages(label) {
+    const currentDocumentName = getCurrentSymbolDocumentName();
+    if (!label?.slug || !currentDocumentName) {
+        return;
+    }
+
+    for (const [pageKey, payload] of symbolAnnotationPageCache.entries()) {
+        const parsedPage = parseSymbolPageKey(pageKey);
+        if (!parsedPage || parsedPage.pdfName !== currentDocumentName) {
+            continue;
+        }
+
+        const clonedPayload = cloneSymbolAnnotationPayload(payload);
+        if (!clonedPayload) {
+            continue;
+        }
+
+        clonedPayload.labels = (clonedPayload.labels || []).filter(candidate => {
+            const candidateSlug = candidate?.slug || candidate?.label_slug;
+            return candidateSlug !== label.slug;
+        });
+        clonedPayload.annotations = (clonedPayload.annotations || []).filter(annotation => {
+            const annotationSlug = annotation?.label_slug || annotation?.labelSlug;
+            return annotationSlug !== label.slug;
+        });
+        clonedPayload.annotation_count = Array.isArray(clonedPayload.annotations) ? clonedPayload.annotations.length : 0;
+        symbolAnnotationPageCache.set(pageKey, clonedPayload);
+
+        if (clonedPayload.annotation_count > 0) {
+            symbolAnnotationKnownEmptyPageKeys.delete(pageKey);
+        } else {
+            symbolAnnotationKnownEmptyPageKeys.add(pageKey);
+        }
+    }
 }
 
 function attachSymbolVectorPatternToLabel(labelId, pattern) {
@@ -814,24 +879,63 @@ function addSymbolLabel(name, options = {}) {
 async function removeSymbolLabel(labelId, options = {}) {
     if (isSymbolAnnotationInteractionLocked()) return false;
 
+    if (getCurrentSymbolDocumentName()) {
+        try {
+            await loadSymbolAnnotationDocumentSummary({ forceRefresh: true, silent: true });
+        } catch (error) {
+            console.warn('Failed to refresh symbol label summary before delete:', error);
+        }
+    }
+
     const label = symbolLabelDefinitions.find(candidate => candidate.id === labelId);
     if (!label) {
         return false;
     }
 
-    const removedCount = symbolAnnotations.filter(annotation => annotation.labelId === label.id).length;
-    if (!options.skipConfirm) {
-        const confirmMessage = removedCount > 0
-            ? `Xóa nhãn ${label.name} sẽ xóa ${removedCount} bbox của nhãn này trên page hiện tại. Bạn có muốn tiếp tục không?`
-            : `Xóa nhãn ${label.name} khỏi page hiện tại?`;
-        if (!window.confirm(confirmMessage)) {
+    const currentPageCount = symbolAnnotations.filter(annotation => annotation.labelId === label.id).length;
+    const documentAnnotationCount = getDocumentAnnotationCountForLabel(label);
+
+    if (currentPageCount > 0) {
+        if (!options.skipConfirm && !window.confirm(`Xóa ${currentPageCount} bbox của nhãn ${label.name} trên page hiện tại? Nhãn sẽ vẫn được giữ lại trong PDF.`)) {
+            return false;
+        }
+
+        symbolAnnotations = symbolAnnotations.filter(annotation => annotation.labelId !== label.id);
+        persistCurrentSymbolAnnotationState();
+        updateSymbolAnnotationUI();
+        if (typeof scheduleDraw === 'function') {
+            scheduleDraw();
+        }
+
+        setSymbolAnnotationFeedback(`Đã xóa ${currentPageCount} bbox của nhãn ${label.name}. Đang lưu page vào DB...`, 'info');
+        try {
+            const saveResult = await saveSymbolAnnotationsForCurrentPage({ silent: true });
+            try {
+                await loadSymbolAnnotationDocumentSummary({ forceRefresh: true, silent: true });
+            } catch (refreshError) {
+                console.warn('Failed to refresh symbol label summary after bbox delete:', refreshError);
+            }
+            updateSymbolAnnotationUI();
+            setSymbolAnnotationFeedback(`Đã xóa ${currentPageCount} bbox của nhãn ${label.name}. Save DB thành công (${saveResult?.storage_backend || 'db'}).`, 'success');
+            return true;
+        } catch (error) {
+            console.error('Failed to auto-save symbol annotations after label bbox delete:', error);
+            setSymbolAnnotationFeedback(`Đã xóa bbox trên FE nhưng ghi DB thất bại: ${error.message}`, 'error');
             return false;
         }
     }
 
-    symbolLabelDefinitions = symbolLabelDefinitions.filter(candidate => candidate.id !== label.id);
+    if (documentAnnotationCount > 0) {
+        setSymbolAnnotationFeedback(`Nhãn ${label.name} vẫn còn ${documentAnnotationCount} bbox trong PDF. Hãy xóa hết bbox trước khi xóa label khỏi DB.`, 'info');
+        return false;
+    }
+
+    if (!options.skipConfirm && !window.confirm(`Xóa nhãn ${label.name} khỏi DB của toàn bộ PDF? Nhãn này hiện không còn bbox nào.`)) {
+        return false;
+    }
+
+    symbolLabelDefinitions = symbolLabelDefinitions.filter(candidate => candidate.id !== label.id && candidate.slug !== label.slug);
     symbolAnnotationDocumentLabels = symbolAnnotationDocumentLabels.filter(candidate => candidate.id !== label.id && candidate.slug !== label.slug);
-    symbolAnnotations = symbolAnnotations.filter(annotation => annotation.labelId !== label.id);
 
     if (selectedSymbolLabelId === label.id) {
         selectedSymbolLabelId = null;
@@ -843,37 +947,34 @@ async function removeSymbolLabel(labelId, options = {}) {
         }
     }
 
-    persistCurrentSymbolAnnotationState();
+    removeSymbolLabelFromCachedPages(label);
+    const pageKey = getSymbolPageKey();
+    const pageWasDirty = isSymbolPageDirty(pageKey);
+    persistCurrentSymbolAnnotationState({ dirty: pageWasDirty });
     updateSymbolAnnotationUI();
     if (typeof scheduleDraw === 'function') {
         scheduleDraw();
     }
 
-    const removedSummary = removedCount > 0
-        ? `Đã xóa nhãn ${label.name} cùng ${removedCount} bbox của nhãn này.`
-        : `Đã xóa nhãn ${label.name}.`;
-    const saveTasks = [];
-    if (getCurrentSymbolDocumentName()) {
-        saveTasks.push(saveSymbolAnnotationDocumentLabels({ silent: true }));
-    }
-    if (getSymbolPageKey()) {
-        saveTasks.push(saveSymbolAnnotationsForCurrentPage({ silent: true }));
-    }
-
-    if (!saveTasks.length) {
-        setSymbolAnnotationFeedback(removedSummary, 'success');
+    if (!getCurrentSymbolDocumentName()) {
+        setSymbolAnnotationFeedback(`Đã xóa nhãn ${label.name}.`, 'success');
         return true;
     }
 
-    setSymbolAnnotationFeedback(`${removedSummary} Đang tự động lưu DB...`, 'info');
+    setSymbolAnnotationFeedback(`Đã xóa nhãn ${label.name} khỏi DB label của PDF. Đang lưu...`, 'info');
     try {
-        const saveResults = await Promise.all(saveTasks);
-        const storageBackend = saveResults.find(result => result?.storage_backend)?.storage_backend || 'db';
-        setSymbolAnnotationFeedback(`${removedSummary} Save DB thành công (${storageBackend}).`, 'success');
+        const saveResult = await saveSymbolAnnotationDocumentLabels({ silent: true });
+        try {
+            await loadSymbolAnnotationDocumentSummary({ forceRefresh: true, silent: true });
+        } catch (refreshError) {
+            console.warn('Failed to refresh symbol label summary after global label delete:', refreshError);
+        }
+        updateSymbolAnnotationUI();
+        setSymbolAnnotationFeedback(`Đã xóa nhãn ${label.name} khỏi DB toàn PDF (${saveResult?.storage_backend || 'db'}).`, 'success');
         return true;
     } catch (error) {
         console.error('Failed to auto-save removed symbol label:', error);
-        setSymbolAnnotationFeedback(`${removedSummary} Nhưng tự động lưu DB thất bại: ${error.message}`, 'error');
+        setSymbolAnnotationFeedback(`Đã xóa nhãn trên FE nhưng ghi DB thất bại: ${error.message}`, 'error');
         return false;
     }
 }
@@ -1119,7 +1220,7 @@ function cacheSymbolAnnotationDocumentSummaryPayload(payload, options = {}) {
 
     symbolAnnotationDocumentSummary = {
         pdf_name: pdfName,
-        labels: symbolAnnotationDocumentLabels.map(serializeSymbolLabelDefinition),
+        labels: cloneSymbolAnnotationPayload(symbolAnnotationDocumentLabels) || [],
         pages,
         storage_backend: payload?.storage_backend || symbolAnnotationDocumentSummary?.storage_backend || 'db'
     };
@@ -1897,6 +1998,17 @@ async function loadSymbolAnnotationsForCurrentPage(options = {}) {
         return null;
     }
 
+    if (!symbolAnnotationDocumentSummary || symbolAnnotationDocumentSummaryKey !== getCurrentSymbolDocumentCacheKey() || options.forceRefreshDocument) {
+        try {
+            await loadSymbolAnnotationDocumentSummary({
+                silent: true,
+                forceRefresh: Boolean(options.forceRefreshDocument)
+            });
+        } catch (error) {
+            console.warn('Failed to load symbol label summary before page annotations:', error);
+        }
+    }
+
     const requestId = ++symbolAnnotationLoadRequestId;
 
     const cachedPayload = !options.forceRefresh
@@ -2428,18 +2540,23 @@ async function autoFindSymbolAnnotationsForCurrentPage() {
 
     const incomingAnnotations = [];
     const seenAnnotationKeys = new Set();
+    const similarityThreshold = getSymbolSimilarityThresholdRatio();
 
     try {
         for (let index = 0; index < labelsWithPatterns.length; index += 1) {
             const label = labelsWithPatterns[index];
             setSymbolAnnotationLoading(true, `Đang tìm ${label.name} (${index + 1}/${labelsWithPatterns.length})...`);
             const searchSummary = await runSavedPatternSearch(label.vectorPattern, {
-                similarityThreshold: getSymbolSimilarityThresholdRatio(),
+                similarityThreshold,
                 showLoading: false,
                 draw: false,
             });
 
             collectUniqueSymbolSearchEntries(searchSummary?.allResults).forEach(({ rect, result }) => {
+                const resultScore = Number(result?.score);
+                if (Number.isFinite(resultScore) && resultScore < similarityThreshold) {
+                    return;
+                }
                 const annotationKey = `${label.id}|${roundRectKey(rect)}`;
                 if (seenAnnotationKeys.has(annotationKey)) return;
                 seenAnnotationKeys.add(annotationKey);
