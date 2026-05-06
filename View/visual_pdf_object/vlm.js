@@ -51,7 +51,8 @@ function updateVLMResultActions(options = {}) {
 }
 
 function syncExtractedCellDownloadButton() {
-    if (!btnDownloadCellsZip) {
+    const downloadButton = document.getElementById('vlm-download-cells-btn');
+    if (!downloadButton) {
         return;
     }
 
@@ -59,12 +60,12 @@ function syncExtractedCellDownloadButton() {
         ? extractedCellDownloadBundle.cells.length
         : 0;
 
-    btnDownloadCellsZip.style.display = cellCount > 0 ? '' : 'none';
-    btnDownloadCellsZip.disabled = cellCount <= 0;
-    btnDownloadCellsZip.textContent = cellCount > 0
+    downloadButton.style.display = cellCount > 0 ? '' : 'none';
+    downloadButton.disabled = cellCount <= 0;
+    downloadButton.textContent = cellCount > 0
         ? `🗂️ Cells ZIP (${cellCount})`
         : '🗂️ Cells ZIP';
-    btnDownloadCellsZip.title = cellCount > 0
+    downloadButton.title = cellCount > 0
         ? `Tải ${cellCount} ảnh crop cell`
         : 'Chưa có dữ liệu cell để tải';
 }
@@ -152,11 +153,148 @@ function hideVLMModal(options = {}) {
     const modal = document.getElementById('vlm-modal');
     modal.style.display = 'none';
     activeVlmCropRequestId += 1;
+    vlmSelectionUiState = null;
+    canvasContainer?.classList?.remove('vlm-has-selection');
 
     if (options.clearPending !== false) {
         pendingVLMCrop = null;
         pendingVLMBbox = null;
     }
+
+    if (typeof syncVLMSelectionFrame === 'function') {
+        syncVLMSelectionFrame(null);
+    }
+
+    if (typeof scheduleCrosshairOverlayDraw === 'function') {
+        scheduleCrosshairOverlayDraw();
+    }
+}
+
+function triggerVLMModeSnap() {
+    if (!canvasContainer || !vlmScreenFlash) {
+        return;
+    }
+
+    if (vlmSnapTimer) {
+        clearTimeout(vlmSnapTimer);
+        vlmSnapTimer = null;
+    }
+
+    canvasContainer.classList.remove('vlm-snap-active');
+    vlmScreenFlash.classList.remove('flash-anim');
+    void canvasContainer.offsetWidth;
+
+    canvasContainer.classList.add('vlm-snap-active');
+    vlmScreenFlash.classList.add('flash-anim');
+
+    vlmSnapTimer = setTimeout(() => {
+        canvasContainer.classList.remove('vlm-snap-active');
+        vlmScreenFlash.classList.remove('flash-anim');
+        vlmSnapTimer = null;
+    }, 1050);
+}
+
+function syncVLMSelectionFrame(bbox = pendingVLMBbox, options = {}) {
+    if (!vlmSelectionFrame) {
+        return;
+    }
+
+    if (!bbox || bbox.width <= 0 || bbox.height <= 0) {
+        vlmSelectionFrame.style.display = 'none';
+        vlmSelectionFrame.removeAttribute('data-state');
+        canvasContainer?.classList?.remove('vlm-has-selection');
+        return;
+    }
+
+    const frameWidth = Math.max(1, bbox.width * zoom);
+    const frameHeight = Math.max(1, bbox.height * zoom);
+    const left = bbox.x * zoom + offsetX;
+    const top = bbox.y * zoom + offsetY;
+    const frameState = options.state || (() => {
+        if (isVLMDrawing) return 'drawing';
+        if (vlmSelectionUiState === 'preview') return 'preview';
+        if (vlmSelectionUiState === 'loading') return 'loading';
+        if (vlmSelectionUiState === 'result') return 'result';
+        if (vlmSelectionUiState === 'error') return 'error';
+        return 'drawing';
+    })();
+
+    if (frameState === 'drawing') {
+        canvasContainer?.classList?.remove('vlm-has-selection');
+    } else {
+        canvasContainer?.classList?.add('vlm-has-selection');
+    }
+
+    vlmSelectionFrame.dataset.state = frameState;
+    vlmSelectionFrame.style.display = 'block';
+    vlmSelectionFrame.style.left = `${left}px`;
+    vlmSelectionFrame.style.top = `${top}px`;
+    vlmSelectionFrame.style.width = `${frameWidth}px`;
+    vlmSelectionFrame.style.height = `${frameHeight}px`;
+    vlmSelectionFrame.style.opacity = options.masked === false ? '0.96' : '1';
+}
+
+function syncVLMSelectionPanelPosition(bbox = pendingVLMBbox) {
+    const panel = document.getElementById('vlm-modal');
+    if (!panel || panel.style.display === 'none' || !bbox) {
+        return;
+    }
+
+    if (window.innerWidth <= 768) {
+        panel.style.left = '12px';
+        panel.style.right = '12px';
+        panel.style.top = 'auto';
+        panel.style.bottom = '12px';
+        return;
+    }
+
+    const containerRect = canvasContainer?.getBoundingClientRect?.();
+    if (!containerRect || !containerRect.width || !containerRect.height) {
+        return;
+    }
+
+    const panelWidth = panel.offsetWidth || 420;
+    const panelHeight = panel.offsetHeight || 320;
+    const screenRect = {
+        left: containerRect.left + bbox.x * zoom + offsetX,
+        top: containerRect.top + bbox.y * zoom + offsetY,
+        width: Math.max(1, bbox.width * zoom),
+        height: Math.max(1, bbox.height * zoom)
+    };
+    const viewportMargin = 16;
+    const gutter = 16;
+
+    let left = screenRect.left + screenRect.width + gutter;
+    let top = screenRect.top;
+
+    if (left + panelWidth > window.innerWidth - viewportMargin) {
+        left = screenRect.left + screenRect.width - panelWidth;
+    }
+    if (left < containerRect.left + viewportMargin) {
+        left = Math.min(
+            window.innerWidth - panelWidth - viewportMargin,
+            Math.max(viewportMargin, containerRect.left + screenRect.left - containerRect.left)
+        );
+    }
+
+    const maxTop = window.innerHeight - panelHeight - viewportMargin;
+    top = Math.min(Math.max(top, viewportMargin), Math.max(viewportMargin, maxTop));
+
+    panel.style.left = `${Math.max(viewportMargin, left)}px`;
+    panel.style.top = `${top}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+}
+
+function showVLMSelectionPanel(bbox = pendingVLMBbox) {
+    const panel = document.getElementById('vlm-modal');
+    panel.style.display = 'block';
+    requestAnimationFrame(() => {
+        syncVLMSelectionPanelPosition(bbox);
+        requestAnimationFrame(() => {
+            syncVLMSelectionPanelPosition(bbox);
+        });
+    });
 }
 
 function showVLMLoading(message) {
@@ -168,9 +306,16 @@ function showVLMLoading(message) {
     loading.style.display = 'flex';
     result.style.display = 'none';
     error.style.display = 'none';
+    document.getElementById('vlm-preview').style.display = 'none';
     updateVLMResultActions({ showCopy: true, showDownloadCells: false });
     document.getElementById('vlm-loading-text').textContent = message || 'Processing selected region';
+    vlmSelectionUiState = 'loading';
     modal.style.display = 'block';
+    showVLMSelectionPanel();
+
+    if (typeof scheduleCrosshairOverlayDraw === 'function') {
+        scheduleCrosshairOverlayDraw();
+    }
 }
 
 async function cropAndExtractVLM(bbox) {
@@ -181,6 +326,7 @@ async function cropAndExtractVLM(bbox) {
         }
 
         const requestId = ++activeVlmCropRequestId;
+        pendingVLMBbox = { ...bbox };
 
         // Show preview state first
         showVLMModalPreview(null, bbox);
@@ -264,7 +410,6 @@ async function cropAndExtractVLM(bbox) {
 }
 
 function showVLMModalPreview(imageBase64, bbox) {
-    const modal = document.getElementById('vlm-modal');
     const preview = document.getElementById('vlm-preview');
     const loading = document.getElementById('vlm-loading');
     const result = document.getElementById('vlm-result');
@@ -276,21 +421,19 @@ function showVLMModalPreview(imageBase64, bbox) {
     result.style.display = 'none';
     error.style.display = 'none';
 
-    // Set preview image
-    if (imageBase64) {
-        document.getElementById('vlm-preview-image').src = imageBase64;
-    } else {
-        document.getElementById('vlm-preview-image').removeAttribute('src');
-    }
-    
     // Show bbox info
     if (bbox) {
+        pendingVLMBbox = { ...bbox };
         document.getElementById('vlm-preview-bbox').textContent = 
             `x: ${Math.round(bbox.x)}, y: ${Math.round(bbox.y)}, w: ${Math.round(bbox.width)}, h: ${Math.round(bbox.height)}`;
     }
 
-    // Show modal
-    modal.style.display = 'block';
+    vlmSelectionUiState = 'preview';
+    showVLMSelectionPanel(bbox);
+
+    if (typeof scheduleCrosshairOverlayDraw === 'function') {
+        scheduleCrosshairOverlayDraw();
+    }
 }
 
 function showVLMModal(imageBase64) {
@@ -304,33 +447,20 @@ function showVLMModal(imageBase64) {
     result.style.display = 'none';
     error.style.display = 'none';
 
-    // Set cropped image
-    if (imageBase64) {
-        document.getElementById('vlm-cropped-image').src = imageBase64;
-    }
-
-    // Show modal
+    vlmSelectionUiState = 'loading';
     modal.style.display = 'block';
+    showVLMSelectionPanel();
 }
 
 function showVLMModalResult(data, options = {}) {
     const loading = document.getElementById('vlm-loading');
     const result = document.getElementById('vlm-result');
     const error = document.getElementById('vlm-error');
-    const resultImageWrapper = document.getElementById('vlm-result-image-wrapper');
-    const shouldShowImage = options.showImage === true;
 
+    document.getElementById('vlm-preview').style.display = 'none';
     loading.style.display = 'none';
     error.style.display = 'none';
     result.style.display = 'block';
-    resultImageWrapper.style.display = shouldShowImage ? 'block' : 'none';
-
-    const previewImageBase64 = options.imageBase64 || pendingVLMCrop || '';
-    if (shouldShowImage && previewImageBase64) {
-        document.getElementById('vlm-cropped-image').src = previewImageBase64;
-    } else {
-        document.getElementById('vlm-cropped-image').removeAttribute('src');
-    }
 
     updateVLMResultActions({
         showCopy: options.showCopy !== false,
@@ -345,20 +475,32 @@ function showVLMModalResult(data, options = {}) {
         setVLMResultContainerMode('json');
         jsonContainer.textContent = JSON.stringify(data, null, 2);
     }
+
+    vlmSelectionUiState = 'result';
+    showVLMSelectionPanel();
+
+    if (typeof scheduleCrosshairOverlayDraw === 'function') {
+        scheduleCrosshairOverlayDraw();
+    }
 }
 
 function showVLMModalError(message) {
-    const modal = document.getElementById('vlm-modal');
     const loading = document.getElementById('vlm-loading');
     const result = document.getElementById('vlm-result');
     const error = document.getElementById('vlm-error');
 
+    document.getElementById('vlm-preview').style.display = 'none';
     loading.style.display = 'none';
     result.style.display = 'none';
     error.style.display = 'block';
-    modal.style.display = 'block';
 
     document.getElementById('vlm-error-message').textContent = message;
+    vlmSelectionUiState = 'error';
+    showVLMSelectionPanel();
+
+    if (typeof scheduleCrosshairOverlayDraw === 'function') {
+        scheduleCrosshairOverlayDraw();
+    }
 }
 
 async function callVLMExtractAPI(imageBase64, fields) {
@@ -492,7 +634,7 @@ async function downloadExtractedCellsZip(triggerButton = null) {
         return;
     }
 
-    const sourceButton = triggerButton || btnDownloadCellsZip;
+    const sourceButton = triggerButton || document.getElementById('vlm-download-cells-btn');
     const originalLabel = sourceButton ? sourceButton.textContent : '';
     const fileName = buildCellZipFileName(extractedCellDownloadBundle);
     const totalCells = extractedCellDownloadBundle.cells.length;
@@ -827,7 +969,7 @@ document.getElementById('vlm-detect-cells-btn').addEventListener('click', async 
         }, {
             imageBase64: pendingVLMCrop,
             showCopy: false,
-            showDownloadCells: false,
+            showDownloadCells: true,
             showImage: false,
             renderMode: 'summary',
             htmlContent: buildCellExtractSummaryHtml({
@@ -835,7 +977,7 @@ document.getElementById('vlm-detect-cells-btn').addEventListener('click', async 
                 cellCount: worldCells.length,
                 processingTime: data?.processing_time || 0,
                 message: 'Tat ca cell da duoc to mau va ve len viewer goc.',
-                hint: 'Kiem tra overlay tren ban ve xong, bam nut Cells ZIP ngoai toolbar de tai anh crop tung cell.',
+                hint: 'Nut Cells ZIP ngay trong panel nay se tai toan bo anh crop tung cell.',
             }),
         });
     } catch (error) {
@@ -870,18 +1012,8 @@ document.getElementById('vlm-download-cells-btn').addEventListener('click', asyn
     await downloadExtractedCellsZip(document.getElementById('vlm-download-cells-btn'));
 });
 
-if (btnDownloadCellsZip) {
-    btnDownloadCellsZip.addEventListener('click', async () => {
-        await downloadExtractedCellsZip(btnDownloadCellsZip);
-    });
-}
-
 syncExtractedCellDownloadButton();
 
-// Close modal when clicking outside
-window.addEventListener('click', (e) => {
-    const modal = document.getElementById('vlm-modal');
-    if (e.target === modal) {
-        hideVLMModal();
-    }
+window.addEventListener('resize', () => {
+    syncVLMSelectionPanelPosition();
 });

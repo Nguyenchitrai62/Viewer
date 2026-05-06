@@ -1451,20 +1451,59 @@ function drawDetectedCellOverlay() {
 
 function drawCrosshairOverlay() {
     const hasDetectedCellOverlay = Array.isArray(extractedCellOverlays) && extractedCellOverlays.length > 0;
+    const activeVLMBbox = (() => {
+        if (vlmBboxStart && vlmBboxEnd) {
+            return {
+                x: Math.min(vlmBboxStart.x, vlmBboxEnd.x),
+                y: Math.min(vlmBboxStart.y, vlmBboxEnd.y),
+                width: Math.abs(vlmBboxEnd.x - vlmBboxStart.x),
+                height: Math.abs(vlmBboxEnd.y - vlmBboxStart.y)
+            };
+        }
+
+        if (pendingVLMBbox && vlmSelectionUiState) {
+            return { ...pendingVLMBbox };
+        }
+
+        return null;
+    })();
+    const shouldMaskVLMSelection = Boolean(
+        activeVLMBbox &&
+        (isVLMDrawing || vlmSelectionUiState === 'preview' || vlmSelectionUiState === 'loading')
+    );
+    const shouldDrawCrosshairGuides = Boolean(isDrawingBbox);
+    const shouldShowOverlayCanvas = Boolean(isDrawingBbox || hasDetectedCellOverlay);
 
     if (typeof drawManualLabelCrosshairOverlay === 'function' && annotationMode) {
         crosshairCanvas.style.display = 'block';
         crosshairOverlayVisible = true;
         crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
+        if (typeof syncVLMSelectionFrame === 'function') {
+            syncVLMSelectionFrame(null);
+        }
         if (hasDetectedCellOverlay) {
             drawDetectedCellOverlay();
         }
         drawManualLabelCrosshairOverlay();
         return;
     }
-    
-    // Only draw crosshair when in draw mode
-    if (!isDrawingBbox && !isVLMBboxMode && !hasDetectedCellOverlay) {
+
+    if (activeVLMBbox && activeVLMBbox.width > 0 && activeVLMBbox.height > 0) {
+        if (typeof syncVLMSelectionFrame === 'function') {
+            syncVLMSelectionFrame(activeVLMBbox, {
+                masked: shouldMaskVLMSelection,
+            });
+        }
+    } else if (typeof syncVLMSelectionFrame === 'function') {
+        syncVLMSelectionFrame(null);
+    }
+
+    if (!shouldShowOverlayCanvas) {
+        if (typeof syncVLMSelectionFrame === 'function') {
+            if (!activeVLMBbox) {
+                syncVLMSelectionFrame(null);
+            }
+        }
         if (crosshairOverlayVisible) {
             crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
             crosshairOverlayVisible = false;
@@ -1481,28 +1520,28 @@ function drawCrosshairOverlay() {
         drawDetectedCellOverlay();
     }
 
-    if (!isDrawingBbox && !isVLMBboxMode) {
+    if (!isDrawingBbox) {
         return;
     }
-    
-    crosshairCtx.strokeStyle = 'black';
-    crosshairCtx.lineWidth = 0.5;
-    crosshairCtx.setLineDash([]);
-    
-    // Calculate screen coordinates
+
     const screenX = mouseX * zoom + offsetX;
     const screenY = mouseY * zoom + offsetY;
-    
-    // Draw crosshair lines
-    crosshairCtx.beginPath();
-    crosshairCtx.moveTo(0, screenY);
-    crosshairCtx.lineTo(crosshairCanvas.width, screenY);
-    crosshairCtx.stroke();
-    
-    crosshairCtx.beginPath();
-    crosshairCtx.moveTo(screenX, 0);
-    crosshairCtx.lineTo(screenX, crosshairCanvas.height);
-    crosshairCtx.stroke();
+
+    if (shouldDrawCrosshairGuides) {
+        crosshairCtx.strokeStyle = 'black';
+        crosshairCtx.lineWidth = 0.5;
+        crosshairCtx.setLineDash([]);
+
+        crosshairCtx.beginPath();
+        crosshairCtx.moveTo(0, screenY);
+        crosshairCtx.lineTo(crosshairCanvas.width, screenY);
+        crosshairCtx.stroke();
+
+        crosshairCtx.beginPath();
+        crosshairCtx.moveTo(screenX, 0);
+        crosshairCtx.lineTo(screenX, crosshairCanvas.height);
+        crosshairCtx.stroke();
+    }
 
     if (isDrawingBbox && currentBbox && currentBbox.width > 0 && currentBbox.height > 0) {
         const screenBbox = {
@@ -1516,29 +1555,6 @@ function drawCrosshairOverlay() {
         crosshairCtx.setLineDash([]);
         crosshairCtx.strokeRect(screenBbox.x, screenBbox.y, screenBbox.width, screenBbox.height);
     }
-    
-    // Draw VLM bbox rectangle if exists (dashed green rectangle on overlay)
-    if (isVLMBboxMode && vlmBboxStart && vlmBboxEnd) {
-        const vlmBbox = {
-            x: Math.min(vlmBboxStart.x, vlmBboxEnd.x),
-            y: Math.min(vlmBboxStart.y, vlmBboxEnd.y),
-            width: Math.abs(vlmBboxEnd.x - vlmBboxStart.x),
-            height: Math.abs(vlmBboxEnd.y - vlmBboxStart.y)
-        };
-        if (vlmBbox.width > 0 && vlmBbox.height > 0) {
-            const screenBbox = {
-                x: vlmBbox.x * zoom + offsetX,
-                y: vlmBbox.y * zoom + offsetY,
-                width: vlmBbox.width * zoom,
-                height: vlmBbox.height * zoom
-            };
-            crosshairCtx.strokeStyle = '#28a745';
-            crosshairCtx.lineWidth = 2;
-            crosshairCtx.setLineDash([5, 5]);
-            crosshairCtx.strokeRect(screenBbox.x, screenBbox.y, screenBbox.width, screenBbox.height);
-            crosshairCtx.setLineDash([]);
-        }
-    }
 }
 
 function scheduleCrosshairOverlayDraw() {
@@ -1551,7 +1567,7 @@ function scheduleCrosshairOverlayDraw() {
 }
 
 function scheduleDraw() {
-    if ((Array.isArray(extractedCellOverlays) && extractedCellOverlays.length > 0) || annotationMode) {
+    if ((Array.isArray(extractedCellOverlays) && extractedCellOverlays.length > 0) || annotationMode || vlmSelectionUiState) {
         scheduleCrosshairOverlayDraw();
     }
     if (drawScheduled) return;
@@ -1559,5 +1575,8 @@ function scheduleDraw() {
     requestAnimationFrame(() => {
         draw();
         drawScheduled = false;
+        if (typeof syncVLMSelectionPanelPosition === 'function') {
+            syncVLMSelectionPanelPosition();
+        }
     });
 }

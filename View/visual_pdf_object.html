@@ -57,10 +57,23 @@
                 <button id="btn-export-images" style="flex:1; background-color:#6f42c1; color:white; border:none; padding:6px 8px; font-size:12px; font-weight:600; border-radius:6px; cursor:pointer;">🖼️ Images</button>
             </div>
         </div>
-        <div id="canvas-container">
+        <div id="canvas-container" class="vlm-light-surface">
             <canvas id="drawing-canvas"></canvas>
             <div id="shape-raster-layer" aria-hidden="true"></div>
             <canvas id="crosshair-canvas" style="position: absolute; top: 0; left: 0; pointer-events: none; z-index: 50;"></canvas>
+            <div id="vlm-screen-flash" aria-hidden="true"></div>
+            <div id="vlm-selection-frame" aria-hidden="true">
+                <div class="vlm-selection-aura" aria-hidden="true"></div>
+                <div class="vlm-selection-hole"></div>
+                <div class="vlm-selection-glow"></div>
+                <div class="vlm-selection-scanner" aria-hidden="true"></div>
+                <div class="vlm-selection-corners">
+                    <div class="vlm-selection-corner tl"></div>
+                    <div class="vlm-selection-corner tr"></div>
+                    <div class="vlm-selection-corner bl"></div>
+                    <div class="vlm-selection-corner br"></div>
+                </div>
+            </div>
             <div id="pdf-preview"
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; background: white; z-index: 1;">
             </div>
@@ -119,8 +132,7 @@
             <button id="btn-detect-pipeline" title="Detect Pipeline">🔧 Detect Pipeline</button>
             <button id="btn-export-pipeline-json" title="Export Pipeline JSON">📋 JSON</button>
             <button id="btn-export-revit-json" title="Export Revit JSON">🏗️ Revit</button>
-            <button id="btn-vlm-extract" title="VLM Extract">🤖 VLM Extract</button>
-            <button id="btn-download-cells-zip" title="Tải ảnh crop cell" style="display:none;">🗂️ Cells ZIP</button>
+            <button id="btn-vlm-extract" title="AI Extract">🤖 AI</button>
         </div>
     </div>
     <div id="crop-modal" class="modal">
@@ -207,81 +219,80 @@
         </div>
     </div>
 
-    <div id="vlm-modal" class="modal">
-        <div class="modal-content" style="max-width: 700px; max-height: 85vh; overflow-y: auto;">
-            <span class="close" id="vlm-modal-close">&times;</span>
-            <h3 style="margin: 0 0 15px 0; border-bottom: 1px solid var(--border-color-light); padding-bottom: 15px;">
-                VLM Extract
-            </h3>
-            
-            <!-- Preview section - shown before API call -->
-            <div id="vlm-preview" style="display: none;">
-                <div style="margin-bottom: 15px;">
-                    <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary);">Preview (3x scale):</label>
+    <div id="vlm-modal" class="vlm-selection-panel" style="display: none;">
+        <div class="vlm-selection-panel-shell">
+            <div class="vlm-selection-panel-header">
+                <div class="vlm-selection-panel-heading">
+                    <span class="vlm-selection-kicker">Selection Actions</span>
+                    <h3>VLM Extract</h3>
+                    <p>Dùng trực tiếp trên canvas sau khi khoanh vùng, không cần popup che màn hình.</p>
                 </div>
-                <div style="margin-bottom: 15px; max-height: 350px; overflow: auto; background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 8px; text-align: center;">
-                    <img id="vlm-preview-image" style="max-width: 100%; max-height: 100%; display: inline-block;" />
-                </div>
-                <div style="margin-bottom: 15px; font-size: 13px; color: var(--text-color-secondary);">
-                    <strong>Bounding Box:</strong> <span id="vlm-preview-bbox"></span>
-                </div>
-                <div style="margin-bottom: 10px;">
-                    <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary); display: block; margin-bottom: 4px;">Loại trích xuất:</label>
-                    <select id="vlm-extract-type-select">
-                        <option value="">-- Chọn loại trích xuất --</option>
-                    </select>
-                </div>
-                <div id="vlm-fields-preview-container" style="display: none; margin-bottom: 15px;">
-                    <label style="font-weight: 600; font-size: 12px; color: var(--text-color-secondary); display: block; margin-bottom: 4px;">Các trường sẽ trích xuất:</label>
-                    <div id="vlm-fields-preview" class="vlm-fields-preview"></div>
-                </div>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button id="vlm-confirm-btn" style="flex:1; background-color: #28a745; color: white; border: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
-                        ✓ Xác nhận & Gửi VLM
-                    </button>
-                    <button id="vlm-detect-cells-btn" style="flex:1; background-color: #2563eb; color: white; border: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
-                        ▦ Trích xuất cell
-                    </button>
-                    <button id="vlm-cancel-btn" style="flex:1; background-color: var(--background-button); color: var(--text-color-primary); border: 1px solid var(--border-color-dark); padding: 12px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
-                        Hủy
-                    </button>
-                </div>
-                <div style="margin-top: 8px; font-size: 12px; color: var(--text-color-secondary);">
-                    Luồng trích xuất cell sẽ gọi API crop cell và vẽ bbox cell trực tiếp lên viewer gốc.
-                </div>
+                <button id="vlm-modal-close" class="vlm-selection-close" type="button" aria-label="Đóng bảng chọn">&times;</button>
             </div>
-            
-            <div id="vlm-loading" style="display: none; flex-direction: column; align-items: center; padding: 40px 0;">
-                <div
-                    style="width:50px;height:50px;border:5px solid #f3f3f3;border-top-color:#28a745;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px">
+            <div class="vlm-selection-panel-body">
+                <!-- Preview section - shown before API call -->
+                <div id="vlm-preview" style="display: none;">
+                    <div class="vlm-selection-preview-note">
+                        Vùng bbox trên canvas đang là preview trực tiếp. Bảng này chỉ giữ các hành động xử lý.
+                    </div>
+                    <div class="vlm-selection-bbox-row" style="margin-bottom: 15px; font-size: 13px; color: var(--text-color-secondary);">
+                        <strong>Bounding Box:</strong> <span id="vlm-preview-bbox"></span>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary); display: block; margin-bottom: 4px;">Loại trích xuất:</label>
+                        <select id="vlm-extract-type-select">
+                            <option value="">-- Chọn loại trích xuất --</option>
+                        </select>
+                    </div>
+                    <div id="vlm-fields-preview-container" style="display: none; margin-bottom: 15px;">
+                        <label style="font-weight: 600; font-size: 12px; color: var(--text-color-secondary); display: block; margin-bottom: 4px;">Các trường sẽ trích xuất:</label>
+                        <div id="vlm-fields-preview" class="vlm-fields-preview"></div>
+                    </div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button id="vlm-confirm-btn" style="flex:1; background-color: #28a745; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                            ✓ Xác nhận & Gửi VLM
+                        </button>
+                        <button id="vlm-detect-cells-btn" style="flex:1; background-color: #2563eb; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                            ▦ Trích xuất cell
+                        </button>
+                        <button id="vlm-cancel-btn" style="flex:1; background-color: var(--background-button); color: var(--text-color-primary); border: 1px solid var(--border-color-dark); padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                            Hủy
+                        </button>
+                    </div>
+                    <div style="margin-top: 8px; font-size: 12px; color: var(--text-color-secondary);">
+                        Luồng trích xuất cell sẽ gọi API crop cell và vẽ bbox cell trực tiếp lên viewer gốc.
+                    </div>
                 </div>
-                <div style="font-weight:600;color:#333;">Analyzing with VLM...</div>
-                <div id="vlm-loading-text" style="font-size:13px; color:#888; margin-top:8px;">Processing selected region</div>
-            </div>
-            <div id="vlm-result" style="display: none;">
-                <div id="vlm-result-image-wrapper" style="display:none; margin-bottom: 15px; max-height: 220px; overflow: auto; background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 8px; text-align: center;">
-                    <img id="vlm-cropped-image" style="max-width: 100%; max-height: 100%; display: inline-block;" />
+
+                <div id="vlm-loading" style="display: none; flex-direction: column; align-items: center; padding: 40px 0;">
+                    <div
+                        style="width:50px;height:50px;border:5px solid #f3f3f3;border-top-color:#28a745;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px">
+                    </div>
+                    <div style="font-weight:600;color:#333;">Analyzing with VLM...</div>
+                    <div id="vlm-loading-text" style="font-size:13px; color:#888; margin-top:8px;">Processing selected region</div>
                 </div>
-                <div style="margin-bottom: 15px;">
-                    <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary);">Result:</label>
+                <div id="vlm-result" style="display: none;">
+                    <div style="margin-bottom: 15px;">
+                        <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary);">Result:</label>
+                    </div>
+                    <div id="vlm-json-container" style="background: #f8f9fa; border: 1px solid var(--border-color-light); border-radius: 10px; padding: 15px; max-height: 400px; overflow-y: auto; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button id="vlm-copy-btn" style="flex:1; background-color: var(--accent-color); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                            Copy
+                        </button>
+                        <button id="vlm-download-cells-btn" title="Tải ảnh crop cell" style="flex:1; display:none; background-color: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                            Download Cells ZIP
+                        </button>
+                        <button id="vlm-close-btn" style="flex:1; background-color: var(--background-button); color: var(--text-color-primary); border: 1px solid var(--border-color-dark); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                            Close
+                        </button>
+                    </div>
                 </div>
-                <div id="vlm-json-container" style="background: #f8f9fa; border: 1px solid var(--border-color-light); border-radius: 4px; padding: 15px; max-height: 400px; overflow-y: auto; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">
+                <div id="vlm-error" style="display: none; padding: 20px; text-align: center;">
+                    <div style="color: var(--danger-color); font-weight: 600; margin-bottom: 10px;">Error</div>
+                    <div id="vlm-error-message" style="color: var(--text-color-secondary); font-size: 13px;"></div>
                 </div>
-                <div style="display: flex; gap: 10px; margin-top: 15px;">
-                    <button id="vlm-copy-btn" style="flex:1; background-color: var(--accent-color); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
-                        Copy
-                    </button>
-                    <button id="vlm-download-cells-btn" style="flex:1; display:none; background-color: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
-                        Download Cells ZIP
-                    </button>
-                    <button id="vlm-close-btn" style="flex:1; background-color: var(--background-button); color: var(--text-color-primary); border: 1px solid var(--border-color-dark); padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
-                        Close
-                    </button>
-                </div>
-            </div>
-            <div id="vlm-error" style="display: none; padding: 20px; text-align: center;">
-                <div style="color: var(--danger-color); font-weight: 600; margin-bottom: 10px;">Error</div>
-                <div id="vlm-error-message" style="color: var(--text-color-secondary); font-size: 13px;"></div>
             </div>
         </div>
     </div>

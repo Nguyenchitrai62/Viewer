@@ -27,6 +27,8 @@ const ctx = canvas.getContext('2d');
 const shapeRasterLayer = document.getElementById('shape-raster-layer');
 const crosshairCanvas = document.getElementById('crosshair-canvas');
 const crosshairCtx = crosshairCanvas.getContext('2d');
+const vlmScreenFlash = document.getElementById('vlm-screen-flash');
+const vlmSelectionFrame = document.getElementById('vlm-selection-frame');
 const zoomIndicator = document.getElementById('zoom-indicator');
 const dropZone = document.getElementById('drop-zone');
 const layerList = document.getElementById('layer-list');
@@ -39,7 +41,6 @@ const btnExportPipelineJson = document.getElementById('btn-export-pipeline-json'
 const btnExportRevitJson = document.getElementById('btn-export-revit-json');
 const btnToggleLayerMode = document.getElementById('btn-toggle-layer-mode');
 const btnVLMExtract = document.getElementById('btn-vlm-extract');
-const btnDownloadCellsZip = document.getElementById('btn-download-cells-zip');
 const btnLabelJunction = document.getElementById('btn-label-junction');
 const btnLabelConnect = document.getElementById('btn-label-connect');
 const btnUndoLabel = document.getElementById('btn-undo-label');
@@ -103,6 +104,8 @@ let drawScheduled = false;
 let currentPageNum = null;
 let pendingVLMCrop = null;
 let pendingVLMBbox = null;
+let vlmSelectionUiState = null;
+let vlmSnapTimer = null;
 let activeVlmCropRequestId = 0;
 let cachedPageImage = null;
 let cachedPageImageLoading = false;
@@ -197,8 +200,8 @@ const icons = {
 
 const UI_TEXT = Object.freeze({
     DRAW_FIND: '✏️ Find',
-    VLM_EXTRACT: '🤖 VLM Extract',
-    VLM_SHORT: '🤖 VLM',
+    VLM_EXTRACT: '🤖 AI',
+    VLM_SHORT: '🤖 AI',
     CANCEL: 'Cancel',
     MODE_FIND: '🔍 Tìm kiếm',
     MODE_JUNCTION: '● Junction',

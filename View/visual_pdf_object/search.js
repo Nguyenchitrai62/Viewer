@@ -122,6 +122,9 @@ function resetSearchSessionState({
     }
 
     if (clearVlmArtifacts) {
+        if (typeof hideVLMModal === 'function') {
+            hideVLMModal({ clearPending: false });
+        }
         pendingVLMCrop = null;
         pendingVLMBbox = null;
         if (typeof clearDetectedCellOverlay === 'function') {

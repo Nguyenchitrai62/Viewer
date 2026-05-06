@@ -205,6 +205,9 @@ function clearVisualization() {
     vlmBboxStart = null;
     vlmBboxEnd = null;
     isVLMDrawing = false;
+    if (typeof hideVLMModal === 'function') {
+        hideVLMModal({ clearPending: false });
+    }
     if (typeof pendingVLMCrop !== 'undefined') {
         pendingVLMCrop = null;
     }

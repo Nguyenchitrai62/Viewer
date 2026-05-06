@@ -434,11 +434,25 @@ btnResetFilter.addEventListener('click', () => {
 // VLM Extract button handler (btnVLMExtract declared in state.js)
 btnVLMExtract.addEventListener('click', () => {
     isVLMBboxMode = !isVLMBboxMode;
+    
+    // Auto-trigger reset logic when enabling AI box mode to clear old data
+    if (isVLMBboxMode) {
+        if (typeof btnResetFilter !== 'undefined' && btnResetFilter) {
+            btnResetFilter.click();
+        }
+    }
+
     btnVLMExtract.textContent = isVLMBboxMode ? UI_TEXT.CANCEL : UI_TEXT.VLM_EXTRACT;
     btnVLMExtract.classList.toggle('active', isVLMBboxMode);
     canvasContainer.classList.toggle('vlm-bbox-mode', isVLMBboxMode);
 
     if (isVLMBboxMode) {
+        if (typeof hideVLMModal === 'function') {
+            hideVLMModal();
+        }
+        if (typeof triggerVLMModeSnap === 'function') {
+            triggerVLMModeSnap();
+        }
         // Cancel other modes
         if (isDrawingBbox) {
             isDrawingBbox = false;
@@ -459,6 +473,9 @@ btnVLMExtract.addEventListener('click', () => {
         vlmBboxStart = null;
         vlmBboxEnd = null;
         isVLMDrawing = false;
+        if (typeof hideVLMModal === 'function') {
+            hideVLMModal();
+        }
         // Hide mode label
         updateModeLabel(null);
         scheduleCrosshairOverlayDraw();
@@ -516,6 +533,9 @@ canvasContainer.addEventListener('mousedown', e => {
         return;
     }
     if (isVLMBboxMode) {
+        if (typeof hideVLMModal === 'function') {
+            hideVLMModal();
+        }
         vlmBboxStart = { x: worldX, y: worldY };
         vlmBboxEnd = { ...vlmBboxStart };
         isVLMDrawing = true;
