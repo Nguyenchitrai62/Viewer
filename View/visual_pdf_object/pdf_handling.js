@@ -655,6 +655,12 @@ async function promoteStagedPdfIfNeeded(file) {
 
     currentPdfFile = file;
     cachedPages = stagedCachedPages;
+
+    if (typeof loadSymbolAnnotationDocumentSummary === 'function') {
+        void loadSymbolAnnotationDocumentSummary({ silent: true }).catch(error => {
+            console.warn('Failed to prefetch symbol label summary for active PDF:', error);
+        });
+    }
 }
 
 function getPageStatusLabel(status) {

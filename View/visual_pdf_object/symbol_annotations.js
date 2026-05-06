@@ -324,25 +324,6 @@ function getSymbolLabelsWithVectorPatterns() {
         .filter(label => normalizeSymbolVectorPattern(label.vectorPattern));
 }
 
-function getDocumentAnnotationCountForLabel(label) {
-    const labelSlug = label?.slug || label?.labelSlug || label?.label_slug;
-    if (!labelSlug) {
-        return 0;
-    }
-
-    const matchingLabel = symbolAnnotationDocumentLabels.find(candidate => candidate.slug === labelSlug)
-        || symbolLabelDefinitions.find(candidate => candidate.slug === labelSlug)
-        || (symbolAnnotationDocumentSummary?.labels || []).find(candidate => (
-            (candidate?.slug || candidate?.label_slug) === labelSlug
-        ))
-        || null;
-
-    const rawCount = matchingLabel?.documentAnnotationCount
-        ?? matchingLabel?.annotationCount
-        ?? matchingLabel?.annotation_count;
-    return Number.isFinite(Number(rawCount)) ? Math.max(0, Number(rawCount)) : 0;
-}
-
 function removeSymbolLabelFromCachedPages(label) {
     const currentDocumentName = getCurrentSymbolDocumentName();
     if (!label?.slug || !currentDocumentName) {
@@ -364,14 +345,11 @@ function removeSymbolLabelFromCachedPages(label) {
             const candidateSlug = candidate?.slug || candidate?.label_slug;
             return candidateSlug !== label.slug;
         });
-        clonedPayload.annotations = (clonedPayload.annotations || []).filter(annotation => {
-            const annotationSlug = annotation?.label_slug || annotation?.labelSlug;
-            return annotationSlug !== label.slug;
-        });
-        clonedPayload.annotation_count = Array.isArray(clonedPayload.annotations) ? clonedPayload.annotations.length : 0;
         symbolAnnotationPageCache.set(pageKey, clonedPayload);
 
-        if (clonedPayload.annotation_count > 0) {
+        const annotationCount = Array.isArray(clonedPayload.annotations) ? clonedPayload.annotations.length : 0;
+        clonedPayload.annotation_count = annotationCount;
+        if (annotationCount > 0) {
             symbolAnnotationKnownEmptyPageKeys.delete(pageKey);
         } else {
             symbolAnnotationKnownEmptyPageKeys.add(pageKey);
@@ -893,8 +871,6 @@ async function removeSymbolLabel(labelId, options = {}) {
     }
 
     const currentPageCount = symbolAnnotations.filter(annotation => annotation.labelId === label.id).length;
-    const documentAnnotationCount = getDocumentAnnotationCountForLabel(label);
-
     if (currentPageCount > 0) {
         if (!options.skipConfirm && !window.confirm(`Xóa ${currentPageCount} bbox của nhãn ${label.name} trên page hiện tại? Nhãn sẽ vẫn được giữ lại trong PDF.`)) {
             return false;
@@ -925,12 +901,7 @@ async function removeSymbolLabel(labelId, options = {}) {
         }
     }
 
-    if (documentAnnotationCount > 0) {
-        setSymbolAnnotationFeedback(`Nhãn ${label.name} vẫn còn ${documentAnnotationCount} bbox trong PDF. Hãy xóa hết bbox trước khi xóa label khỏi DB.`, 'info');
-        return false;
-    }
-
-    if (!options.skipConfirm && !window.confirm(`Xóa nhãn ${label.name} khỏi DB của toàn bộ PDF? Nhãn này hiện không còn bbox nào.`)) {
+    if (!options.skipConfirm && !window.confirm(`Xóa nhãn ${label.name} khỏi table symbol_document của PDF? Page hiện tại đang có 0 bbox cho nhãn này.`)) {
         return false;
     }
 
@@ -948,9 +919,12 @@ async function removeSymbolLabel(labelId, options = {}) {
     }
 
     removeSymbolLabelFromCachedPages(label);
-    const pageKey = getSymbolPageKey();
-    const pageWasDirty = isSymbolPageDirty(pageKey);
-    persistCurrentSymbolAnnotationState({ dirty: pageWasDirty });
+    if (symbolAnnotationDocumentSummary && Array.isArray(symbolAnnotationDocumentSummary.labels)) {
+        symbolAnnotationDocumentSummary.labels = symbolAnnotationDocumentSummary.labels.filter(candidate => {
+            const candidateSlug = candidate?.slug || candidate?.label_slug;
+            return candidateSlug !== label.slug;
+        });
+    }
     updateSymbolAnnotationUI();
     if (typeof scheduleDraw === 'function') {
         scheduleDraw();
@@ -1185,11 +1159,7 @@ function buildSymbolAnnotationDocumentPayload() {
         return null;
     }
 
-    const labels = mergeSymbolLabelDefinitionLists(
-        symbolAnnotationDocumentLabels,
-        symbolLabelDefinitions,
-        getActiveSymbolAnnotationLabelDefinitions()
-    );
+    const labels = mergeSymbolLabelDefinitionLists(symbolAnnotationDocumentLabels);
 
     return {
         pdf_name: pdfName,
@@ -2670,7 +2640,22 @@ async function handleSymbolDocumentLoaded() {
         }
     }
 
-    if (!getCurrentSymbolDocumentName() || !currentPageNum) {
+    const currentDocumentName = getCurrentSymbolDocumentName();
+    if (!currentDocumentName) {
+        symbolAnnotations = [];
+        symbolAnnotationActivePageKey = '';
+        updateSymbolAnnotationUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+        return;
+    }
+
+    try {
+        await loadSymbolAnnotationDocumentSummary({ silent: true });
+    } catch (summaryError) {
+        console.warn('Failed to load symbol annotation document summary:', summaryError);
+    }
+
+    if (!currentPageNum) {
         symbolAnnotations = [];
         symbolAnnotationActivePageKey = '';
         updateSymbolAnnotationUI();
@@ -2687,11 +2672,6 @@ async function handleSymbolDocumentLoaded() {
     }
 
     try {
-        try {
-            await loadSymbolAnnotationDocumentSummary({ silent: true });
-        } catch (summaryError) {
-            console.warn('Failed to load symbol annotation document summary:', summaryError);
-        }
         await loadSymbolAnnotationsForCurrentPage({ silent: true, keepLabels: true });
         if (flushError) {
             setSymbolAnnotationFeedback(`Page trước chưa lưu được vào DB: ${flushError.message}`, 'error');
