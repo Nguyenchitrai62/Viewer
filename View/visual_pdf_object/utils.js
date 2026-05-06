@@ -42,6 +42,32 @@ function ensureJsZip() {
     return jsZipLoadPromise;
 }
 
+async function parseHttpErrorResponse(response, fallbackMessage = null) {
+    let detail = fallbackMessage || `HTTP error! status: ${response?.status ?? 'unknown'}`;
+    if (!response) {
+        return detail;
+    }
+
+    try {
+        const contentType = String(response.headers?.get('content-type') || '').toLowerCase();
+        if (contentType.includes('application/json')) {
+            const payload = await response.json();
+            if (payload?.detail) {
+                return String(payload.detail);
+            }
+            if (payload?.error) {
+                return String(payload.error);
+            }
+            return detail;
+        }
+
+        const text = (await response.text()).trim();
+        return text || detail;
+    } catch (error) {
+        return detail;
+    }
+}
+
 function showLoadingPopup(title = 'Processing...', subtitle = '') {
     const popup = document.getElementById('loading-popup');
     if (!popup) return;

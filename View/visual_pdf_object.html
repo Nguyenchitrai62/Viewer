@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Example Search</title>
+    <title>PDF Object Viewer</title>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
     <link rel="icon" type="image/png" href="./Image/LOGO.png">
@@ -18,7 +18,7 @@
             <h3>Control Panel</h3>
             <div id="layer-list">
                 <div class="info-panel">
-                    <p>Drag <code>layered_drawings.json</code> into the canvas area to start.</p>
+                    <p>Drag a PDF or layered JSON file into the canvas area to start.</p>
                 </div>
             </div>
             <div id="found-count"></div>
@@ -75,8 +75,7 @@
                     <div class="vlm-selection-corner br"></div>
                 </div>
             </div>
-            <div id="pdf-preview">
-            </div>
+            <div id="pdf-preview"></div>
             <div id="page-status-overlay" class="page-status-overlay" aria-live="polite">
                 <div class="page-status-card">
                     <div class="page-status-spinner" aria-hidden="true"></div>
@@ -231,7 +230,7 @@
         </div>
     </div>
 
-    <!-- VLM Extract Modal -->
+    <!-- Extraction type modal -->
     <div id="ext-type-modal-overlay" class="ext-type-modal-overlay">
         <div class="ext-type-modal">
             <h3 id="ext-modal-title">Thêm Loại Trích Xuất</h3>
@@ -247,6 +246,7 @@
         </div>
     </div>
 
+    <!-- VLM Extract panel -->
     <div id="vlm-modal" class="vlm-selection-panel">
         <div class="vlm-selection-panel-shell">
             <div class="vlm-selection-panel-header">
@@ -323,9 +323,6 @@
             </div>
         </div>
     </div>
-
-
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         // Configure PDF.js worker

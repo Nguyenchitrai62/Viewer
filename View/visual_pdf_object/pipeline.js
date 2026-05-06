@@ -120,6 +120,26 @@ function convertPipelineToShapes(pipelineObjects) {
     return shapes;
 }
 
+function clearPipelineVisualization() {
+    if (!Array.isArray(pipelineLayerNames) || pipelineLayerNames.length === 0) {
+        pipelineRawResults = null;
+        return;
+    }
+
+    const previousLayerNames = new Set(pipelineLayerNames);
+    pipelineLayerNames.forEach(layerName => {
+        delete layerIndex[layerName];
+        delete layerVisibility[layerName];
+        delete totalCommands[layerName];
+    });
+
+    sortedLayerKeys = sortedLayerKeys.filter(layerName => !previousLayerNames.has(layerName));
+    allShapesSorted = allShapesSorted.filter(shape => !previousLayerNames.has(shape?.layer));
+    allShapesBounds = null;
+    pipelineLayerNames = [];
+    pipelineRawResults = null;
+}
+
 // Detect pipeline on current page
 async function detectPipeline() {
     let gzipData = (currentPageNum && cachedPages[currentPageNum]) ? cachedPages[currentPageNum] : null;
@@ -153,19 +173,27 @@ async function detectPipeline() {
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(await parseHttpErrorResponse(response));
         }
 
         const result = await response.json();
+        if (result?.error) {
+            throw new Error(result.error);
+        }
         const endTime = performance.now();
         const apiTime = (endTime - startTime) / 1000;
         console.log(`Pipeline Detection API Call took ${apiTime.toFixed(3)} seconds`);
         console.log('Result received:', result);
 
         const pipelineObjects = Array.isArray(result) ? result : (result.json_objects || []);
+        clearPipelineVisualization();
         pipelineRawResults = pipelineObjects; // Store explicitly the array for export
 
         if (pipelineObjects.length === 0) {
+            rebuildQuadtree();
+            updateLayerList();
+            scheduleDraw();
+            alert('No pipeline objects were detected on the current page.');
             return;
         }
 
@@ -252,6 +280,7 @@ async function detectPipeline() {
 
     } catch (error) {
         console.error('Pipeline detection error:', error);
+        alert(`Error detecting pipeline: ${error.message}`);
     } finally {
         hideLoadingPopup();
     }

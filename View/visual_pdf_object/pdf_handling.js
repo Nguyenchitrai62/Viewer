@@ -415,7 +415,7 @@ async function createPdfUploadSession(file, signal = null) {
         signal,
     });
     if (!initResponse.ok) {
-        throw new Error(`Failed to create upload session (${initResponse.status}).`);
+        throw new Error(await parseHttpErrorResponse(initResponse, `Failed to create upload session (${initResponse.status}).`));
     }
 
     return initResponse.json();
@@ -960,7 +960,7 @@ async function processSelectedPage(pageNum) {
         });
         console.timeEnd('API Call');
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(await parseHttpErrorResponse(response));
         }
         const documentData = await loadJsonResponseStreaming(response, {
             sourceLabel: `page ${pageNum}`,
@@ -1029,7 +1029,7 @@ async function processAllPagesBatch(file) {
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(await parseHttpErrorResponse(response));
         }
 
         const reader = response.body.getReader();

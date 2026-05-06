@@ -315,7 +315,7 @@ btnExportRevitJson.addEventListener('click', async () => {
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(await parseHttpErrorResponse(response));
         }
 
         const result = await response.json();

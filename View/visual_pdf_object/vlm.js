@@ -519,7 +519,7 @@ async function callVLMExtractAPI(imageBase64, fields) {
     });
 
     if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(await parseHttpErrorResponse(response));
     }
 
     return response.json();
@@ -538,7 +538,7 @@ async function callExtractCellsAPI(imageBase64) {
     });
 
     if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(await parseHttpErrorResponse(response));
     }
 
     return response.json();
@@ -893,12 +893,16 @@ document.getElementById('vlm-confirm-btn').addEventListener('click', async () =>
     
     try {
         const data = await callVLMExtractAPI(pendingVLMCrop, fields);
+        if (data?.error) {
+            showVLMModalError(data.error);
+            return;
+        }
         showVLMModalResult(data, {
             showImage: false,
         });
     } catch (error) {
         console.error('VLM Extract API Error:', error);
-        showVLMModalError('API Error: ' + error.message + '\n\nThe VLM Extract API endpoint is not yet available. Please ensure the backend is running.');
+        showVLMModalError(`API Error: ${error.message}`);
     }
 });
 
