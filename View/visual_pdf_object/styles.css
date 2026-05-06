@@ -691,6 +691,410 @@ body {
     background: #1f2937;
 }
 
+.symbol-annotation-panel {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    width: 268px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+    backdrop-filter: blur(14px);
+    z-index: 85;
+    overflow: hidden;
+}
+
+.symbol-annotation-panel.is-collapsed {
+    width: auto;
+}
+
+.symbol-annotation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(248, 250, 252, 0.92);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.symbol-annotation-panel.is-collapsed .symbol-annotation-header {
+    border-bottom: none;
+}
+
+.symbol-annotation-header-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.symbol-annotation-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.02em;
+}
+
+.symbol-annotation-header-badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.symbol-annotation-count-badge {
+    min-width: 24px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #111827;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.symbol-annotation-save-badge {
+    min-width: 54px;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(34, 197, 94, 0.12);
+    color: #166534;
+}
+
+.symbol-annotation-save-badge.is-dirty {
+    background: rgba(245, 158, 11, 0.14);
+    color: #b45309;
+}
+
+.symbol-annotation-save-badge.is-saving {
+    background: rgba(37, 99, 235, 0.12);
+    color: #1d4ed8;
+}
+
+.symbol-annotation-panel-body {
+    position: relative;
+    padding: 10px 12px 12px;
+}
+
+.symbol-annotation-panel.is-collapsed .symbol-annotation-panel-body {
+    display: none;
+}
+
+.symbol-annotation-panel.is-loading .symbol-annotation-panel-body > :not(.symbol-annotation-loading-mask) {
+    opacity: 0.45;
+    filter: blur(1px);
+}
+
+.symbol-annotation-toggle {
+    width: 24px;
+    height: 24px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 999px;
+    background: #fff;
+    color: #0f172a;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.symbol-annotation-toggle:hover {
+    background: #f8fafc;
+}
+
+.symbol-annotation-panel.is-collapsed .symbol-annotation-toggle {
+    transform: rotate(180deg);
+}
+
+.symbol-annotation-create-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.symbol-annotation-create-row input {
+    min-width: 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: #fff;
+    font-size: 11px;
+    color: #0f172a;
+}
+
+.symbol-annotation-create-row input:focus {
+    outline: none;
+    border-color: rgba(37, 99, 235, 0.8);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.symbol-annotation-create-row button,
+.symbol-annotation-btn,
+.symbol-annotation-primary {
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: #fff;
+    color: #0f172a;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.symbol-annotation-create-row button:hover,
+.symbol-annotation-btn:hover,
+.symbol-annotation-primary:hover {
+    background: #f8fafc;
+}
+
+.symbol-annotation-create-row button:disabled,
+.symbol-annotation-btn:disabled,
+.symbol-annotation-primary:disabled,
+.symbol-annotation-toggle:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.symbol-annotation-threshold-row {
+    display: grid;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 8px 10px;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    border-radius: 8px;
+    background: rgba(248, 250, 252, 0.86);
+}
+
+.symbol-annotation-threshold-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.symbol-annotation-threshold-label output {
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+.symbol-annotation-threshold-row input[type="range"] {
+    width: 100%;
+    accent-color: #2563eb;
+}
+
+.symbol-label-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    min-height: 34px;
+}
+
+.symbol-label-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(248, 250, 252, 0.96);
+    color: #0f172a;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.symbol-label-chip.is-selected {
+    border-color: #2563eb;
+    background: #eff6ff;
+}
+
+.symbol-label-chip.is-armed {
+    border-color: #1d4ed8;
+    background: #dbeafe;
+}
+
+.symbol-label-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    border: none;
+    background: transparent;
+    color: #0f172a;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.symbol-label-chip.is-selected .symbol-label-item {
+    color: #1d4ed8;
+}
+
+.symbol-label-item:disabled,
+.symbol-label-delete:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.symbol-label-delete {
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.08);
+    color: #64748b;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.symbol-label-delete:hover:not(:disabled) {
+    background: rgba(220, 38, 38, 0.12);
+    color: #b91c1c;
+}
+
+.symbol-label-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.symbol-label-count {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.symbol-label-chip.is-selected .symbol-label-count {
+    background: rgba(37, 99, 235, 0.12);
+    color: #1d4ed8;
+}
+
+.symbol-label-empty {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(248, 250, 252, 0.94);
+    border: 1px dashed rgba(148, 163, 184, 0.45);
+    color: #64748b;
+    font-size: 11px;
+}
+
+.symbol-annotation-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.symbol-annotation-actions .symbol-annotation-btn:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+}
+
+.symbol-annotation-status {
+    color: #334155;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.symbol-annotation-status strong {
+    color: #0f172a;
+}
+
+.symbol-annotation-status.is-error {
+    color: #b91c1c;
+}
+
+.symbol-annotation-status.is-success {
+    color: #166534;
+}
+
+.symbol-annotation-loading-mask {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(6px);
+    text-align: center;
+}
+
+.symbol-annotation-loading-mask[hidden] {
+    display: none;
+}
+
+.symbol-annotation-loading-spinner {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: 2px solid rgba(37, 99, 235, 0.18);
+    border-top-color: #2563eb;
+    animation: symbol-annotation-spin 0.8s linear infinite;
+}
+
+.symbol-annotation-loading-text {
+    color: #0f172a;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+@keyframes symbol-annotation-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.symbol-annotation-btn.is-muted {
+    background: #111827;
+    border-color: #111827;
+    color: #fff;
+}
+
+@media (max-width: 900px) {
+    .symbol-annotation-panel {
+        top: 12px;
+        right: 12px;
+        left: 12px;
+        width: auto;
+    }
+}
+
 #layer-list {
     flex-grow: 1;
     overflow-y: auto;

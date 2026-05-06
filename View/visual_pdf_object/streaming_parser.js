@@ -261,6 +261,10 @@ function loadNormalizedDocument({ shapes, metadata = null, svg = null, sourceFil
     buildLayerIndex();
     setupVisualization();
 
+    if (typeof handleSymbolDocumentLoaded === 'function') {
+        void handleSymbolDocumentLoaded();
+    }
+
     if (initialRasterPreview?.canvas && initialRasterPreview?.bounds) {
         scheduleDraw();
     }

@@ -9,7 +9,7 @@
     <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
     <link rel="icon" type="image/png" href="./Image/LOGO.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./Image/LOGO.png">
-    <link rel="stylesheet" href="./visual_pdf_object/styles.css">
+    <link rel="stylesheet" href="./visual_pdf_object/styles.css?v=20260506-label-delete-db-init">
 </head>
 
 <body>
@@ -109,6 +109,47 @@
                         <button id="btn-clear-labels" class="manual-label-btn">⌦ Delete</button>
                     </div>
                     <button id="btn-export-label-package" class="manual-label-export">🏷️ JPG + TXT</button>
+                </div>
+            </div>
+
+            <div id="symbol-annotation-panel" class="symbol-annotation-panel is-collapsed">
+                <div class="symbol-annotation-header">
+                    <div class="symbol-annotation-header-main">
+                        <span class="symbol-annotation-title">Symbol Labels</span>
+                        <div class="symbol-annotation-header-badges">
+                            <span id="symbol-annotation-save-badge" class="symbol-annotation-save-badge is-clean">Đã lưu</span>
+                            <span id="symbol-annotation-count-badge" class="symbol-annotation-count-badge">0</span>
+                        </div>
+                    </div>
+                    <button id="btn-toggle-symbol-annotation-panel" class="symbol-annotation-toggle" title="Thu gọn / mở rộng">▾</button>
+                </div>
+                <div id="symbol-annotation-panel-body" class="symbol-annotation-panel-body">
+                    <div id="symbol-annotation-loading-mask" class="symbol-annotation-loading-mask" hidden>
+                        <div class="symbol-annotation-loading-spinner" aria-hidden="true"></div>
+                        <div id="symbol-annotation-loading-text" class="symbol-annotation-loading-text">Đang tải annotation...</div>
+                    </div>
+                    <div id="symbol-annotation-status" class="symbol-annotation-status">Chưa có dữ liệu symbol annotation.</div>
+                    <div class="symbol-annotation-create-row">
+                        <input id="symbol-label-name-input" type="text" placeholder="Tên nhãn, ví dụ: valve" autocomplete="off" />
+                        <button id="btn-add-symbol-label" type="button">Thêm</button>
+                    </div>
+                    <div class="symbol-annotation-threshold-row">
+                        <div class="symbol-annotation-threshold-label">
+                            <span>Ngưỡng tương đồng</span>
+                            <output id="symbol-similarity-threshold-value" for="symbol-similarity-threshold">60%</output>
+                        </div>
+                        <input id="symbol-similarity-threshold" type="range" min="50" max="100" step="5" value="60" />
+                    </div>
+                    <div id="symbol-label-list" class="symbol-label-list">
+                        <div class="symbol-label-empty">Chưa có nhãn bbox.</div>
+                    </div>
+                    <div class="symbol-annotation-actions">
+                        <button id="btn-symbol-auto-find-page" class="symbol-annotation-btn" type="button">Tìm tất cả</button>
+                        <button id="btn-symbol-export-dataset" class="symbol-annotation-btn" type="button">Export</button>
+                        <button id="btn-symbol-delete-by-bbox" class="symbol-annotation-btn" type="button">Xóa bbox</button>
+                        <button id="btn-symbol-reload-page" class="symbol-annotation-btn" type="button">Tải lại</button>
+                        <button id="btn-symbol-clear-page" class="symbol-annotation-btn" type="button">Xóa trang</button>
+                    </div>
                 </div>
             </div>
 
@@ -315,16 +356,17 @@
     <script src="./visual_pdf_object/streaming_parser.js"></script>
     <script src="./visual_pdf_object/quadtree_rebuild.js"></script>
     <script src="./visual_pdf_object/annotations.js"></script>
-    <script src="./visual_pdf_object/drawing.js"></script>
+    <script src="./visual_pdf_object/symbol_annotations.js?v=20260506-shared-label-pattern-export"></script>
+    <script src="./visual_pdf_object/drawing.js?v=20260506-annotation-color-fix"></script>
     <script src="./visual_pdf_object/layer_controls.js"></script>
     <script src="./visual_pdf_object/view_controls.js"></script>
-    <script src="./visual_pdf_object/search.js"></script>
+    <script src="./visual_pdf_object/search.js?v=20260506-symbol-pattern-capture"></script>
     <script src="./visual_pdf_object/export.js"></script>
     <script src="./visual_pdf_object/pdf_handling.js"></script>
     <script src="./visual_pdf_object/pipeline.js"></script>
     <script src="./visual_pdf_object/vlm.js"></script>
     <script src="./visual_pdf_object/events.js"></script>
-    <script src="./visual_pdf_object/patterns.js"></script>
+    <script src="./visual_pdf_object/patterns.js?v=20260506-symbol-pattern-search"></script>
 </body>
 
 </html>

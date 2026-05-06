@@ -204,6 +204,7 @@ const UI_TEXT = Object.freeze({
     VLM_SHORT: '🤖 AI',
     CANCEL: 'Cancel',
     MODE_FIND: '🔍 Tìm kiếm',
+    MODE_SYMBOL: '🏷️ Symbol',
     MODE_JUNCTION: '● Junction',
     MODE_CONNECT: '↔ Connect',
     MODE_DELETE: '⌦ Delete',

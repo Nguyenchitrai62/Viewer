@@ -248,6 +248,9 @@ function clearVisualization() {
     if (typeof updateManualLabelUI === 'function') {
         updateManualLabelUI();
     }
+    if (typeof resetSymbolAnnotationState === 'function') {
+        resetSymbolAnnotationState({ clearCache: false });
+    }
 
     // Clear search info
     document.getElementById('found-count').style.display = 'none';

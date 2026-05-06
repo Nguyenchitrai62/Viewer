@@ -24,6 +24,11 @@ window.addEventListener('keydown', e => {
         setInteractionState(false);
         return;
     }
+    if (e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        btnResetFilter.click();
+        return;
+    }
     if (e.key.toLowerCase() === 'd') {
         btnDrawBbox.click();
     }
@@ -498,6 +503,9 @@ function updateModeLabel(mode) {
     } else if (mode === 'vlm') {
         label.textContent = UI_TEXT.VLM_SHORT;
         label.classList.add('vlm-mode');
+    } else if (mode === 'symbol') {
+        label.textContent = UI_TEXT.MODE_SYMBOL;
+        label.classList.add('find-mode');
     } else if (mode === 'junction') {
         label.textContent = UI_TEXT.MODE_JUNCTION;
         label.classList.add('junction-mode');
@@ -588,8 +596,19 @@ canvasContainer.addEventListener('mouseup', e => {
         scheduleDraw();
     } else if (isDrawingBbox) {
         // If bbox was drawn (with valid size), show modal
-        if (currentBbox && currentBbox.width > 1 && currentBbox.height > 1) {
-            showCropModal(currentBbox).catch(error => {
+        const completedBbox = currentBbox && currentBbox.width > 1 && currentBbox.height > 1
+            ? { ...currentBbox }
+            : null;
+        const symbolDeleteOptions = typeof getSymbolDeleteSelectionOptions === 'function'
+            ? getSymbolDeleteSelectionOptions()
+            : null;
+        const symbolFindOptions = typeof getSymbolFindSelectionOptions === 'function'
+            ? getSymbolFindSelectionOptions()
+            : null;
+        if (completedBbox && typeof symbolDeleteOptions?.onDeleteSelection === 'function') {
+            symbolDeleteOptions.onDeleteSelection(completedBbox);
+        } else if (completedBbox) {
+            showCropModal(completedBbox, symbolFindOptions || undefined).catch(error => {
                 console.error('Error showing crop modal', error);
             });
         }

@@ -1051,6 +1051,17 @@ function drawViewportOverlays(targetCtx, {
     allowVectorHighlights = zoom > getLowZoomRasterThreshold(),
     allowSearchOverlays = true
 } = {}) {
+    if (allowSearchOverlays && typeof getSymbolFindSelectionOptions === 'function') {
+        const annotationFindActive = Boolean(
+            typeof getSelectedSymbolLabel === 'function'
+            && getSelectedSymbolLabel()
+            && (anchorBbox || similarBboxes?.length || sequenceMatches?.length)
+        );
+        if (annotationFindActive) {
+            allowSearchOverlays = false;
+        }
+    }
+
     if (allowSearchOverlays && !isDrawingBbox && currentBbox && currentBbox.width > 0 && currentBbox.height > 0) {
         targetCtx.strokeStyle = 'red';
         targetCtx.lineWidth = 2 / zoom;
@@ -1091,6 +1102,10 @@ function drawViewportOverlays(targetCtx, {
             targetCtx.font = `${12 / zoom}px Arial`;
             targetCtx.fillText(`${(m.score * 100).toFixed(0)}%`, m.rect.x, m.rect.y - 5 / zoom);
         });
+    }
+
+    if (typeof drawSymbolAnnotationOverlays === 'function') {
+        drawSymbolAnnotationOverlays(targetCtx);
     }
 
     if (allowVectorHighlights && hoveredGroup !== null) {

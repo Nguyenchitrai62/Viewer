@@ -1,5 +1,23 @@
 // search.js
 
+let activeSimilarityThresholdOverride = null;
+
+function normalizeSimilarityThreshold(value, fallbackValue = null) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+        return fallbackValue;
+    }
+    return Math.max(0, Math.min(1, numericValue));
+}
+
+function getActiveSimilarityThreshold(kind) {
+    const fallbackValue = kind === 'purple'
+        ? CONFIG.SIMILARITY_THRESHOLD_PURPLE
+        : CONFIG.SIMILARITY_THRESHOLD_GREEN;
+    const overrideValue = activeSimilarityThresholdOverride?.[kind];
+    return normalizeSimilarityThreshold(overrideValue, fallbackValue);
+}
+
 function getOrComputeLength(layerName, objIndex, itemIndex, type, item) {
     if (!precomputedLengths[layerName]) precomputedLengths[layerName] = {};
     if (!precomputedLengths[layerName][objIndex]) precomputedLengths[layerName][objIndex] = {};
@@ -577,7 +595,7 @@ function findSimilarSequencePatternMatches() {
                 const totalFound = foundL + foundC;
                 let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
 
-                if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
+                if (score >= getActiveSimilarityThreshold('purple')) {
                     sequenceMatches.push({ rect, startSeqno: globalObjs[i].seqno, endSeqno: globalObjs[i].seqno, score });
                 }
             }
@@ -684,7 +702,7 @@ function findSimilarSequencePatternMatches() {
             const totalFound = foundL + foundC;
             let score = totalExpected > 0 ? Math.min(1.0, totalFound / totalExpected) : 1.0;
 
-            if (score >= CONFIG.SIMILARITY_THRESHOLD_PURPLE) {
+            if (score >= getActiveSimilarityThreshold('purple')) {
                 sequenceMatches.push({ rect, startSeqno: matchObjList[0].seqno, endSeqno: matchObjList[patLen - 1].seqno, score });
             }
         }
@@ -798,7 +816,7 @@ function findSimilarRegions() {
                             if (checkedBboxes.has(bboxKey)) continue;
                             checkedBboxes.add(bboxKey);
                             const score = checkBboxSimilarityOptimized(testBbox, globalLayerObjIndexMap);
-                            if (score >= CONFIG.SIMILARITY_THRESHOLD_GREEN) {
+                            if (score >= getActiveSimilarityThreshold('green')) {
                                 let tightMinX = Infinity, tightMinY = Infinity, tightMaxX = -Infinity, tightMaxY = -Infinity;
                                 for (let i = 0; i < sortedLayerKeys.length; i++) {
                                     const layerName2 = sortedLayerKeys[i];
@@ -886,7 +904,7 @@ function findSimilarRegions() {
     }
 }
 
-async function showCropModal(rect) {
+async function showCropModal(rect, options = {}) {
     // FIXED: Kiß╗âm tra size bbox ─æß╗â tr├ính lß╗ùi Infinity khi scale
     if (!rect || !hasRenderableDocument() || rect.width <= 0 || rect.height <= 0) return;
     const cropRect = {
@@ -920,6 +938,7 @@ async function showCropModal(rect) {
     const requestId = ++activeCropModalRequestId;
     let cropDataReady = false;
     let activeSavePatternButton = btnSavePattern;
+    const requestedSimilarityThreshold = normalizeSimilarityThreshold(options.similarityThreshold, null);
 
     const isPrepStale = () => requestId !== activeCropModalRequestId;
     const setPreparationState = preparing => {
@@ -956,7 +975,7 @@ async function showCropModal(rect) {
     const restoreAndClose = (doSearch) => {
         activeCropModalRequestId += 1;
 
-        const finish = (results) => {
+        const finish = (results, searchSummary = null) => {
             modal.style.display = 'none';
             closeBtn.onclick = null;
             modal.onclick = null;
@@ -983,6 +1002,18 @@ async function showCropModal(rect) {
             similarBboxes = results || [];
             clearCropModalWorkingSet();
             scheduleDraw();
+            if (doSearch && typeof options.onSearchComplete === 'function') {
+                try {
+                    options.onSearchComplete(searchSummary || {
+                        anchorRect: cropRect,
+                        allResults: results || [],
+                        similarResults: results || [],
+                        sequenceResults: []
+                    });
+                } catch (error) {
+                    console.error('Crop modal onSearchComplete hook failed', error);
+                }
+            }
         };
 
         if (doSearch) {
@@ -996,15 +1027,48 @@ async function showCropModal(rect) {
                 if (popup) popup.style.display = 'flex';
                 // allow overlay to render
                 setTimeout(() => {
+                    const previousSimilarityThresholdOverride = activeSimilarityThresholdOverride;
+                    if (requestedSimilarityThreshold !== null) {
+                        activeSimilarityThresholdOverride = {
+                            green: requestedSimilarityThreshold,
+                            purple: requestedSimilarityThreshold,
+                        };
+                    }
                     try {
+                        const patternSnapshot = typeof buildCurrentPatternSnapshot === 'function'
+                            ? buildCurrentPatternSnapshot({
+                                name: options.patternName || 'Selection pattern',
+                                includeThumbnail: false
+                            })
+                            : null;
                         findSimilarRegions();
-                        const results = similarBboxes ? [...similarBboxes] : [];
+                        const similarResults = similarBboxes ? [...similarBboxes] : [];
+                        const sequenceResults = Array.isArray(sequenceMatches)
+                            ? sequenceMatches.map(match => ({
+                                x: match.rect.x,
+                                y: match.rect.y,
+                                width: match.rect.width,
+                                height: match.rect.height,
+                                score: match.score,
+                                source: 'sequence'
+                            }))
+                            : [];
+                        const allResults = [...similarResults, ...sequenceResults];
                         if (popup) popup.style.display = 'none';
-                        finish(results);
+                        finish(similarResults, {
+                            anchorRect: cropRect,
+                            pattern: patternSnapshot,
+                            allResults,
+                            similarResults,
+                            sequenceResults,
+                            similarityThreshold: requestedSimilarityThreshold
+                        });
                     } catch (err) {
                         console.error('Error during search', err);
                         if (popup) popup.style.display = 'none';
                         finish([]);
+                    } finally {
+                        activeSimilarityThresholdOverride = previousSimilarityThresholdOverride;
                     }
                 }, 20);
             } else {
