@@ -373,8 +373,37 @@ btnToggleLayerMode.addEventListener('click', () => {
         scheduleDraw();
     }
 });
+
+function deactivateHotbarBboxDraw() {
+    isDrawingBbox = false;
+    btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
+    btnDrawBbox.classList.remove('active');
+    canvasContainer.classList.remove('drawing-bbox');
+    bboxStart = null;
+    currentBbox = null;
+    scheduleCrosshairOverlayDraw();
+}
+
+function canStartHotbarBboxDraw() {
+    if (typeof hasRenderableDocument === 'function' && !hasRenderableDocument()) {
+        console.warn('Ignoring bbox find toggle because no renderable page is active.');
+        return false;
+    }
+    if (typeof isCropModalOpen !== 'undefined' && isCropModalOpen) {
+        console.warn('Ignoring bbox find toggle because a crop modal is already open.');
+        return false;
+    }
+    return true;
+}
+
 btnDrawBbox.addEventListener('click', () => {
-    isDrawingBbox = !isDrawingBbox;
+    const nextDrawingState = !isDrawingBbox;
+    if (nextDrawingState && !canStartHotbarBboxDraw()) {
+        deactivateHotbarBboxDraw();
+        return;
+    }
+
+    isDrawingBbox = nextDrawingState;
     btnDrawBbox.textContent = isDrawingBbox ? UI_TEXT.CANCEL : UI_TEXT.DRAW_FIND;
     btnDrawBbox.classList.toggle('active', isDrawingBbox);
     canvasContainer.classList.toggle('drawing-bbox', isDrawingBbox); // Update cursor style
@@ -400,8 +429,7 @@ btnDrawBbox.addEventListener('click', () => {
         scheduleCrosshairOverlayDraw();
     } else {
         const shouldRefreshSearchCanvas = typeof hasActiveSearchCanvasState === 'function' && hasActiveSearchCanvasState();
-        bboxStart = null;
-        currentBbox = null;
+        deactivateHotbarBboxDraw();
         resetSearchSessionState({
             clearLengthCache: true,
             clearFoundCount: true,
@@ -605,6 +633,7 @@ canvasContainer.addEventListener('mouseup', e => {
         const symbolFindOptions = typeof getSymbolFindSelectionOptions === 'function'
             ? getSymbolFindSelectionOptions()
             : null;
+        deactivateHotbarBboxDraw();
         if (completedBbox && typeof symbolDeleteOptions?.onDeleteSelection === 'function') {
             symbolDeleteOptions.onDeleteSelection(completedBbox);
         } else if (completedBbox) {
@@ -612,14 +641,6 @@ canvasContainer.addEventListener('mouseup', e => {
                 console.error('Error showing crop modal', error);
             });
         }
-        // Always reset drawing mode on mouseup to prevent stuck state
-        isDrawingBbox = false;
-        btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
-        btnDrawBbox.classList.remove('active');
-        canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
-        bboxStart = null;
-        currentBbox = null;
-        scheduleCrosshairOverlayDraw();
     }
     isDragging = false;
     activeMouseButton = null;
