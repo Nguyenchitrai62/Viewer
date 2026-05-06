@@ -11,6 +11,37 @@ function formatBytes(byteCount) {
     return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+let jsZipLoadPromise = null;
+
+function ensureJsZip() {
+    if (window.JSZip) {
+        return Promise.resolve(window.JSZip);
+    }
+
+    if (!jsZipLoadPromise) {
+        jsZipLoadPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = window.JSZIP_CDN_URL || 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+            script.async = true;
+            script.onload = () => {
+                if (window.JSZip) {
+                    resolve(window.JSZip);
+                    return;
+                }
+                jsZipLoadPromise = null;
+                reject(new Error('JSZip loaded but global constructor is unavailable.'));
+            };
+            script.onerror = () => {
+                jsZipLoadPromise = null;
+                reject(new Error('Failed to load JSZip.'));
+            };
+            document.head.appendChild(script);
+        });
+    }
+
+    return jsZipLoadPromise;
+}
+
 function showLoadingPopup(title = 'Processing...', subtitle = '') {
     const popup = document.getElementById('loading-popup');
     if (!popup) return;

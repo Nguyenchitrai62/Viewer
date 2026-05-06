@@ -588,7 +588,8 @@ async function buildCellCropZip(bundle) {
     }
 
     const sourceImage = await createImageElementFromBase64(bundle.sourceImageBase64);
-    const archive = new JSZip();
+    const JSZipCtor = await ensureJsZip();
+    const archive = new JSZipCtor();
 
     bundle.cells.forEach((cell, index) => {
         const bbox = cell?.source_bbox || cell?.bbox || {};

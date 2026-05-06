@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Example Search</title>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
     <link rel="icon" type="image/png" href="./Image/LOGO.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./Image/LOGO.png">
     <link rel="stylesheet" href="./visual_pdf_object/styles.css">
@@ -20,11 +22,10 @@
                 </div>
             </div>
             <div id="found-count"></div>
-            <div id="saved-patterns-section"
-                style="margin-top: 20px; border-top: 1px solid var(--border-color-light); padding-top: 15px;">
-                <h3 style="border:none; padding-bottom:10px; font-size:1.1em; color:#333;">Saved Patterns</h3>
-                <div id="saved-patterns-list" style="max-height: 150px; overflow-y: auto;">
-                    <div class="info-panel" style="padding: 10px; font-size: 12px; font-style: italic;">No saved
+            <div id="saved-patterns-section">
+                <h3>Saved Patterns</h3>
+                <div id="saved-patterns-list">
+                    <div class="info-panel">No saved
                         patterns</div>
                 </div>
             </div>
@@ -33,34 +34,34 @@
                     Loại Trích Xuất
                     <button id="btn-add-ext-type" title="Thêm loại trích xuất">＋</button>
                 </h3>
-                <div id="ext-type-list" style="max-height: 200px; overflow-y: auto;">
-                    <div style="padding: 10px; font-size: 12px; font-style: italic; color: #999;">
+                <div id="ext-type-list">
+                    <div class="ext-type-empty-state">
                         Chưa có loại trích xuất. Nhấn ＋ để thêm.
                     </div>
                 </div>
             </div>
-            <div id="search-summary" style="display: none;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+            <div id="search-summary">
+                <table>
                     <thead>
-                        <tr style="background-color: #f8f9fa;">
-                            <th style="border: 1px solid #ddd; padding: 4px; text-align: left;">Search Type</th>
-                            <th style="border: 1px solid #ddd; padding: 4px; text-align: center;">Count</th>
-                            <th style="border: 1px solid #ddd; padding: 4px; text-align: center;">Thời gian (ms)</th>
+                        <tr>
+                            <th>Search Type</th>
+                            <th>Count</th>
+                            <th>Thời gian (ms)</th>
                         </tr>
                     </thead>
                     <tbody id="search-summary-body">
                     </tbody>
                 </table>
             </div>
-            <div id="btn-export-svg-container" style="margin-top: 15px; display: flex; gap: 8px;">
-                <button id="btn-export-svg" style="flex:1;">📄 SVG</button>
-                <button id="btn-export-images" style="flex:1; background-color:#6f42c1; color:white; border:none; padding:6px 8px; font-size:12px; font-weight:600; border-radius:6px; cursor:pointer;">🖼️ Images</button>
+            <div id="btn-export-svg-container">
+                <button id="btn-export-svg">📄 SVG</button>
+                <button id="btn-export-images">🖼️ Images</button>
             </div>
         </div>
         <div id="canvas-container" class="vlm-light-surface">
             <canvas id="drawing-canvas"></canvas>
             <div id="shape-raster-layer" aria-hidden="true"></div>
-            <canvas id="crosshair-canvas" style="position: absolute; top: 0; left: 0; pointer-events: none; z-index: 50;"></canvas>
+            <canvas id="crosshair-canvas"></canvas>
             <div id="vlm-screen-flash" aria-hidden="true"></div>
             <div id="vlm-selection-frame" aria-hidden="true">
                 <div class="vlm-selection-aura" aria-hidden="true"></div>
@@ -74,20 +75,19 @@
                     <div class="vlm-selection-corner br"></div>
                 </div>
             </div>
-            <div id="pdf-preview"
-                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; background: white; z-index: 1;">
+            <div id="pdf-preview">
             </div>
             <div id="page-status-overlay" class="page-status-overlay" aria-live="polite">
                 <div class="page-status-card">
                     <div class="page-status-spinner" aria-hidden="true"></div>
                     <div id="page-status-title" class="page-status-title">Loading page...</div>
-                    <div id="page-status-subtitle" class="page-status-subtitle" style="display:none;"></div>
+                    <div id="page-status-subtitle" class="page-status-subtitle"></div>
                 </div>
             </div>
-            <div id="mode-label" class="mode-label" style="display: none;"></div>
+            <div id="mode-label" class="mode-label"></div>
             <div id="zoom-indicator" class="zoom-indicator" aria-live="polite">Zoom 1.00x | Vector</div>
-            <div id="svg-text-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:5;"></div>
-            <div id="svg-graphic-layer" style="position:absolute;top:0;left:0;pointer-events:none;z-index:4;"></div>
+            <div id="svg-text-layer"></div>
+            <div id="svg-graphic-layer"></div>
             <div id="drop-zone">
                 <p>Drop PDF or JSON file here</p>
             </div>
@@ -136,70 +136,57 @@
         </div>
     </div>
     <div id="crop-modal" class="modal">
-        <div class="modal-content" style="display: flex; gap: 20px;">
+        <div class="modal-content crop-modal-layout">
             <span class="close">&times;</span>
-            <div class="crop-main" style="flex: 1; padding: 10px;">
+            <div class="crop-main">
                 <h3>Crop Region</h3>
-                <p id="rect-coords" style="font-size: 12px; color: var(--text-color-secondary); margin-bottom: 10px;">
+                <p id="rect-coords">
                 </p>
                 <canvas id="crop-canvas" width="500" height="400"></canvas>
             </div>
-            <div class="crop-sidebar"
-                style="width: 250px; padding: 10px; border-left: 1px solid var(--border-color-light); display: flex; flex-direction: column; gap: 10px;">
+            <div class="crop-sidebar">
                 <h4>Selection Options</h4>
-                <div class="crop-toolbar" style="display: flex; flex-direction: column; gap: 10px;">
+                <div class="crop-toolbar">
                     <button id="btn-hide-mode">Hide on hover</button>
                     <button id="btn-show-mode">Show on hover</button>
                 </div>
-                <h4 style="margin-top: 15px;">Color Filter</h4>
-                <div id="crop-color-filters"
-                    style="display: flex; flex-direction: column; gap: 5px; max-height: 150px; overflow-y: auto;">
+                <h4>Color Filter</h4>
+                <div id="crop-color-filters">
                 </div>
-                <h4 style="margin-top: 15px;">Command Stats</h4>
-                <ul id="command-count"
-                    style="list-style-type: none; font-size: 13px; color: var(--text-color-secondary); max-height: 250px; overflow-y: auto; ">
+                <h4>Command Stats</h4>
+                <ul id="command-count">
                 </ul>
-                <div style="display:flex; gap:8px; margin-top:8px;">
-                    <button id="btn-save-pattern"
-                        style="flex:1; background-color:var(--background-button); color:var(--text-color-primary); border:1px solid var(--border-color-dark); padding:8px; border-radius:6px;">Save
+                <div class="crop-action-row">
+                    <button id="btn-save-pattern">Save
                         Pattern</button>
-                    <button id="btn-search-now"
-                        style="flex:1; background-color:var(--accent-color); color:white; border:none; padding:8px; border-radius:6px;">Search</button>
-                    <button id="btn-cancel-search"
-                        style="flex:1; background-color:var(--background-button); padding:8px; border:1px solid var(--border-color-dark); border-radius:6px;">Cancel</button>
+                    <button id="btn-search-now">Search</button>
+                    <button id="btn-cancel-search">Cancel</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Blocking processing overlay -->
-    <div id="loading-popup"
-        style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:2000; align-items:center; justify-content:center;">
-        <div
-            style="background:white; padding:24px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.3); text-align:center;">
-            <div
-                style="width:40px;height:40px;border:4px solid #f3f3f3;border-top-color:var(--accent-color);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px">
+    <div id="loading-popup">
+        <div class="loading-popup-card">
+            <div class="loading-popup-spinner">
             </div>
-            <div id="loading-popup-title" style="font-weight:600;color:#333;">Processing...</div>
-            <div id="loading-popup-subtitle" style="font-size:12px; color:#777; margin-top:6px; display:none;"></div>
+            <div id="loading-popup-title" class="loading-popup-title">Processing...</div>
+            <div id="loading-popup-subtitle"></div>
         </div>
     </div>
 
     <!-- Batch processing progress overlay -->
-    <div id="batch-progress-overlay"
-        style="display:none; position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:3000; align-items:center; justify-content:center;">
-        <div
-            style="background:white; padding:30px 40px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.3); text-align:center; min-width:420px;">
-            <div style="font-weight:700; font-size:18px; color:#333; margin-bottom:6px;">Processing PDF Pages</div>
-            <div id="batch-progress-subtitle" style="font-size:13px; color:#888; margin-bottom:16px;">Preparing...</div>
-            <div
-                style="background:#e9ecef; border-radius:8px; height:22px; overflow:hidden; margin-bottom:12px; position:relative;">
-                <div id="batch-progress-bar"
-                    style="background:linear-gradient(90deg, #2563eb, #1d4ed8); height:100%; width:0%; transition:width 0.3s ease; border-radius:8px;">
+    <div id="batch-progress-overlay">
+        <div class="batch-progress-dialog">
+            <div class="batch-progress-title">Processing PDF Pages</div>
+            <div id="batch-progress-subtitle">Preparing...</div>
+            <div class="batch-progress-track">
+                <div id="batch-progress-bar">
                 </div>
             </div>
-            <div id="batch-progress-text" style="font-size:14px; color:#555; font-weight:500;">0 / 0 pages</div>
-            <div id="batch-progress-size" style="font-size:12px; color:#999; margin-top:4px;"></div>
+            <div id="batch-progress-text">0 / 0 pages</div>
+            <div id="batch-progress-size"></div>
         </div>
     </div>
 
@@ -219,7 +206,7 @@
         </div>
     </div>
 
-    <div id="vlm-modal" class="vlm-selection-panel" style="display: none;">
+    <div id="vlm-modal" class="vlm-selection-panel">
         <div class="vlm-selection-panel-shell">
             <div class="vlm-selection-panel-header">
                 <div class="vlm-selection-panel-heading">
@@ -231,67 +218,66 @@
             </div>
             <div class="vlm-selection-panel-body">
                 <!-- Preview section - shown before API call -->
-                <div id="vlm-preview" style="display: none;">
+                <div id="vlm-preview">
                     <div class="vlm-selection-preview-note">
                         Vùng bbox trên canvas đang là preview trực tiếp. Bảng này chỉ giữ các hành động xử lý.
                     </div>
-                    <div class="vlm-selection-bbox-row" style="margin-bottom: 15px; font-size: 13px; color: var(--text-color-secondary);">
+                    <div class="vlm-selection-bbox-row">
                         <strong>Bounding Box:</strong> <span id="vlm-preview-bbox"></span>
                     </div>
-                    <div style="margin-bottom: 10px;">
-                        <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary); display: block; margin-bottom: 4px;">Loại trích xuất:</label>
+                    <div class="vlm-field-group">
+                        <label class="vlm-field-label">Loại trích xuất:</label>
                         <select id="vlm-extract-type-select">
                             <option value="">-- Chọn loại trích xuất --</option>
                         </select>
                     </div>
-                    <div id="vlm-fields-preview-container" style="display: none; margin-bottom: 15px;">
-                        <label style="font-weight: 600; font-size: 12px; color: var(--text-color-secondary); display: block; margin-bottom: 4px;">Các trường sẽ trích xuất:</label>
+                    <div id="vlm-fields-preview-container">
+                        <label class="vlm-field-label vlm-field-label-small">Các trường sẽ trích xuất:</label>
                         <div id="vlm-fields-preview" class="vlm-fields-preview"></div>
                     </div>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                        <button id="vlm-confirm-btn" style="flex:1; background-color: #28a745; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                    <div class="vlm-selection-action-row">
+                        <button id="vlm-confirm-btn" class="vlm-action-button vlm-action-button-confirm">
                             ✓ Xác nhận & Gửi VLM
                         </button>
-                        <button id="vlm-detect-cells-btn" style="flex:1; background-color: #2563eb; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                        <button id="vlm-detect-cells-btn" class="vlm-action-button vlm-action-button-cells">
                             ▦ Trích xuất cell
                         </button>
-                        <button id="vlm-cancel-btn" style="flex:1; background-color: var(--background-button); color: var(--text-color-primary); border: 1px solid var(--border-color-dark); padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                        <button id="vlm-cancel-btn" class="vlm-action-button vlm-action-button-secondary">
                             Hủy
                         </button>
                     </div>
-                    <div style="margin-top: 8px; font-size: 12px; color: var(--text-color-secondary);">
+                    <div class="vlm-selection-hint">
                         Luồng trích xuất cell sẽ gọi API crop cell và vẽ bbox cell trực tiếp lên viewer gốc.
                     </div>
                 </div>
 
-                <div id="vlm-loading" style="display: none; flex-direction: column; align-items: center; padding: 40px 0;">
-                    <div
-                        style="width:50px;height:50px;border:5px solid #f3f3f3;border-top-color:#28a745;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px">
+                <div id="vlm-loading">
+                    <div class="vlm-loading-spinner">
                     </div>
-                    <div style="font-weight:600;color:#333;">Analyzing with VLM...</div>
-                    <div id="vlm-loading-text" style="font-size:13px; color:#888; margin-top:8px;">Processing selected region</div>
+                    <div class="vlm-loading-title">Analyzing with VLM...</div>
+                    <div id="vlm-loading-text">Processing selected region</div>
                 </div>
-                <div id="vlm-result" style="display: none;">
-                    <div style="margin-bottom: 15px;">
-                        <label style="font-weight: 600; font-size: 13px; color: var(--text-color-secondary);">Result:</label>
+                <div id="vlm-result">
+                    <div class="vlm-section-label">
+                        <label class="vlm-field-label">Result:</label>
                     </div>
-                    <div id="vlm-json-container" style="background: #f8f9fa; border: 1px solid var(--border-color-light); border-radius: 10px; padding: 15px; max-height: 400px; overflow-y: auto; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">
+                    <div id="vlm-json-container">
                     </div>
-                    <div style="display: flex; gap: 10px; margin-top: 15px;">
-                        <button id="vlm-copy-btn" style="flex:1; background-color: var(--accent-color); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                    <div class="vlm-result-actions">
+                        <button id="vlm-copy-btn" class="vlm-action-button vlm-action-button-primary">
                             Copy
                         </button>
-                        <button id="vlm-download-cells-btn" title="Tải ảnh crop cell" style="flex:1; display:none; background-color: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                        <button id="vlm-download-cells-btn" title="Tải ảnh crop cell" class="vlm-action-button vlm-action-button-cells">
                             Download Cells ZIP
                         </button>
-                        <button id="vlm-close-btn" style="flex:1; background-color: var(--background-button); color: var(--text-color-primary); border: 1px solid var(--border-color-dark); padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                        <button id="vlm-close-btn" class="vlm-action-button vlm-action-button-secondary">
                             Close
                         </button>
                     </div>
                 </div>
-                <div id="vlm-error" style="display: none; padding: 20px; text-align: center;">
-                    <div style="color: var(--danger-color); font-weight: 600; margin-bottom: 10px;">Error</div>
-                    <div id="vlm-error-message" style="color: var(--text-color-secondary); font-size: 13px;"></div>
+                <div id="vlm-error">
+                    <div class="vlm-error-title">Error</div>
+                    <div id="vlm-error-message" class="vlm-error-message"></div>
                 </div>
             </div>
         </div>
@@ -300,10 +286,11 @@
 
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
         // Configure PDF.js worker
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        window.JSZIP_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
 
         const pdfjsDocumentVerbosity = Number.isFinite(pdfjsLib?.VerbosityLevel?.ERRORS)
             ? pdfjsLib.VerbosityLevel.ERRORS

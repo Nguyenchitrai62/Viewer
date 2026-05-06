@@ -680,7 +680,8 @@ async function exportLayerImages() {
     if (popup) popup.style.display = 'flex';
 
     try {
-        const zip = new JSZip();
+        const JSZipCtor = await ensureJsZip();
+        const zip = new JSZipCtor();
         const visibleLayers = getVisibleRenderableLayers();
         visibleLayers.forEach(layerName => {
             renderLayerOnExportCanvas(ctx, canvas, layerName, bounds, scale);
@@ -743,7 +744,8 @@ async function exportAnnotatedLayerPackage() {
             return;
         }
 
-        const zip = new JSZip();
+        const JSZipCtor = await ensureJsZip();
+        const zip = new JSZipCtor();
         const exportBaseName = getCurrentExportBaseName();
         const pageSuffix = currentPageNum ? `_p${currentPageNum}` : '';
         const stem = `${exportBaseName}${pageSuffix}`;
