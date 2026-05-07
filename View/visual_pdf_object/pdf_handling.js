@@ -297,6 +297,29 @@ function clearCurrentUploadController(controller = currentUploadController) {
     }
 }
 
+function clearCurrentPdfUploadSession(file = null) {
+    if (!currentPdfUploadSession) {
+        return;
+    }
+
+    if (!file) {
+        currentPdfUploadSession = null;
+        return;
+    }
+
+    const sourceKey = getPdfUploadSessionKey(file);
+    if (currentPdfUploadSession.sourceKey === sourceKey) {
+        currentPdfUploadSession = null;
+    }
+}
+
+function invalidatePdfUploadSessionForResponse(response, file) {
+    const status = Number(response?.status || 0);
+    if (status === 404 || status === 409 || status === 410) {
+        clearCurrentPdfUploadSession(file);
+    }
+}
+
 function closeCurrentUploadSocket(socket = currentUploadSocket) {
     if (!socket) return;
     if (currentUploadSocket === socket) {
@@ -540,6 +563,7 @@ function cancelCurrentBatchProcessing() {
     autoOpenReadyPage = false;
     waitingPageNum = null;
     hideCanvasStatusOverlay();
+    clearCurrentPdfUploadSession();
 
     if (currentBatchAbortController) {
         currentBatchAbortController.abort();
@@ -609,6 +633,7 @@ function clearPdfPageSidebar() {
     }
     hideCanvasStatusOverlay();
     hidePdfPreview();
+    clearCurrentPdfUploadSession(stagedPdfFile || currentPdfFile);
     stagedPdfFile = null;
     stagedCachedPages = {};
     resetPdfPageProcessingState();
@@ -960,6 +985,7 @@ async function processSelectedPage(pageNum) {
         });
         console.timeEnd('API Call');
         if (!response.ok) {
+            invalidatePdfUploadSessionForResponse(response, file);
             throw new Error(await parseHttpErrorResponse(response));
         }
         const documentData = await loadJsonResponseStreaming(response, {
@@ -1029,6 +1055,7 @@ async function processAllPagesBatch(file) {
         });
 
         if (!response.ok) {
+            invalidatePdfUploadSessionForResponse(response, file);
             throw new Error(await parseHttpErrorResponse(response));
         }
 

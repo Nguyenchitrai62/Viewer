@@ -1,96 +1,140 @@
-function exportToSVG() {
+function promptCurrentViewImageScale(defaultScale = 3) {
+    const rawValue = window.prompt(
+        'Nhập scale ảnh export (ví dụ: 1, 1.5, 2)',
+        String(defaultScale)
+    );
+    if (rawValue === null) {
+        return null;
+    }
+
+    const normalizedValue = rawValue.trim().replace(',', '.');
+    if (!normalizedValue) {
+        return defaultScale;
+    }
+
+    const scale = Number(normalizedValue);
+    if (!Number.isFinite(scale) || scale <= 0) {
+        alert('Scale ảnh phải là số lớn hơn 0.');
+        return null;
+    }
+
+    return scale;
+}
+
+function isCanvasCurrentlyVisible(canvasElement) {
+    if (!canvasElement || canvasElement.width < 1 || canvasElement.height < 1) {
+        return false;
+    }
+
+    const computedStyle = window.getComputedStyle(canvasElement);
+    return computedStyle.display !== 'none' && computedStyle.visibility !== 'hidden';
+}
+
+async function drawVisibleDocumentRaster(targetCtx, bounds, scale) {
+    if (!targetCtx || !bounds) {
+        return;
+    }
+
+    const shapesToRender = Array.isArray(allShapesSorted) && allShapesSorted.length
+        ? allShapesSorted
+        : (Array.isArray(jsonShapes) ? jsonShapes : []);
+
+    targetCtx.save();
+    targetCtx.scale(scale, scale);
+    targetCtx.translate(-bounds.minX, -bounds.minY);
+
+    if (shapesToRender.length) {
+        await renderShapesToContextBatched(targetCtx, shapesToRender, {
+            yieldEvery: HIGH_ZOOM_VECTOR_RENDER_YIELD_EVERY
+        });
+    }
+
+    targetCtx.restore();
+}
+
+function canvasToBlobAsync(sourceCanvas, mimeType = 'image/png', quality) {
+    return new Promise((resolve, reject) => {
+        sourceCanvas.toBlob(blob => {
+            if (blob) {
+                resolve(blob);
+                return;
+            }
+            reject(new Error('Không thể tạo ảnh export.'));
+        }, mimeType, quality);
+    });
+}
+
+function formatImageScaleSuffix(scale) {
+    if (!Number.isFinite(scale) || scale <= 0) {
+        return '1x';
+    }
+    const roundedInteger = Math.round(scale);
+    if (Math.abs(scale - roundedInteger) < 0.0001) {
+        return `${roundedInteger}x`;
+    }
+    return `${String(scale).replace(/\./g, '_')}x`;
+}
+
+async function exportCurrentViewImage() {
     if (!hasRenderableDocument()) {
         alert('No data to export.');
         return;
     }
 
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    const paths = [];
-
-    sortedLayerKeys.forEach(layerName => {
-        if (!layerVisibility[layerName]) return;
-        const layerArr = layerIndex[layerName] || [];
-        layerArr.forEach(obj => {
-            if (obj.type === 'text') return;
-            if (obj.rect) {
-                minX = Math.min(minX, obj.rect[0]);
-                minY = Math.min(minY, obj.rect[1]);
-                maxX = Math.max(maxX, obj.rect[2]);
-                maxY = Math.max(maxY, obj.rect[3]);
-            }
-            if (!Array.isArray(obj.items)) return;
-            obj.items.forEach(item => {
-                const type = item[0];
-                let pathData = '';
-                if (type === 'l') {
-                    const [x1, y1] = item[1];
-                    const [x2, y2] = item[2];
-                    pathData = `M ${x1} ${y1} L ${x2} ${y2}`;
-                } else if (type === 'c') {
-                    const [p0x, p0y] = item[1];
-                    const [p1x, p1y] = item[2];
-                    const [p2x, p2y] = item[3];
-                    const [p3x, p3y] = item[4];
-                    pathData = `M ${p0x} ${p0y} C ${p1x} ${p1y} ${p2x} ${p2y} ${p3x} ${p3y}`;
-                } else if (type === 'qu') {
-                    const points = item[1];
-                    if (points?.length === 4) {
-                        pathData = `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]} L ${points[3][0]} ${points[3][1]} L ${points[2][0]} ${points[2][1]} Z`;
-                    }
-                }
-                if (!pathData) return;
-                const color = obj.color ? toRgbString(obj.color) : '#000';
-                const width = obj.width || 1;
-                paths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none"/>`);
-            });
-        });
-    });
-
-    if (!paths.length && !svgData) {
-        alert('Khong co duong ve hoac SVG nao de xuat.');
+    const scale = promptCurrentViewImageScale(3);
+    if (scale === null) {
         return;
     }
 
-    const width = maxX - minX || 100;
-    const height = maxY - minY || 100;
-    let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX} ${minY} ${width} ${height}" width="${width}" height="${height}">`;
-    if (paths.length) svgContent += paths.join('\n');
-
-    if (svgData && svgData.text_only && layerVisibility.svg_text) {
-        const parser = new DOMParser();
-        const svgDoc = parser.parseFromString(svgData.text_only, 'image/svg+xml');
-        const defs = svgDoc.querySelector('defs');
-        if (defs) svgContent += new XMLSerializer().serializeToString(defs);
-        svgDoc.querySelectorAll('use').forEach(use => {
-            svgContent += new XMLSerializer().serializeToString(use);
-        });
+    const popup = document.getElementById('loading-popup');
+    if (popup) {
+        popup.style.display = 'flex';
     }
 
-    if (svgData && svgData.graphic_only && layerVisibility.svg_graphic) {
-        const parser = new DOMParser();
-        const svgDoc = parser.parseFromString(svgData.graphic_only, 'image/svg+xml');
-        const defs = svgDoc.querySelector('defs');
-        if (defs) svgContent += new XMLSerializer().serializeToString(defs);
-        Array.from(svgDoc.children)
-            .filter(child => child.tagName !== 'defs')
-            .forEach(child => {
-                svgContent += new XMLSerializer().serializeToString(child);
+    try {
+        const bounds = await getExportBounds(scale);
+        if (!bounds) {
+            throw new Error('Không xác định được vùng export.');
+        }
+
+        const exportWidth = Math.max(1, Math.round(bounds.width * scale));
+        const exportHeight = Math.max(1, Math.round(bounds.height * scale));
+        const { canvas: exportCanvas, ctx: exportCtx } = createCanvas(exportWidth, exportHeight);
+        exportCtx.fillStyle = '#ffffff';
+        exportCtx.fillRect(0, 0, exportWidth, exportHeight);
+
+        await drawVisibleDocumentRaster(exportCtx, bounds, scale);
+
+        const includeText = layerVisibility?.svg_text !== false;
+        const includeGraphic = layerVisibility?.svg_graphic !== false;
+        if ((includeText || includeGraphic) && svgData && typeof drawSvgLayersToRasterContext === 'function') {
+            await drawSvgLayersToRasterContext(exportCtx, {
+                svgSource: svgData,
+                bounds,
+                scale,
+                includeText,
+                includeGraphic
             });
-    }
+        }
 
-    svgContent += '</svg>';
-    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'exported_visual.svg';
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+        const blob = await canvasToBlobAsync(exportCanvas, 'image/png');
+        const objectUrl = URL.createObjectURL(blob);
+        const pageSuffix = currentPageNum ? `_p${currentPageNum}` : '';
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = `${getCurrentExportBaseName()}${pageSuffix}_layers_${formatImageScaleSuffix(scale)}.png`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+        console.error('Current view export failed:', error);
+        alert(`Không thể export ảnh hiện tại: ${error.message}`);
+    } finally {
+        if (popup) {
+            popup.style.display = 'none';
+        }
+    }
 }
 
 async function getPdfPageBounds() {

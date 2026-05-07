@@ -1,6 +1,19 @@
 // events.js
 
 // Events
+let resizeCanvasFrameId = 0;
+
+function scheduleResizeCanvas() {
+    if (resizeCanvasFrameId) {
+        return;
+    }
+
+    resizeCanvasFrameId = window.requestAnimationFrame(() => {
+        resizeCanvasFrameId = 0;
+        resizeCanvas();
+    });
+}
+
 window.addEventListener('keydown', e => {
     const isTextInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z' && !isTextInput) {
@@ -52,7 +65,7 @@ window.addEventListener('keydown', e => {
         }
     }
 });
-window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', scheduleResizeCanvas);
 dropZone.addEventListener('dragover', e => {
     e.preventDefault();
     dropZone.classList.add('drag-over');
@@ -355,7 +368,7 @@ btnExportRevitJson.addEventListener('click', async () => {
     }
 });
 
-btnExportSvg.addEventListener('click', exportToSVG);
+btnExportSvg.addEventListener('click', exportCurrentViewImage);
 const btnExportImages = document.getElementById('btn-export-images');
 if (btnExportImages) {
     btnExportImages.addEventListener('click', exportLayerImages);

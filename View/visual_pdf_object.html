@@ -9,12 +9,12 @@
     <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
     <link rel="icon" type="image/png" href="./Image/LOGO.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./Image/LOGO.png">
-    <link rel="stylesheet" href="./visual_pdf_object/styles.css?v=20260506-label-delete-db-init">
+    <link rel="stylesheet" href="./visual_pdf_object/styles.css?v=20260507-hardening-1">
 </head>
 
 <body>
     <div id="main-container">
-        <div id="layer-controls">
+        <div id="layer-controls" role="complementary" aria-label="Control panel">
             <h3>Control Panel</h3>
             <div id="layer-list">
                 <div class="info-panel">
@@ -32,7 +32,7 @@
             <div class="ext-type-section">
                 <h3>
                     Loại Trích Xuất
-                    <button id="btn-add-ext-type" title="Thêm loại trích xuất">＋</button>
+                    <button id="btn-add-ext-type" type="button" title="Thêm loại trích xuất" aria-label="Thêm loại trích xuất">＋</button>
                 </h3>
                 <div id="ext-type-list">
                     <div class="ext-type-empty-state">
@@ -54,14 +54,14 @@
                 </table>
             </div>
             <div id="btn-export-svg-container">
-                <button id="btn-export-svg">📄 SVG</button>
-                <button id="btn-export-images">🖼️ Images</button>
+                <button id="btn-export-svg" type="button" title="Export visible layers as PNG" aria-label="Export visible layers as PNG">🖼️ PNG</button>
+                <button id="btn-export-images" type="button" aria-label="Export images">🖼️ Images</button>
             </div>
         </div>
-        <div id="canvas-container" class="vlm-light-surface">
-            <canvas id="drawing-canvas"></canvas>
+        <div id="canvas-container" class="vlm-light-surface" role="region" aria-label="PDF canvas workspace">
+            <canvas id="drawing-canvas" aria-label="PDF drawing canvas"></canvas>
             <div id="shape-raster-layer" aria-hidden="true"></div>
-            <canvas id="crosshair-canvas"></canvas>
+            <canvas id="crosshair-canvas" aria-hidden="true"></canvas>
             <div id="vlm-screen-flash" aria-hidden="true"></div>
             <div id="vlm-selection-frame" aria-hidden="true">
                 <div class="vlm-selection-aura" aria-hidden="true"></div>
@@ -75,8 +75,8 @@
                     <div class="vlm-selection-corner br"></div>
                 </div>
             </div>
-            <div id="pdf-preview"></div>
-            <div id="page-status-overlay" class="page-status-overlay" aria-live="polite">
+            <div id="pdf-preview" aria-live="polite"></div>
+            <div id="page-status-overlay" class="page-status-overlay" aria-live="polite" role="status">
                 <div class="page-status-card">
                     <div class="page-status-spinner" aria-hidden="true"></div>
                     <div id="page-status-title" class="page-status-title">Loading page...</div>
@@ -97,7 +97,7 @@
                         <span class="manual-label-title">Labels</span>
                         <span id="manual-label-count-badge" class="manual-label-count-badge">0</span>
                     </div>
-                    <button id="btn-toggle-manual-label-panel" class="manual-label-toggle" title="Thu gọn / mở rộng">▾</button>
+                    <button id="btn-toggle-manual-label-panel" class="manual-label-toggle" type="button" title="Thu gọn / mở rộng" aria-controls="manual-label-panel-body" aria-expanded="false">▾</button>
                 </div>
                 <div id="manual-label-panel-body" class="manual-label-panel-body">
                     <div id="manual-label-status" class="manual-label-status">No labels</div>
@@ -120,7 +120,7 @@
                             <span id="symbol-annotation-count-badge" class="symbol-annotation-count-badge">0</span>
                         </div>
                     </div>
-                    <button id="btn-toggle-symbol-annotation-panel" class="symbol-annotation-toggle" title="Thu gọn / mở rộng">▾</button>
+                    <button id="btn-toggle-symbol-annotation-panel" class="symbol-annotation-toggle" type="button" title="Thu gọn / mở rộng" aria-controls="symbol-annotation-panel-body" aria-expanded="false">▾</button>
                 </div>
                 <div id="symbol-annotation-panel-body" class="symbol-annotation-panel-body">
                     <div id="symbol-annotation-loading-mask" class="symbol-annotation-loading-mask" hidden>
@@ -154,8 +154,8 @@
 
 
         </div>
-        <div id="page-preview-sidebar">
-            <div id="page-processing-summary" class="page-processing-summary" aria-live="polite">
+        <div id="page-preview-sidebar" role="complementary" aria-label="Page preview sidebar">
+            <div id="page-processing-summary" class="page-processing-summary" aria-live="polite" role="status">
                 <div id="page-processing-summary-title" class="page-processing-summary-title">Preparing pages...</div>
                 <div id="page-processing-summary-subtitle" class="page-processing-summary-subtitle"></div>
             </div>
@@ -164,22 +164,22 @@
             </div>
         </div>
     </div>
-    <div id="floating-toolbar">
+    <div id="floating-toolbar" role="toolbar" aria-label="Main actions">
         <div class="action-group">
-            <button id="btn-draw-rect" title="✏️ Find">✏️ Find</button>
-            <button id="btn-reset-filter" title="Reset Filter">🔄 Reset</button>
-            <button id="btn-toggle-layer-mode" title="Switch Layer Mode">Mode: Layer 1</button>
-            <button id="btn-detect-pipeline" title="Detect Pipeline">🔧 Detect Pipeline</button>
-            <button id="btn-export-pipeline-json" title="Export Pipeline JSON">📋 JSON</button>
-            <button id="btn-export-revit-json" title="Export Revit JSON">🏗️ Revit</button>
-            <button id="btn-vlm-extract" title="AI Extract">🤖 AI</button>
+            <button id="btn-draw-rect" type="button" title="✏️ Find" aria-label="Find by drawing a bounding box">✏️ Find</button>
+            <button id="btn-reset-filter" type="button" title="Reset Filter" aria-label="Reset filters">🔄 Reset</button>
+            <button id="btn-toggle-layer-mode" type="button" title="Switch Layer Mode" aria-label="Switch layer mode">Mode: Layer 1</button>
+            <button id="btn-detect-pipeline" type="button" title="Detect Pipeline" aria-label="Detect pipeline">🔧 Detect Pipeline</button>
+            <button id="btn-export-pipeline-json" type="button" title="Export Pipeline JSON" aria-label="Export pipeline JSON">📋 JSON</button>
+            <button id="btn-export-revit-json" type="button" title="Export Revit JSON" aria-label="Export Revit JSON">🏗️ Revit</button>
+            <button id="btn-vlm-extract" type="button" title="AI Extract" aria-label="Extract using AI">🤖 AI</button>
         </div>
     </div>
-    <div id="crop-modal" class="modal">
+    <div id="crop-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="crop-modal-title">
         <div class="modal-content crop-modal-layout">
             <span class="close">&times;</span>
             <div class="crop-main">
-                <h3>Crop Region</h3>
+                <h3 id="crop-modal-title">Crop Region</h3>
                 <p id="rect-coords">
                 </p>
                 <canvas id="crop-canvas" width="500" height="400"></canvas>
@@ -187,8 +187,8 @@
             <div class="crop-sidebar">
                 <h4>Selection Options</h4>
                 <div class="crop-toolbar">
-                    <button id="btn-hide-mode">Hide on hover</button>
-                    <button id="btn-show-mode">Show on hover</button>
+                    <button id="btn-hide-mode" type="button">Hide on hover</button>
+                    <button id="btn-show-mode" type="button">Show on hover</button>
                 </div>
                 <h4>Color Filter</h4>
                 <div id="crop-color-filters">
@@ -197,17 +197,17 @@
                 <ul id="command-count">
                 </ul>
                 <div class="crop-action-row">
-                    <button id="btn-save-pattern">Save
+                    <button id="btn-save-pattern" type="button">Save
                         Pattern</button>
-                    <button id="btn-search-now">Search</button>
-                    <button id="btn-cancel-search">Cancel</button>
+                    <button id="btn-search-now" type="button">Search</button>
+                    <button id="btn-cancel-search" type="button">Cancel</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Blocking processing overlay -->
-    <div id="loading-popup">
+    <div id="loading-popup" role="status" aria-live="polite" aria-labelledby="loading-popup-title">
         <div class="loading-popup-card">
             <div class="loading-popup-spinner">
             </div>
@@ -217,7 +217,7 @@
     </div>
 
     <!-- Batch processing progress overlay -->
-    <div id="batch-progress-overlay">
+    <div id="batch-progress-overlay" role="status" aria-live="polite">
         <div class="batch-progress-dialog">
             <div class="batch-progress-title">Processing PDF Pages</div>
             <div id="batch-progress-subtitle">Preparing...</div>
@@ -231,28 +231,28 @@
     </div>
 
     <!-- Extraction type modal -->
-    <div id="ext-type-modal-overlay" class="ext-type-modal-overlay">
+    <div id="ext-type-modal-overlay" class="ext-type-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ext-modal-title">
         <div class="ext-type-modal">
             <h3 id="ext-modal-title">Thêm Loại Trích Xuất</h3>
             <label for="ext-type-name-input">Tên loại trích xuất</label>
             <input type="text" id="ext-type-name-input" placeholder="Ví dụ: Kích thước, ABC..." />
             <label>Ký hiệu và Mô tả các trường cần trích xuất</label>
             <div id="ext-field-list" class="ext-field-list"></div>
-            <button class="ext-add-field-btn" id="btn-ext-add-field">＋ Thêm trường</button>
+            <button class="ext-add-field-btn" id="btn-ext-add-field" type="button">＋ Thêm trường</button>
             <div class="ext-modal-btns">
-                <button class="ext-save-btn" id="btn-ext-save">Lưu</button>
-                <button class="ext-cancel-btn" id="btn-ext-cancel">Hủy</button>
+                <button class="ext-save-btn" id="btn-ext-save" type="button">Lưu</button>
+                <button class="ext-cancel-btn" id="btn-ext-cancel" type="button">Hủy</button>
             </div>
         </div>
     </div>
 
     <!-- VLM Extract panel -->
-    <div id="vlm-modal" class="vlm-selection-panel">
+    <div id="vlm-modal" class="vlm-selection-panel" role="dialog" aria-modal="false" aria-labelledby="vlm-modal-title">
         <div class="vlm-selection-panel-shell">
             <div class="vlm-selection-panel-header">
                 <div class="vlm-selection-panel-heading">
                     <span class="vlm-selection-kicker">Selection Actions</span>
-                    <h3>VLM Extract</h3>
+                    <h3 id="vlm-modal-title">VLM Extract</h3>
                     <p>Dùng trực tiếp trên canvas sau khi khoanh vùng, không cần popup che màn hình.</p>
                 </div>
                 <button id="vlm-modal-close" class="vlm-selection-close" type="button" aria-label="Đóng bảng chọn">&times;</button>
@@ -345,25 +345,25 @@
             });
         }
     </script>
-    <script src="./env.js"></script>
-    <script src="./visual_pdf_object/config.js"></script>
-    <script src="./visual_pdf_object/quadtree.js"></script>
-    <script src="./visual_pdf_object/state.js"></script>
-    <script src="./visual_pdf_object/utils.js"></script>
-    <script src="./visual_pdf_object/streaming_parser.js"></script>
-    <script src="./visual_pdf_object/quadtree_rebuild.js"></script>
-    <script src="./visual_pdf_object/annotations.js"></script>
-    <script src="./visual_pdf_object/symbol_annotations.js?v=20260506-label-prefetch-cache"></script>
-    <script src="./visual_pdf_object/drawing.js?v=20260506-annotation-color-fix"></script>
-    <script src="./visual_pdf_object/layer_controls.js"></script>
-    <script src="./visual_pdf_object/view_controls.js"></script>
-    <script src="./visual_pdf_object/search.js?v=20260506-symbol-pattern-capture"></script>
-    <script src="./visual_pdf_object/export.js"></script>
-    <script src="./visual_pdf_object/pdf_handling.js?v=20260506-label-prefetch-cache"></script>
-    <script src="./visual_pdf_object/pipeline.js"></script>
-    <script src="./visual_pdf_object/vlm.js"></script>
-    <script src="./visual_pdf_object/events.js"></script>
-    <script src="./visual_pdf_object/patterns.js?v=20260506-symbol-pattern-search"></script>
+    <script src="./env.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/config.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/quadtree.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/state.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/utils.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/streaming_parser.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/quadtree_rebuild.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/annotations.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/symbol_annotations.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/drawing.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/layer_controls.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/view_controls.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/search.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/export.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/pdf_handling.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/pipeline.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/vlm.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/events.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/patterns.js?v=20260507-hardening-1"></script>
 </body>
 
 </html>
