@@ -209,13 +209,16 @@ function buildFindPopupObjectMeta(obj, layerName, objIndex) {
 
     const commands = [];
     const commandCounts = { l: 0, c: 0, qu: 0 };
+    const useLengthCache = Number.isInteger(objIndex) && objIndex >= 0;
 
     for (let itemIndex = 0; itemIndex < obj.items.length; itemIndex += 1) {
         const item = obj.items[itemIndex];
         const type = item[0];
         if (!(type === 'l' || type === 'c' || type === 'qu')) continue;
 
-        const length = getOrComputeLength(layerName, objIndex, itemIndex, type, item);
+        const length = useLengthCache
+            ? getOrComputeLength(layerName, objIndex, itemIndex, type, item)
+            : calculateLength(type, item);
         let anchorX;
         let anchorY;
         if (type === 'l' || type === 'c') {
@@ -232,7 +235,7 @@ function buildFindPopupObjectMeta(obj, layerName, objIndex) {
 
     return {
         layer: layerName,
-        objIndex,
+        objIndex: useLengthCache ? objIndex : null,
         seqno: obj.seqno || objIndex,
         colorStr: obj.color ? toRgbString(obj.color) : 'rgba(0, 0, 0, 1)',
         commands,
@@ -972,6 +975,21 @@ async function showCropModal(rect, options = {}) {
     setPreparationState(true);
     modal.style.display = 'block';
 
+    if (typeof yieldForNextPaint === 'function') {
+        await yieldForNextPaint();
+    } else if (typeof yieldToBrowser === 'function') {
+        await yieldToBrowser();
+    }
+    if (isPrepStale()) return;
+
+    const cacheKey = getFindPopupPageCacheKey();
+    const pageCache = findPopupPageCache?.key === cacheKey
+        ? findPopupPageCache
+        : null;
+    if (!pageCache && typeof scheduleFindPopupPageCacheWarmup === 'function') {
+        scheduleFindPopupPageCacheWarmup();
+    }
+
     const restoreAndClose = (doSearch) => {
         activeCropModalRequestId += 1;
 
@@ -1134,14 +1152,6 @@ async function showCropModal(rect, options = {}) {
         const worldY = (y - cropPreviewTransform.offsetY) / cropPreviewTransform.scale + cropPreviewTransform.rect.y;
         applySelectionAtPoint(worldX, worldY);
     };
-
-    if (typeof yieldToBrowser === 'function') {
-        await yieldToBrowser();
-    }
-    if (isPrepStale()) return;
-
-    const pageCache = await ensureFindPopupPageCache();
-    if (isPrepStale()) return;
 
     const croppedObjs = [];
     const layerSet = new Set();

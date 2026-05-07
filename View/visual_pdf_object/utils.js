@@ -117,7 +117,25 @@ function hideCanvasStatusOverlay() {
 }
 
 function yieldToBrowser() {
-    return new Promise(resolve => requestAnimationFrame(() => resolve()));
+    return new Promise(resolve => {
+        if (document.visibilityState === 'hidden' || typeof requestAnimationFrame !== 'function') {
+            setTimeout(resolve, 0);
+            return;
+        }
+        requestAnimationFrame(() => resolve());
+    });
+}
+
+function yieldForNextPaint() {
+    return new Promise(resolve => {
+        if (document.visibilityState === 'hidden' || typeof requestAnimationFrame !== 'function') {
+            setTimeout(resolve, 0);
+            return;
+        }
+        requestAnimationFrame(() => {
+            setTimeout(resolve, 0);
+        });
+    });
 }
 
 function hasRenderableDocument() {
