@@ -1051,6 +1051,11 @@ function drawViewportOverlays(targetCtx, {
     allowVectorHighlights = zoom > getLowZoomRasterThreshold(),
     allowSearchOverlays = true
 } = {}) {
+    if (isVLMBboxMode) {
+        allowVectorHighlights = false;
+        allowSearchOverlays = false;
+    }
+
     if (allowSearchOverlays && typeof getSymbolFindSelectionOptions === 'function') {
         const annotationFindActive = Boolean(
             typeof getSelectedSymbolLabel === 'function'

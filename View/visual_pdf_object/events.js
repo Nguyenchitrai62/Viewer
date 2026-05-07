@@ -254,6 +254,15 @@ function applyManualLabelPanelState(collapsed) {
     }
 }
 
+function collapseAnnotationPanelsForVLM() {
+    if (typeof applyManualLabelPanelState === 'function') {
+        applyManualLabelPanelState(true);
+    }
+    if (typeof applySymbolAnnotationPanelState === 'function') {
+        applySymbolAnnotationPanelState(true);
+    }
+}
+
 try {
     const storedCollapsed = localStorage.getItem('visual_pdf_object.manual_label_collapsed');
     applyManualLabelPanelState(storedCollapsed !== '0');
@@ -480,6 +489,8 @@ btnVLMExtract.addEventListener('click', () => {
     canvasContainer.classList.toggle('vlm-bbox-mode', isVLMBboxMode);
 
     if (isVLMBboxMode) {
+        hoveredGroup = null;
+        collapseAnnotationPanelsForVLM();
         if (typeof hideVLMModal === 'function') {
             hideVLMModal();
         }
@@ -501,6 +512,7 @@ btnVLMExtract.addEventListener('click', () => {
         // Show mode label and crosshair immediately
         updateModeLabel('vlm');
         scheduleCrosshairOverlayDraw();
+        scheduleDraw();
     } else {
         // Reset VLM state
         vlmBboxStart = null;
@@ -674,6 +686,10 @@ canvasContainer.addEventListener('mousemove', e => {
         updateHoveredSnapPoint();
         scheduleDraw();
     } else if (isVLMBboxMode) {
+        if (hoveredGroup !== null) {
+            hoveredGroup = null;
+            scheduleDraw();
+        }
         vlmBboxEnd = { x: canvasX, y: canvasY };
         scheduleCrosshairOverlayDraw();
     } else if (isDrawingBbox) {
