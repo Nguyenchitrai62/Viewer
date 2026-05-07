@@ -2411,10 +2411,19 @@ async function handleSymbolBboxSelectionComplete(searchSummary) {
     setSymbolAnnotationFeedback(`Đã gắn nhãn ${selectedLabel.name} cho ${addedCount} bbox. Đang tự động lưu DB...`, 'info');
     try {
         await saveSymbolAnnotationsForCurrentPage({ silent: true });
-        setSymbolAnnotationFeedback(`Đã gắn nhãn ${selectedLabel.name} cho ${addedCount} bbox. Save DB thành công.`, 'success');
+        if (didAttachPattern) {
+            await saveSymbolAnnotationDocumentLabels({ silent: true });
+        }
+        const successSuffix = didAttachPattern
+            ? ' Save DB thành công và đã lưu pattern label ở cấp PDF.'
+            : ' Save DB thành công.';
+        setSymbolAnnotationFeedback(`Đã gắn nhãn ${selectedLabel.name} cho ${addedCount} bbox.${successSuffix}`, 'success');
     } catch (error) {
         console.error('Failed to auto-save symbol annotations:', error);
-        setSymbolAnnotationFeedback(`Đã gắn nhãn nhưng tự động lưu DB thất bại: ${error.message}`, 'error');
+        const failurePrefix = didAttachPattern
+            ? 'Đã gắn nhãn nhưng lưu DB/page hoặc pattern label thất bại'
+            : 'Đã gắn nhãn nhưng tự động lưu DB thất bại';
+        setSymbolAnnotationFeedback(`${failurePrefix}: ${error.message}`, 'error');
     }
 }
 
