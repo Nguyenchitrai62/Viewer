@@ -2,6 +2,156 @@
 // Layer Controls (giữ nguyên)
 let pendingLayerListRenderToken = 0;
 
+function resetLayerInteractionState() {
+    isInteracting = false;
+    if (interactionTimer) {
+        clearTimeout(interactionTimer);
+        interactionTimer = null;
+    }
+}
+
+function applyLayerVisibilityUpdate(options = {}) {
+    resetLayerInteractionState();
+    if (typeof invalidateShapeRasterCache === 'function') {
+        invalidateShapeRasterCache();
+        scheduleShapeRasterCacheBuild();
+    }
+    if (options.refreshList) {
+        updateLayerList();
+    }
+    scheduleDraw();
+    applySvgTransform();
+}
+
+function getShapeLayerNamesForCurrentMode() {
+    return sortedLayerKeys.filter(layerName => {
+        const isDefaultShapeLayer = layerName === '__default_shape_layer__';
+        return layerName.startsWith('shape_')
+            || isDefaultShapeLayer
+            || (currentLayerField === 'layer' && !layerName.startsWith('svg_') && !pipelineLayerNames.includes(layerName));
+    });
+}
+
+function getLayerVisualMeta(layerName) {
+    if (layerName === 'svg_text') {
+        return { color: '#444', type: 'text' };
+    }
+    if (layerName === 'svg_graphic') {
+        return { color: '#222', type: 'shape' };
+    }
+
+    const layerObjs = layerIndex[layerName];
+    if (!Array.isArray(layerObjs) || !layerObjs.length) {
+        return { color: '#888', type: 'shape' };
+    }
+
+    const firstObj = layerObjs[0];
+    return {
+        color: firstObj._strokeStyle || toRgbString(firstObj.color),
+        type: firstObj.fill ? 'filled' : 'shape'
+    };
+}
+
+function parseColorChannels(colorValue) {
+    if (typeof colorValue !== 'string') return null;
+
+    const normalized = colorValue.trim();
+    const hexMatch = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (hexMatch) {
+        const hex = hexMatch[1];
+        if (hex.length === 3) {
+            return hex.split('').map(channel => parseInt(channel + channel, 16));
+        }
+        return [
+            parseInt(hex.slice(0, 2), 16),
+            parseInt(hex.slice(2, 4), 16),
+            parseInt(hex.slice(4, 6), 16)
+        ];
+    }
+
+    const rgbMatch = normalized.match(/^rgba?\(([^)]+)\)$/i);
+    if (!rgbMatch) return null;
+
+    const channels = rgbMatch[1]
+        .split(',')
+        .slice(0, 3)
+        .map(channel => Number.parseFloat(channel.trim()));
+
+    return channels.length === 3 && channels.every(Number.isFinite)
+        ? channels
+        : null;
+}
+
+function getPerceivedLayerBrightness(layerName) {
+    const colorChannels = parseColorChannels(getLayerVisualMeta(layerName).color);
+    if (!colorChannels) return Infinity;
+
+    const [red, green, blue] = colorChannels.map(channel => Math.max(0, Math.min(255, channel)) / 255);
+    return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+}
+
+function getNormalizedLayerColorKey(layerName) {
+    const colorChannels = parseColorChannels(getLayerVisualMeta(layerName).color);
+    if (!colorChannels) return null;
+    return colorChannels
+        .slice(0, 3)
+        .map(channel => Math.max(0, Math.min(255, Math.round(channel))))
+        .join(',');
+}
+
+function getMainShapeColorGroup() {
+    const shapeLayers = getShapeLayerNamesForCurrentMode();
+    if (!shapeLayers.length) return null;
+
+    const colorGroups = new Map();
+    shapeLayers.forEach(layerName => {
+        const colorKey = getNormalizedLayerColorKey(layerName);
+        if (!colorKey) return;
+
+        const existingGroup = colorGroups.get(colorKey);
+        if (existingGroup) {
+            existingGroup.layerNames.push(layerName);
+            existingGroup.totalCommandCount += totalCommands[layerName] || 0;
+            return;
+        }
+
+        colorGroups.set(colorKey, {
+            colorKey,
+            displayColor: getLayerVisualMeta(layerName).color,
+            brightness: getPerceivedLayerBrightness(layerName),
+            totalCommandCount: totalCommands[layerName] || 0,
+            layerNames: [layerName]
+        });
+    });
+
+    if (!colorGroups.size) return null;
+
+    return Array.from(colorGroups.values())
+        .sort((left, right) => {
+            const brightnessDelta = left.brightness - right.brightness;
+            if (Math.abs(brightnessDelta) > 1e-6) {
+                return brightnessDelta;
+            }
+
+            const commandDelta = right.totalCommandCount - left.totalCommandCount;
+            if (commandDelta !== 0) {
+                return commandDelta;
+            }
+
+            return left.colorKey.localeCompare(right.colorKey);
+        })[0] || null;
+}
+
+function updateMainLayerButtonState() {
+    if (!btnShowMainLayer) return;
+
+    const mainColorGroup = getMainShapeColorGroup();
+    btnShowMainLayer.disabled = !mainColorGroup;
+    btnShowMainLayer.title = mainColorGroup
+        ? `Chỉ hiện ${mainColorGroup.layerNames.length} layer màu ${mainColorGroup.displayColor}`
+        : 'Không có shape layer để lọc';
+}
+
 function scheduleLayerListRender() {
     pendingLayerListRenderToken += 1;
     const currentToken = pendingLayerListRenderToken;
@@ -26,35 +176,9 @@ function createLayerControl(layerName) {
     checkbox.dataset.layer = layerName;
     checkbox.addEventListener('change', e => {
         layerVisibility[e.target.dataset.layer] = e.target.checked;
-        // Reset interaction state so SVG layers respond immediately
-        isInteracting = false;
-        if (interactionTimer) { clearTimeout(interactionTimer); interactionTimer = null; }
-        if (typeof invalidateShapeRasterCache === 'function') {
-            invalidateShapeRasterCache();
-            scheduleShapeRasterCacheBuild();
-        }
-        scheduleDraw();
-        // Directly update SVG layer visibility (avoid waiting for debounce)
-        applySvgTransform();
+        applyLayerVisibilityUpdate();
     });
-    let color, type;
-    if (layerName === 'svg_text') {
-        color = '#444';
-        type = 'text';
-    } else if (layerName === 'svg_graphic') {
-        color = '#222';
-        type = 'shape';
-    } else {
-        const layerObjs = layerIndex[layerName];
-        if (!layerObjs || !layerObjs.length) {
-            color = '#888';
-            type = 'shape';
-        } else {
-            const firstObj = layerObjs[0];
-            color = firstObj._strokeStyle || toRgbString(firstObj.color);
-            type = firstObj.fill ? 'filled' : 'shape';
-        }
-    }
+    const { color, type } = getLayerVisualMeta(layerName);
     const swatch = document.createElement('div');
     swatch.className = 'color-swatch';
     swatch.style.backgroundColor = color;
@@ -74,9 +198,9 @@ function updateLayerList() {
     layerList.innerHTML = '';
     const fragment = document.createDocumentFragment();
     const typeGroups = { shape: [], svg_graphic: [], svg_text: [], pipeline: [] };
+    const shapeLayerNames = new Set(getShapeLayerNamesForCurrentMode());
     sortedLayerKeys.forEach(layerName => {
-        const isDefaultShapeLayer = layerName === '__default_shape_layer__';
-        if (layerName.startsWith('shape_') || isDefaultShapeLayer || (currentLayerField === 'layer' && !layerName.startsWith('svg_') && !pipelineLayerNames.includes(layerName))) {
+        if (shapeLayerNames.has(layerName)) {
             typeGroups.shape.push(layerName);
         } else if (layerName.startsWith('svg_graphic')) {
             typeGroups.svg_graphic.push(layerName);
@@ -110,15 +234,7 @@ function updateLayerList() {
         typeCheckbox.style.marginRight = '10px';
         typeCheckbox.addEventListener('change', e => {
             layers.forEach(l => layerVisibility[l] = e.target.checked);
-            isInteracting = false;
-            if (interactionTimer) { clearTimeout(interactionTimer); interactionTimer = null; }
-            if (typeof invalidateShapeRasterCache === 'function') {
-                invalidateShapeRasterCache();
-                scheduleShapeRasterCacheBuild();
-            }
-            updateLayerList();
-            scheduleDraw();
-            applySvgTransform();
+            applyLayerVisibilityUpdate({ refreshList: true });
         });
         const typeIcon = document.createElement('span');
         typeIcon.className = 'layer-icon';
@@ -178,15 +294,7 @@ function updateLayerList() {
                 colorCheckbox.style.marginRight = '6px';
                 colorCheckbox.addEventListener('change', e => {
                     colorLayers.forEach(l => layerVisibility[l] = e.target.checked);
-                    isInteracting = false;
-                    if (interactionTimer) { clearTimeout(interactionTimer); interactionTimer = null; }
-                    if (typeof invalidateShapeRasterCache === 'function') {
-                        invalidateShapeRasterCache();
-                        scheduleShapeRasterCacheBuild();
-                    }
-                    updateLayerList();
-                    scheduleDraw();
-                    applySvgTransform();
+                    applyLayerVisibilityUpdate({ refreshList: true });
                 });
                 const swatch = document.createElement('div');
                 swatch.className = 'color-swatch';
@@ -238,4 +346,19 @@ function updateLayerList() {
         fragment.appendChild(colorSubtree);
     });
     layerList.appendChild(fragment);
+    updateMainLayerButtonState();
+}
+
+if (btnShowMainLayer) {
+    btnShowMainLayer.addEventListener('click', () => {
+        const mainColorGroup = getMainShapeColorGroup();
+        if (!mainColorGroup) return;
+        const visibleLayerNames = new Set(mainColorGroup.layerNames);
+
+        Object.keys(layerVisibility).forEach(layerName => {
+            layerVisibility[layerName] = visibleLayerNames.has(layerName);
+        });
+
+        applyLayerVisibilityUpdate({ refreshList: true });
+    });
 }

@@ -911,7 +911,7 @@ function scheduleShapeRasterCacheBuild() {
 
     const token = shapeRasterCacheToken;
     shapeRasterCacheBuildScheduled = true;
-    requestAnimationFrame(() => {
+    scheduleWithAnimationFrameFallback(() => {
         shapeRasterCacheBuildScheduled = false;
         shapeRasterCacheBuildPromise = (async () => {
             while (token === shapeRasterCacheToken && shouldPrepareShapeRasterCache()) {
@@ -936,11 +936,18 @@ function scheduleShapeRasterCacheBuild() {
             })
             .finally(() => {
                 shapeRasterCacheBuildPromise = null;
-                if (shouldPrepareShapeRasterCache() && getNextShapeRasterBuildPlan()) {
+                const nextBuildPlan = shouldPrepareShapeRasterCache()
+                    ? getNextShapeRasterBuildPlan()
+                    : null;
+                if (nextBuildPlan) {
                     scheduleShapeRasterCacheBuild();
+                    return;
+                }
+                if (!shapeRasterCache) {
+                    updateZoomIndicator(shouldPreferShapeRasterPreview() || shouldForceInteractionRasterPreview());
                 }
             });
-    });
+    }, 16);
 }
 
 async function ensureShapeRasterCache(minScale = getShapeRasterCacheTargetScale()) {
@@ -1580,10 +1587,10 @@ function drawCrosshairOverlay() {
 function scheduleCrosshairOverlayDraw() {
     if (crosshairDrawScheduled) return;
     crosshairDrawScheduled = true;
-    requestAnimationFrame(() => {
+    scheduleWithAnimationFrameFallback(() => {
         crosshairDrawScheduled = false;
         drawCrosshairOverlay();
-    });
+    }, 16);
 }
 
 function scheduleDraw() {
@@ -1592,11 +1599,11 @@ function scheduleDraw() {
     }
     if (drawScheduled) return;
     drawScheduled = true;
-    requestAnimationFrame(() => {
+    scheduleWithAnimationFrameFallback(() => {
         draw();
         drawScheduled = false;
         if (typeof syncVLMSelectionPanelPosition === 'function') {
             syncVLMSelectionPanelPosition();
         }
-    });
+    }, 16);
 }

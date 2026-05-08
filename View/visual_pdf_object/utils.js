@@ -116,25 +116,44 @@ function hideCanvasStatusOverlay() {
     overlay.classList.remove('is-visible', 'is-info', 'is-success', 'is-warning', 'is-error');
 }
 
+function scheduleWithAnimationFrameFallback(callback, timeoutMs = 32) {
+    if (typeof callback !== 'function') return;
+
+    let settled = false;
+    let frameId = null;
+    let timeoutId = null;
+
+    const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+        if (frameId !== null && typeof cancelAnimationFrame === 'function') {
+            cancelAnimationFrame(frameId);
+            frameId = null;
+        }
+        callback();
+    };
+
+    timeoutId = setTimeout(finish, Math.max(0, timeoutMs));
+    if (typeof requestAnimationFrame === 'function') {
+        frameId = requestAnimationFrame(finish);
+    }
+}
+
 function yieldToBrowser() {
     return new Promise(resolve => {
-        if (document.visibilityState === 'hidden' || typeof requestAnimationFrame !== 'function') {
-            setTimeout(resolve, 0);
-            return;
-        }
-        requestAnimationFrame(() => resolve());
+        scheduleWithAnimationFrameFallback(resolve, 16);
     });
 }
 
 function yieldForNextPaint() {
     return new Promise(resolve => {
-        if (document.visibilityState === 'hidden' || typeof requestAnimationFrame !== 'function') {
+        scheduleWithAnimationFrameFallback(() => {
             setTimeout(resolve, 0);
-            return;
-        }
-        requestAnimationFrame(() => {
-            setTimeout(resolve, 0);
-        });
+        }, 16);
     });
 }
 

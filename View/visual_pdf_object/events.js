@@ -24,6 +24,11 @@ window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey || e.altKey) || isTextInput) {
         return;
     }
+    if (e.key === 'Tab' && annotationMode === 'connect' && typeof acceptSuggestedConnectAnnotations === 'function' && hasSuggestedConnectAnnotations()) {
+        e.preventDefault();
+        acceptSuggestedConnectAnnotations();
+        return;
+    }
     // Arrow keys for panning
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();

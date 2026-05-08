@@ -35,6 +35,12 @@ const CONFIG = {
     MANUAL_LABEL_SCALE: 3, // Ti le xuat label, khop voi script tao du lieu train
     MANUAL_LABEL_BBOX_PTS: 5, // Match YOLO_BBOX_PTS in training_det_sprinkler/make_data.py
     MANUAL_LABEL_SNAP_SCREEN_PX: 18,
+    MANUAL_LABEL_MIN_SUGGEST_CONNECT_LENGTH: 2,
+    MANUAL_LABEL_DASH_SEGMENT_MAX_LENGTH: 4, // Do dai toi da cua moi doan line de xem la net dut
+    MANUAL_LABEL_DASH_SEGMENT_LENGTH_TOLERANCE_RATIO: 1.2, // Cho phep doan net dut dai hon muc chuan mot chut o elbow/tee
+    MANUAL_LABEL_DASH_MAX_ENDPOINT_GAP: 8, // Khoang cach toi da giua hai doan net dut lien tiep
+    MANUAL_LABEL_DASH_MAX_OFFSET: 1, // Lech vuong goc toi da khi gom net dut thang hang
+    MANUAL_LABEL_TEE_ATTACH_TOLERANCE: 4, // Cho phep branch net dut cach virtual main line mot khoang nho van duoc tinh la tee
     MANUAL_LABEL_CLASSES: Object.freeze({ junction: 0, connect: 1 }),
     MANUAL_LABEL_NUM_CROPS: 50,
     MANUAL_LABEL_CROP_SIZE: 1024,

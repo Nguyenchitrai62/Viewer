@@ -235,11 +235,16 @@ function clearVisualization() {
     manualAnnotationHistory = [];
     snapPoints = [];
     snapPointQuadtree = null;
+    snapPointLineCandidates = new Map();
+    snapPointLineItems = new Map();
+    snapPointLineItemsByLayer = new Map();
+    snapPointLineQuadtreesByLayer = new Map();
     snapPointIndexReady = false;
     snapPointIndexBuildPromise = null;
     annotationFeedbackMessage = '';
     annotationFeedbackTone = 'info';
     hoveredAnnotationId = null;
+    suggestedConnectAnnotations = [];
     canvasContainer.classList.remove('drawing-bbox', 'vlm-bbox-mode', 'annotation-junction-mode', 'annotation-connect-mode', 'annotation-delete-mode');
     crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
     if (typeof updateModeLabel === 'function') {
