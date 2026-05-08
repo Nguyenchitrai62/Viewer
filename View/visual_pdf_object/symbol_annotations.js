@@ -330,7 +330,7 @@ function removeSymbolLabelFromCachedPages(label) {
         return;
     }
 
-    for (const [pageKey, cacheEntry] of symbolAnnotationPageCache.entries()) {
+    for (const [pageKey, cacheEntry] of Array.from(symbolAnnotationPageCache.entries())) {
         const parsedPage = parseSymbolPageKey(pageKey);
         if (!parsedPage || parsedPage.pdfName !== currentDocumentName) {
             continue;
@@ -342,13 +342,22 @@ function removeSymbolLabelFromCachedPages(label) {
         }
 
         clonedPayload.labels = (clonedPayload.labels || []).filter(candidate => {
+            const candidateId = candidate?.id || candidate?.label_id;
+            const candidateName = candidate?.name || candidate?.label_name;
             const candidateSlug = candidate?.slug || candidate?.label_slug;
-            return candidateSlug !== label.slug;
+            return candidateSlug !== label.slug && candidateId !== label.id && candidateName !== label.name;
         });
-        cacheSymbolAnnotationPagePayload(pageKey, clonedPayload, { clonePayload: false, returnClone: false });
+
+        clonedPayload.annotations = (clonedPayload.annotations || []).filter(candidate => {
+            const candidateId = candidate?.label_id || candidate?.labelId;
+            const candidateName = candidate?.label_name || candidate?.labelName;
+            const candidateSlug = candidate?.label_slug || candidate?.labelSlug;
+            return candidateSlug !== label.slug && candidateId !== label.id && candidateName !== label.name;
+        });
 
         const annotationCount = Array.isArray(clonedPayload.annotations) ? clonedPayload.annotations.length : 0;
         clonedPayload.annotation_count = annotationCount;
+        cacheSymbolAnnotationPagePayload(pageKey, clonedPayload, { clonePayload: false, returnClone: false });
         if (annotationCount > 0) {
             symbolAnnotationKnownEmptyPageKeys.delete(pageKey);
         } else {
@@ -901,7 +910,7 @@ async function removeSymbolLabel(labelId, options = {}) {
         }
     }
 
-    if (!options.skipConfirm && !window.confirm(`Xóa nhãn ${label.name} khỏi table symbol_document của PDF? Page hiện tại đang có 0 bbox cho nhãn này.`)) {
+    if (!options.skipConfirm && !window.confirm(`Xóa hẳn nhãn ${label.name} khỏi toàn bộ PDF? Thao tác này sẽ xóa cả bbox của nhãn này trên mọi page đã lưu trong DB.`)) {
         return false;
     }
 
@@ -935,7 +944,7 @@ async function removeSymbolLabel(labelId, options = {}) {
         return true;
     }
 
-    setSymbolAnnotationFeedback(`Đã xóa nhãn ${label.name} khỏi DB label của PDF. Đang lưu...`, 'info');
+    setSymbolAnnotationFeedback(`Đã xóa nhãn ${label.name} khỏi toàn bộ PDF trên FE. Đang cập nhật DB cho mọi page...`, 'info');
     try {
         const saveResult = await saveSymbolAnnotationDocumentLabels({ silent: true });
         try {
@@ -944,7 +953,7 @@ async function removeSymbolLabel(labelId, options = {}) {
             console.warn('Failed to refresh symbol label summary after global label delete:', refreshError);
         }
         updateSymbolAnnotationUI();
-        setSymbolAnnotationFeedback(`Đã xóa nhãn ${label.name} khỏi DB toàn PDF (${saveResult?.storage_backend || 'db'}).`, 'success');
+        setSymbolAnnotationFeedback(`Đã xóa nhãn ${label.name} khỏi toàn bộ PDF và các page liên quan (${saveResult?.storage_backend || 'db'}).`, 'success');
         return true;
     } catch (error) {
         console.error('Failed to auto-save removed symbol label:', error);
