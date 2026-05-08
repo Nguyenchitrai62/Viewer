@@ -22,6 +22,106 @@ function setInteractionState(active) {
     }
 }
 
+const PAGE_GZIP_CACHE_TYPE = 'page-gzip-cache';
+
+function normalizePageCachePageNum(pageNum) {
+    const resolvedPageNum = Number(pageNum);
+    return Number.isInteger(resolvedPageNum) && resolvedPageNum >= 1
+        ? resolvedPageNum
+        : null;
+}
+
+function createPageGzipCache(label = 'page-cache') {
+    return {
+        __type: PAGE_GZIP_CACHE_TYPE,
+        label,
+        entries: new Map()
+    };
+}
+
+function isPageGzipCache(cache) {
+    return Boolean(
+        cache &&
+        cache.__type === PAGE_GZIP_CACHE_TYPE &&
+        cache.entries instanceof Map
+    );
+}
+
+function getPageGzipCacheValue(cache, pageNum, { touch = true } = {}) {
+    const resolvedPageNum = normalizePageCachePageNum(pageNum);
+    if (!resolvedPageNum) {
+        return null;
+    }
+
+    if (!isPageGzipCache(cache)) {
+        const legacyValue = cache?.[resolvedPageNum];
+        return typeof legacyValue === 'string' ? legacyValue : null;
+    }
+
+    const entry = cache.entries.get(resolvedPageNum);
+    if (!entry) {
+        return null;
+    }
+
+    if (touch) {
+        cache.entries.delete(resolvedPageNum);
+        cache.entries.set(resolvedPageNum, entry);
+    }
+
+    return entry;
+}
+
+function setPageGzipCacheValue(cache, pageNum, gzipData) {
+    if (!isPageGzipCache(cache)) {
+        return null;
+    }
+
+    const resolvedPageNum = normalizePageCachePageNum(pageNum);
+    const resolvedValue = typeof gzipData === 'string' ? gzipData : '';
+    if (!resolvedPageNum || !resolvedValue) {
+        return null;
+    }
+
+    if (cache.entries.has(resolvedPageNum)) {
+        cache.entries.delete(resolvedPageNum);
+    }
+
+    cache.entries.set(resolvedPageNum, resolvedValue);
+    return {
+        pageNum: resolvedPageNum,
+        evictedPageNums: [],
+    };
+}
+
+function clearPageGzipCache(cache) {
+    if (!isPageGzipCache(cache)) {
+        return createPageGzipCache();
+    }
+
+    cache.entries.clear();
+    return cache;
+}
+
+function resetActivePageGzipCache() {
+    cachedPages = createPageGzipCache('active-pages');
+    return cachedPages;
+}
+
+function resetStagedPageGzipCache() {
+    stagedCachedPages = createPageGzipCache('staged-pages');
+    return stagedCachedPages;
+}
+
+function getPageGzipCacheKeys(cache) {
+    if (isPageGzipCache(cache)) {
+        return Array.from(cache.entries.keys());
+    }
+
+    return Object.keys(cache || {})
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value >= 1);
+}
+
 const canvas = document.getElementById('drawing-canvas');
 const ctx = canvas.getContext('2d');
 const shapeRasterLayer = document.getElementById('shape-raster-layer');
@@ -163,7 +263,7 @@ let findPopupPageCacheBuildToken = 0;
 let findPopupPageCacheWarmScheduled = false;
 let selectionMode = 'hide';
 let dragSelecting = false;
-let cachedPages = {};
+let cachedPages = createPageGzipCache('active-pages');
 let currentThumbnailTaskId = 0;
 let selectedThumbnailPageNum = null;
 let waitingPageNum = null;
@@ -174,7 +274,7 @@ let currentBatchTaskId = 0;
 let currentBatchAbortController = null;
 let autoOpenReadyPage = false;
 let stagedPdfFile = null;
-let stagedCachedPages = {};
+let stagedCachedPages = createPageGzipCache('staged-pages');
 let currentPdfUploadSession = null;
 let currentUploadController = null;
 let currentUploadSocket = null;

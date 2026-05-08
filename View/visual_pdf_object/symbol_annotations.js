@@ -50,7 +50,7 @@ let symbolAnnotationLoadAbortController = null;
 let symbolAnnotationExportInProgress = false;
 let symbolAnnotationAutoFindInProgress = false;
 
-const SYMBOL_ANNOTATION_PAGE_CACHE_LIMIT = 80;
+const SYMBOL_ANNOTATION_PAGE_CACHE_LIMIT = 0;
 const SYMBOL_SIMILARITY_THRESHOLD_STORAGE_KEY = 'visual_pdf_object.symbol_annotation_similarity_threshold';
 const SYMBOL_SIMILARITY_THRESHOLD_MIN = 50;
 const SYMBOL_SIMILARITY_THRESHOLD_MAX = 100;
@@ -330,13 +330,13 @@ function removeSymbolLabelFromCachedPages(label) {
         return;
     }
 
-    for (const [pageKey, payload] of symbolAnnotationPageCache.entries()) {
+    for (const [pageKey, cacheEntry] of symbolAnnotationPageCache.entries()) {
         const parsedPage = parseSymbolPageKey(pageKey);
         if (!parsedPage || parsedPage.pdfName !== currentDocumentName) {
             continue;
         }
 
-        const clonedPayload = cloneSymbolAnnotationPayload(payload);
+        const clonedPayload = cloneSymbolAnnotationPayload(cacheEntry?.payload);
         if (!clonedPayload) {
             continue;
         }
@@ -345,7 +345,7 @@ function removeSymbolLabelFromCachedPages(label) {
             const candidateSlug = candidate?.slug || candidate?.label_slug;
             return candidateSlug !== label.slug;
         });
-        symbolAnnotationPageCache.set(pageKey, clonedPayload);
+        cacheSymbolAnnotationPagePayload(pageKey, clonedPayload, { clonePayload: false, returnClone: false });
 
         const annotationCount = Array.isArray(clonedPayload.annotations) ? clonedPayload.annotations.length : 0;
         clonedPayload.annotation_count = annotationCount;
@@ -1169,12 +1169,78 @@ function buildSymbolAnnotationDocumentPayload() {
 
 function cloneSymbolAnnotationPayload(payload) {
     if (!payload) return null;
+    if (typeof structuredClone === 'function') {
+        try {
+            return structuredClone(payload);
+        } catch (error) {
+            console.warn('Failed to structuredClone symbol annotation payload, falling back to JSON clone:', error);
+        }
+    }
     try {
         return JSON.parse(JSON.stringify(payload));
     } catch (error) {
         console.warn('Failed to clone symbol annotation payload:', error);
         return null;
     }
+}
+
+function getSymbolAnnotationPageCacheEntry(pageKey, { touch = true } = {}) {
+    if (!pageKey || !symbolAnnotationPageCache.has(pageKey)) {
+        return null;
+    }
+
+    const entry = symbolAnnotationPageCache.get(pageKey);
+    if (!entry?.payload) {
+        symbolAnnotationPageCache.delete(pageKey);
+        return null;
+    }
+
+    if (touch) {
+        symbolAnnotationPageCache.delete(pageKey);
+        symbolAnnotationPageCache.set(pageKey, entry);
+    }
+
+    return entry;
+}
+
+function evictSymbolAnnotationPageCacheEntries(retainPageKey = '') {
+    while (SYMBOL_ANNOTATION_PAGE_CACHE_LIMIT > 0 && symbolAnnotationPageCache.size > SYMBOL_ANNOTATION_PAGE_CACHE_LIMIT) {
+        let evictedEntry = null;
+
+        for (const [candidatePageKey] of symbolAnnotationPageCache.entries()) {
+            if (candidatePageKey === retainPageKey && symbolAnnotationPageCache.size > 1) {
+                continue;
+            }
+            if (isSymbolPageDirty(candidatePageKey)) {
+                continue;
+            }
+
+            evictedEntry = candidatePageKey;
+            break;
+        }
+
+        if (!evictedEntry) {
+            break;
+        }
+
+        symbolAnnotationPageCache.delete(evictedEntry);
+    }
+}
+
+function storeSymbolAnnotationPageCacheEntry(pageKey, payload, { clonePayload = true } = {}) {
+    const normalizedPayload = clonePayload ? cloneSymbolAnnotationPayload(payload) : payload;
+    if (!pageKey || !normalizedPayload) {
+        return null;
+    }
+
+    if (symbolAnnotationPageCache.has(pageKey)) {
+        symbolAnnotationPageCache.delete(pageKey);
+    }
+
+    const nextEntry = { payload: normalizedPayload };
+    symbolAnnotationPageCache.set(pageKey, nextEntry);
+    evictSymbolAnnotationPageCacheEntries(pageKey);
+    return normalizedPayload;
 }
 
 function cacheSymbolAnnotationDocumentSummaryPayload(payload, options = {}) {
@@ -1202,38 +1268,34 @@ function cacheSymbolAnnotationDocumentSummaryPayload(payload, options = {}) {
     return cloneSymbolAnnotationPayload(symbolAnnotationDocumentSummary);
 }
 
-function cacheSymbolAnnotationPagePayload(pageKey, payload) {
-    const clonedPayload = cloneSymbolAnnotationPayload(payload);
-    if (!pageKey || !clonedPayload) {
+function cacheSymbolAnnotationPagePayload(pageKey, payload, options = {}) {
+    const storedPayload = storeSymbolAnnotationPageCacheEntry(pageKey, payload, {
+        clonePayload: options.clonePayload !== false
+    });
+    if (!pageKey || !storedPayload) {
         return null;
     }
 
-    if (Array.isArray(clonedPayload.labels) && clonedPayload.labels.length) {
-        setSymbolAnnotationDocumentLabels(clonedPayload.labels);
+    if (Array.isArray(storedPayload.labels) && storedPayload.labels.length) {
+        setSymbolAnnotationDocumentLabels(storedPayload.labels);
     }
 
-    const annotationCount = Array.isArray(clonedPayload.annotations) ? clonedPayload.annotations.length : 0;
+    const annotationCount = Array.isArray(storedPayload.annotations) ? storedPayload.annotations.length : 0;
     if (annotationCount > 0) {
         symbolAnnotationKnownEmptyPageKeys.delete(pageKey);
     } else {
         symbolAnnotationKnownEmptyPageKeys.add(pageKey);
     }
 
-    if (symbolAnnotationPageCache.has(pageKey)) {
-        symbolAnnotationPageCache.delete(pageKey);
+    if (options.returnClone === false) {
+        return storedPayload;
     }
-    symbolAnnotationPageCache.set(pageKey, clonedPayload);
-
-    while (symbolAnnotationPageCache.size > SYMBOL_ANNOTATION_PAGE_CACHE_LIMIT) {
-        const oldestEntry = symbolAnnotationPageCache.keys().next();
-        if (oldestEntry.done) break;
-        symbolAnnotationPageCache.delete(oldestEntry.value);
-    }
-    return cloneSymbolAnnotationPayload(clonedPayload);
+    return cloneSymbolAnnotationPayload(storedPayload);
 }
 
 function getCachedSymbolAnnotationPagePayload(pageKey) {
-    if (!pageKey || !symbolAnnotationPageCache.has(pageKey)) {
+    const cachedEntry = getSymbolAnnotationPageCacheEntry(pageKey);
+    if (!cachedEntry) {
         if (pageKey && symbolAnnotationKnownEmptyPageKeys.has(pageKey)) {
             const parsedKey = parseSymbolPageKey(pageKey);
             if (parsedKey) {
@@ -1243,10 +1305,7 @@ function getCachedSymbolAnnotationPagePayload(pageKey) {
         return null;
     }
 
-    const cachedPayload = symbolAnnotationPageCache.get(pageKey);
-    symbolAnnotationPageCache.delete(pageKey);
-    symbolAnnotationPageCache.set(pageKey, cachedPayload);
-    return cloneSymbolAnnotationPayload(cachedPayload);
+    return cloneSymbolAnnotationPayload(cachedEntry.payload);
 }
 
 function isSymbolPageDirty(pageKey) {
@@ -1291,7 +1350,7 @@ function persistCurrentSymbolAnnotationState(options = {}) {
     }
 
     symbolAnnotationActivePageKey = pageKey;
-    cacheSymbolAnnotationPagePayload(pageKey, payload);
+    cacheSymbolAnnotationPagePayload(pageKey, payload, { clonePayload: false, returnClone: false });
     if (options.dirty === false) {
         setSymbolPageRevision(pageKey, options.revision ?? getSymbolPageRevision(pageKey));
         markSymbolPageClean(pageKey);
@@ -1447,7 +1506,7 @@ async function fetchSymbolAnnotationPagePayload(pdfName, pageNum, options = {}) 
 
     const fetchPromise = fetchSymbolAnnotationJson(url.toString())
         .then(data => {
-            const payload = cacheSymbolAnnotationPagePayload(pageKey, data) || data;
+            const payload = cacheSymbolAnnotationPagePayload(pageKey, data, { clonePayload: false, returnClone: false }) || data;
             markSymbolPageClean(pageKey);
             return cloneSymbolAnnotationPayload(payload);
         })
@@ -1500,7 +1559,7 @@ async function saveSymbolAnnotationPayload(payload, options = {}) {
             annotations: payload.annotations || [],
             annotation_count: Array.isArray(payload.annotations) ? payload.annotations.length : 0,
             storage_backend: data.storage_backend || 'db'
-        });
+        }, { clonePayload: false, returnClone: false });
         if (getSymbolPageRevision(pageKey) === saveRevision) {
             markSymbolPageClean(pageKey);
         }
@@ -1714,8 +1773,8 @@ async function downloadSymbolAnnotationDatasetZip(zip, fileName) {
 async function getSymbolAnnotationDocumentPageNumbers() {
     const pageNumbers = new Set();
     Object.keys(pageThumbnailRefs || {}).forEach(pageNum => pageNumbers.add(Number(pageNum)));
-    Object.keys(cachedPages || {}).forEach(pageNum => pageNumbers.add(Number(pageNum)));
-    Object.keys(stagedCachedPages || {}).forEach(pageNum => pageNumbers.add(Number(pageNum)));
+    getPageGzipCacheKeys(cachedPages).forEach(pageNum => pageNumbers.add(Number(pageNum)));
+    getPageGzipCacheKeys(stagedCachedPages).forEach(pageNum => pageNumbers.add(Number(pageNum)));
     if (currentPageNum) {
         pageNumbers.add(Number(currentPageNum));
     }
@@ -1765,7 +1824,7 @@ async function collectSymbolAnnotationExportPayloadsForDocument() {
         if (pageKey === getSymbolPageKey()) {
             payload = buildSymbolAnnotationPagePayload();
             if (payload) {
-                cacheSymbolAnnotationPagePayload(pageKey, payload);
+                cacheSymbolAnnotationPagePayload(pageKey, payload, { clonePayload: false, returnClone: false });
             }
         }
 
@@ -1916,7 +1975,7 @@ function applyLoadedSymbolAnnotationPayload(payload, options = {}) {
 
     if (pageKey) {
         symbolAnnotationActivePageKey = pageKey;
-        cacheSymbolAnnotationPagePayload(pageKey, payload);
+        cacheSymbolAnnotationPagePayload(pageKey, payload, { clonePayload: false, returnClone: false });
         if (options.dirty) {
             markSymbolPageDirty(pageKey);
         } else {

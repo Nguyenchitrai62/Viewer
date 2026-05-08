@@ -142,7 +142,7 @@ function clearPipelineVisualization() {
 
 // Detect pipeline on current page
 async function detectPipeline() {
-    let gzipData = (currentPageNum && cachedPages[currentPageNum]) ? cachedPages[currentPageNum] : null;
+    let gzipData = currentPageNum ? getPageGzipCacheValue(cachedPages, currentPageNum) : null;
 
     if (!gzipData && currentJsonSourceFile) {
         showLoadingPopup('Preparing JSON for pipeline...', `${currentJsonSourceFile.name}${UI_TEXT.BULLET_SEPARATOR}streaming gzip cache`);

@@ -431,7 +431,7 @@ body {
 }
 
 .mode-label {
-    display: none !important;
+    display: none;
 }
 
 .mode-label.find-mode {
@@ -1170,7 +1170,6 @@ body {
 
 #drawing-canvas,
 #shape-raster-layer,
-#pdf-preview,
 #svg-text-layer,
 #svg-graphic-layer {
     transition: opacity 0.3s;
@@ -1180,7 +1179,6 @@ body {
 }
 
 #crosshair-canvas,
-#pdf-preview,
 #svg-text-layer,
 #svg-graphic-layer {
     position: absolute;
@@ -1191,14 +1189,6 @@ body {
 #crosshair-canvas {
     pointer-events: none;
     z-index: 50;
-}
-
-#pdf-preview {
-    width: 100%;
-    height: 100%;
-    display: none;
-    background: white;
-    z-index: 1;
 }
 
 #svg-text-layer {
@@ -1213,7 +1203,6 @@ body {
 
 #canvas-container.vlm-snap-active #drawing-canvas,
 #canvas-container.vlm-snap-active #shape-raster-layer,
-#canvas-container.vlm-snap-active #pdf-preview,
 #canvas-container.vlm-snap-active #svg-text-layer,
 #canvas-container.vlm-snap-active #svg-graphic-layer {
     animation: lensPulse 1s cubic-bezier(0.22, 1, 0.36, 1) both;

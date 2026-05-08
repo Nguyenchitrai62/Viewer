@@ -806,7 +806,8 @@ async function parseJsonByteStreamToDocument(reader, { totalBytes = 0, sourceLab
 
 async function loadJsonFileStreaming(file) {
     clearVisualization();
-    cachedPages = {};
+    resetActivePageGzipCache();
+    resetStagedPageGzipCache();
     if (typeof releaseCurrentPdfResources === 'function') {
         await releaseCurrentPdfResources();
     }
@@ -1030,8 +1031,11 @@ async function compressFileToGzipBase64(file) {
 }
 
 async function ensurePipelineCacheForCurrentDocument() {
-    if (currentPageNum && cachedPages[currentPageNum]) {
-        return cachedPages[currentPageNum];
+    if (currentPageNum) {
+        const cachedGzip = getPageGzipCacheValue(cachedPages, currentPageNum);
+        if (cachedGzip) {
+            return cachedGzip;
+        }
     }
     if (!currentJsonSourceFile) {
         return null;
@@ -1040,7 +1044,8 @@ async function ensurePipelineCacheForCurrentDocument() {
     if (!currentJsonGzipPromise) {
         currentJsonGzipPromise = compressFileToGzipBase64(currentJsonSourceFile)
             .then(gzipData => {
-                cachedPages = { 1: gzipData };
+                resetActivePageGzipCache();
+                setPageGzipCacheValue(cachedPages, 1, gzipData);
                 currentPageNum = 1;
                 return gzipData;
             })

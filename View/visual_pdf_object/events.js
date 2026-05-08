@@ -187,7 +187,7 @@ dropZone.addEventListener('drop', async e => {
                     clearPdfPageSidebar();
                 }
                 clearVisualization();
-                cachedPages = {};
+                resetActivePageGzipCache();
                 if (typeof releaseCurrentPdfResources === 'function') {
                     releaseCurrentPdfResources().catch(error => {
                         console.warn('Release PDF resources error:', error);
@@ -226,7 +226,7 @@ dropZone.addEventListener('drop', async e => {
                         clearPdfPageSidebar();
                     }
                     clearVisualization();
-                    cachedPages = {};
+                    resetActivePageGzipCache();
                     if (typeof releaseCurrentPdfResources === 'function') {
                         releaseCurrentPdfResources().catch(error => {
                             console.warn('Release PDF resources error:', error);

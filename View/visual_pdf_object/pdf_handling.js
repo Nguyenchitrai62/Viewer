@@ -155,6 +155,9 @@ function scheduleCurrentPdfRasterPreview(pageNum = currentPageNum) {
 
 async function renderPdfPreview(file, pageNum) {
     const pdfPreview = document.getElementById('pdf-preview');
+    if (!pdfPreview) {
+        return;
+    }
     pdfPreview.innerHTML = '<div style="display: flex; justify-content: center; align-items: center; height: 100%;"><div>Loading PDF preview...</div></div>';
     pdfPreview.style.display = 'block';
 
@@ -282,6 +285,9 @@ async function preRenderPageImage(pageNum = currentPageNum) {
 
 function hidePdfPreview() {
     const pdfPreview = document.getElementById('pdf-preview');
+    if (!pdfPreview) {
+        return;
+    }
     pdfPreview.style.display = 'none';
     pdfPreview.innerHTML = '';
 }
@@ -635,7 +641,7 @@ function clearPdfPageSidebar() {
     hidePdfPreview();
     clearCurrentPdfUploadSession(stagedPdfFile || currentPdfFile);
     stagedPdfFile = null;
-    stagedCachedPages = {};
+    resetStagedPageGzipCache();
     resetPdfPageProcessingState();
 }
 
@@ -869,7 +875,7 @@ function updateSelectedThumbnail(selectedPage) {
 // Load a cached page
 async function loadCachedPage(pageNum, { requestId = pageLoadRequestId, sourceFile = currentPdfFile, pageCache = cachedPages } = {}) {
     waitingPageNum = null;
-    const gzipB64 = pageCache[pageNum];
+    const gzipB64 = getPageGzipCacheValue(pageCache, pageNum);
     if (!gzipB64) {
         console.warn(`No cached data for page ${pageNum}`);
         return;
@@ -933,7 +939,7 @@ async function processSelectedPage(pageNum) {
     const sourceContext = getPageSelectionContext();
 
     // If cached, use cache (instant)
-    if (sourceContext.cache[pageNum]) {
+    if (getPageGzipCacheValue(sourceContext.cache, pageNum, { touch: false })) {
         await loadCachedPage(pageNum, {
             requestId,
             sourceFile: sourceContext.file,
@@ -1036,7 +1042,7 @@ async function processSelectedPage(pageNum) {
 async function processAllPagesBatch(file) {
     cancelCurrentBatchProcessing();
     stagedPdfFile = file;
-    stagedCachedPages = {};
+    resetStagedPageGzipCache();
     autoOpenReadyPage = true;
     const taskId = currentBatchTaskId;
     const controller = new AbortController();
@@ -1099,7 +1105,7 @@ async function processAllPagesBatch(file) {
                     updatePageProcessingSummary();
                 } else if (eventType === 'page_data') {
                     const { page_num, completed, gzip_size, gzip_data, time: dt } = JSON.parse(eventData);
-                    stagedCachedPages[page_num] = gzip_data;
+                    setPageGzipCacheValue(stagedCachedPages, page_num, gzip_data);
                     totalGzipSize += gzip_size;
 
                     setPageProcessingState(page_num, 'ready', {
