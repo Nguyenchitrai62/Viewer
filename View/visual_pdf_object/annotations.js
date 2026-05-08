@@ -524,8 +524,8 @@ async function setAnnotationMode(mode) {
         vlmBboxStart = null;
         vlmBboxEnd = null;
         isVLMDrawing = false;
-        btnVLMExtract.textContent = UI_TEXT.VLM_EXTRACT;
-        btnVLMExtract.classList.remove('active');
+        btnAIExtract.textContent = UI_TEXT.VLM_EXTRACT;
+        btnAIExtract.classList.remove('active');
         canvasContainer.classList.remove('vlm-bbox-mode');
     }
 

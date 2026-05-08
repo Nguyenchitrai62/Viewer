@@ -485,7 +485,7 @@ body {
     background-color: #6035ac;
 }
 
-#btn-vlm-extract {
+#btn-ai-extract {
     min-width: 90px;
     background: linear-gradient(135deg, rgba(57, 141, 255, 0.9), rgba(129, 92, 255, 0.9) 52%, rgba(0, 196, 163, 0.9)) !important;
     border-color: rgba(83, 127, 255, 0.8) !important;
@@ -493,13 +493,13 @@ body {
     box-shadow: 0 4px 12px rgba(57, 141, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 
-#btn-vlm-extract:hover {
+#btn-ai-extract:hover {
     background: linear-gradient(135deg, rgba(57, 141, 255, 1), rgba(129, 92, 255, 1) 52%, rgba(0, 196, 163, 1)) !important;
     border-color: rgba(83, 127, 255, 1) !important;
     box-shadow: 0 6px 16px rgba(57, 141, 255, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
 }
 
-#btn-vlm-extract.active {
+#btn-ai-extract.active {
     background: var(--danger-color) !important;
     background-image: none !important;
     border-color: var(--danger-color) !important;

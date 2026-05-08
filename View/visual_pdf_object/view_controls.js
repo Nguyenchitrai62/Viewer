@@ -225,8 +225,8 @@ function clearVisualization() {
     }
     btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
     btnDrawBbox.classList.remove('active');
-    btnVLMExtract.textContent = UI_TEXT.VLM_EXTRACT;
-    btnVLMExtract.classList.remove('active');
+    btnAIExtract.textContent = UI_TEXT.VLM_EXTRACT;
+    btnAIExtract.classList.remove('active');
     annotationMode = null;
     pendingConnectPoint = null;
     hoveredSnapPoint = null;

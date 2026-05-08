@@ -45,8 +45,8 @@ window.addEventListener('keydown', e => {
     if (e.key.toLowerCase() === 'd') {
         btnDrawBbox.click();
     }
-    if (e.key.toLowerCase() === 'f') {
-        btnVLMExtract.click();
+    if (e.key.toLowerCase() === 'a') {
+        btnAIExtract.click();
     }
     if (e.key.toLowerCase() === 'j') {
         btnLabelJunction.click();
@@ -57,7 +57,7 @@ window.addEventListener('keydown', e => {
     // Cancel modes with Escape
     if (e.key === 'Escape') {
         if (isVLMBboxMode) {
-            btnVLMExtract.click();
+            btnAIExtract.click();
         } else if (isDrawingBbox) {
             btnDrawBbox.click();
         } else if (annotationMode) {
@@ -434,8 +434,8 @@ btnDrawBbox.addEventListener('click', () => {
         // Cancel VLM mode if active
         if (isVLMBboxMode) {
             isVLMBboxMode = false;
-            btnVLMExtract.textContent = UI_TEXT.VLM_EXTRACT;
-            btnVLMExtract.classList.remove('active');
+            btnAIExtract.textContent = UI_TEXT.VLM_EXTRACT;
+            btnAIExtract.classList.remove('active');
             canvasContainer.classList.remove('vlm-bbox-mode');
             vlmBboxStart = null;
             vlmBboxEnd = null;
@@ -486,8 +486,8 @@ btnResetFilter.addEventListener('click', () => {
     }
 });
 
-// VLM Extract button handler (btnVLMExtract declared in state.js)
-btnVLMExtract.addEventListener('click', () => {
+// AI Extract button handler (btnAIExtract declared in state.js)
+btnAIExtract.addEventListener('click', () => {
     isVLMBboxMode = !isVLMBboxMode;
     
     // Auto-trigger reset logic when enabling AI box mode to clear old data
@@ -497,8 +497,8 @@ btnVLMExtract.addEventListener('click', () => {
         }
     }
 
-    btnVLMExtract.textContent = isVLMBboxMode ? UI_TEXT.CANCEL : UI_TEXT.VLM_EXTRACT;
-    btnVLMExtract.classList.toggle('active', isVLMBboxMode);
+    btnAIExtract.textContent = isVLMBboxMode ? UI_TEXT.CANCEL : UI_TEXT.VLM_EXTRACT;
+    btnAIExtract.classList.toggle('active', isVLMBboxMode);
     canvasContainer.classList.toggle('vlm-bbox-mode', isVLMBboxMode);
 
     if (isVLMBboxMode) {
