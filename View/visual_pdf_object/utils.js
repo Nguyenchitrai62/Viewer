@@ -366,6 +366,49 @@ function invalidateSeqnoHoverIndex() {
     seqnoHoverIndexReady = false;
 }
 
+function collectSeqnoHoverShape(obj, objIndex, targetIndex = null) {
+    if (!obj?.items || !Array.isArray(obj.items)) return;
+    if (!obj.color || !Array.isArray(obj.color) || obj.color.length < 3) return;
+    if (obj.color[0] !== 0 || obj.color[1] !== 0 || obj.color[2] !== 0) return;
+
+    const targetSeqnoToIds = targetIndex?.globalSeqnoToIds || globalSeqnoToIds;
+    const targetSeqnoEndpoints = targetIndex?.seqnoEndpoints || seqnoEndpoints;
+    const targetSeqnoToLayer = targetIndex?.seqnoToLayer || seqnoToLayer;
+    const seqno = obj.seqno || 0;
+    targetSeqnoToIds[seqno] ??= [];
+    targetSeqnoEndpoints[seqno] ??= { start: null, end: null };
+    targetSeqnoToLayer[seqno] = obj.layer;
+
+    for (let itemIndex = 0; itemIndex < obj.items.length; itemIndex += 1) {
+        const item = obj.items[itemIndex];
+        targetSeqnoToIds[seqno].push([objIndex, itemIndex]);
+
+        let startPoint = null;
+        let endPoint = null;
+        const type = item?.[0];
+        if (type === 'l') {
+            startPoint = item[1];
+            endPoint = item[2];
+        } else if (type === 'c') {
+            startPoint = item[1];
+            endPoint = item[4];
+        } else if (type === 'qu') {
+            const points = item[1];
+            if (points?.length === 4) {
+                startPoint = points[0];
+                endPoint = points[2];
+            }
+        }
+
+        if (startPoint && !targetSeqnoEndpoints[seqno].start) {
+            targetSeqnoEndpoints[seqno].start = startPoint;
+        }
+        if (endPoint) {
+            targetSeqnoEndpoints[seqno].end = endPoint;
+        }
+    }
+}
+
 function ensureSeqnoHoverIndex() {
     if (seqnoHoverIndexReady) return;
 
@@ -373,46 +416,36 @@ function ensureSeqnoHoverIndex() {
 
     const shapes = Array.isArray(allShapesSorted) ? allShapesSorted : [];
     for (let objIndex = 0; objIndex < shapes.length; objIndex += 1) {
-        const obj = shapes[objIndex];
-        if (!obj?.items || !Array.isArray(obj.items)) continue;
-        if (!obj.color || !Array.isArray(obj.color) || obj.color.length < 3) continue;
-        if (obj.color[0] !== 0 || obj.color[1] !== 0 || obj.color[2] !== 0) continue;
+        collectSeqnoHoverShape(shapes[objIndex], objIndex);
+    }
 
-        const seqno = obj.seqno || 0;
-        globalSeqnoToIds[seqno] ??= [];
-        seqnoEndpoints[seqno] ??= { start: null, end: null };
-        seqnoToLayer[seqno] = obj.layer;
+    seqnoHoverIndexReady = true;
+    linkConsecutiveSeqnos();
+}
 
-        for (let itemIndex = 0; itemIndex < obj.items.length; itemIndex += 1) {
-            const item = obj.items[itemIndex];
-            globalSeqnoToIds[seqno].push([objIndex, itemIndex]);
+async function ensureSeqnoHoverIndexAsync() {
+    if (seqnoHoverIndexReady) return;
 
-            let startPoint = null;
-            let endPoint = null;
-            const type = item?.[0];
-            if (type === 'l') {
-                startPoint = item[1];
-                endPoint = item[2];
-            } else if (type === 'c') {
-                startPoint = item[1];
-                endPoint = item[4];
-            } else if (type === 'qu') {
-                const points = item[1];
-                if (points?.length === 4) {
-                    startPoint = points[0];
-                    endPoint = points[2];
-                }
-            }
+    invalidateSeqnoHoverIndex();
 
-            if (startPoint && !seqnoEndpoints[seqno].start) {
-                seqnoEndpoints[seqno].start = startPoint;
-            }
-            if (endPoint) {
-                seqnoEndpoints[seqno].end = endPoint;
-            }
+    const shapes = Array.isArray(allShapesSorted) ? allShapesSorted : [];
+    const nextIndex = {
+        globalSeqnoToIds: {},
+        seqnoEndpoints: {},
+        seqnoToLayer: {}
+    };
+    let lastYieldTime = performance.now();
+    for (let objIndex = 0; objIndex < shapes.length; objIndex += 1) {
+        collectSeqnoHoverShape(shapes[objIndex], objIndex, nextIndex);
+        if (objIndex > 0 && objIndex % 250 === 0 && performance.now() - lastYieldTime > 8) {
+            await yieldToBrowser();
+            lastYieldTime = performance.now();
         }
     }
 
+    globalSeqnoToIds = nextIndex.globalSeqnoToIds;
+    seqnoEndpoints = nextIndex.seqnoEndpoints;
+    seqnoToLayer = nextIndex.seqnoToLayer;
     seqnoHoverIndexReady = true;
     linkConsecutiveSeqnos();
 }

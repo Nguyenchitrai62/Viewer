@@ -270,6 +270,9 @@ function applyManualLabelPanelState(collapsed) {
     } catch (error) {
         console.warn('Failed to persist manual label panel state:', error);
     }
+    if (typeof scheduleDraw === 'function') {
+        scheduleDraw();
+    }
 }
 
 function collapseAnnotationPanelsForVLM() {
@@ -689,7 +692,7 @@ canvasContainer.addEventListener('mouseleave', () => {
         hoveredSnapPoint = null;
         scheduleDraw();
     }
-    if (annotationMode === 'delete' && hoveredAnnotationId !== null) {
+    if ((annotationMode === 'delete' || annotationMode === 'pair-check') && hoveredAnnotationId !== null) {
         hoveredAnnotationId = null;
         scheduleDraw();
     }
@@ -708,7 +711,7 @@ canvasContainer.addEventListener('mousemove', e => {
         scheduleDraw();
     } else if (annotationMode) {
         updateHoveredSnapPoint();
-        scheduleDraw();
+        scheduleCrosshairOverlayDraw();
     } else if (isVLMBboxMode) {
         if (hoveredGroup !== null) {
             hoveredGroup = null;

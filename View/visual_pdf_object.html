@@ -43,19 +43,6 @@
                     </div>
                 </div>
             </div>
-            <div id="search-summary">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Search Type</th>
-                            <th>Count</th>
-                            <th>Thời gian (ms)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="search-summary-body">
-                    </tbody>
-                </table>
-            </div>
             <div id="btn-export-svg-container">
                 <button id="btn-export-svg" type="button" title="Export visible layers as PNG" aria-label="Export visible layers as PNG">🖼️ PNG</button>
                 <button id="btn-export-images" type="button" aria-label="Export images">🖼️ Images</button>
@@ -219,20 +206,6 @@
         </div>
     </div>
 
-    <!-- Batch processing progress overlay -->
-    <div id="batch-progress-overlay" role="status" aria-live="polite">
-        <div class="batch-progress-dialog">
-            <div class="batch-progress-title">Processing PDF Pages</div>
-            <div id="batch-progress-subtitle">Preparing...</div>
-            <div class="batch-progress-track">
-                <div id="batch-progress-bar">
-                </div>
-            </div>
-            <div id="batch-progress-text">0 / 0 pages</div>
-            <div id="batch-progress-size"></div>
-        </div>
-    </div>
-
     <!-- Extraction type modal -->
     <div id="ext-type-modal-overlay" class="ext-type-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ext-modal-title">
         <div class="ext-type-modal">
@@ -351,25 +324,25 @@
     <script src="./env.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/config.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/quadtree.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/state.js?v=20260508-main-layer-1"></script>
-    <script src="./visual_pdf_object/utils.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/state.js?v=20260511-manual-label-speed-1"></script>
+    <script src="./visual_pdf_object/utils.js?v=20260511-manual-label-speed-1"></script>
     <script src="./visual_pdf_object/streaming_parser.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/quadtree_rebuild.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/manual_annotations_helpers.js?v=20260508-script-split-1"></script>
-    <script src="./visual_pdf_object/manual_annotations_controller.js?v=20260508-script-split-1"></script>
+    <script src="./visual_pdf_object/manual_annotations_helpers.js?v=20260511-manual-label-speed-4"></script>
+    <script src="./visual_pdf_object/manual_annotations_controller.js?v=20260511-manual-label-speed-4"></script>
     <script src="./visual_pdf_object/symbol_annotations_core.js?v=20260508-script-split-1"></script>
     <script src="./visual_pdf_object/symbol_annotations_panel.js?v=20260508-script-split-1"></script>
     <script src="./visual_pdf_object/symbol_annotations_persistence.js?v=20260508-script-split-1"></script>
     <script src="./visual_pdf_object/symbol_annotations_interactions.js?v=20260508-script-split-1"></script>
     <script src="./visual_pdf_object/drawing.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/layer_controls.js?v=20260508-main-layer-1"></script>
-    <script src="./visual_pdf_object/view_controls.js?v=20260508-manual-label-speed-1"></script>
+    <script src="./visual_pdf_object/layer_controls.js?v=20260511-manual-label-speed-2"></script>
+    <script src="./visual_pdf_object/view_controls.js?v=20260511-manual-label-speed-1"></script>
     <script src="./visual_pdf_object/search.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/export.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/pdf_handling.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/pipeline.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/vlm.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/events.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/events.js?v=20260511-manual-label-speed-2"></script>
     <script src="./visual_pdf_object/patterns.js?v=20260507-hardening-1"></script>
 </body>
 

@@ -16,6 +16,12 @@ function applyLayerVisibilityUpdate(options = {}) {
         invalidateShapeRasterCache();
         scheduleShapeRasterCacheBuild();
     }
+    if (typeof invalidateSnapPointIndex === 'function') {
+        invalidateSnapPointIndex();
+        if ((annotationMode === 'connect' || annotationMode === 'junction') && typeof scheduleSnapPointIndexWarmup === 'function') {
+            scheduleSnapPointIndexWarmup();
+        }
+    }
     if (options.refreshList) {
         updateLayerList();
     }

@@ -134,11 +134,100 @@ function getConnectAnnotationSearchBounds(annotation, padding = getManualSuggest
     return expandBounds(bounds, padding);
 }
 
+function hasManualLineCandidateSource() {
+    return Boolean(
+        (shapeQuadtree && Array.isArray(allShapesSorted) && allShapesSorted.length)
+        || (Array.isArray(allShapesSorted) && allShapesSorted.length)
+    );
+}
+
+function createLineCandidateFromShapeItem(shape, item, layerName) {
+    if (!shape || !Array.isArray(item) || item[0] !== 'l') return null;
+    const rawPointA = Array.isArray(item[1]) ? item[1] : null;
+    const rawPointB = Array.isArray(item[2]) ? item[2] : null;
+    if (!rawPointA || !rawPointB || rawPointA.length < 2 || rawPointB.length < 2) return null;
+
+    const pointA = { x: Number(rawPointA[0]), y: Number(rawPointA[1]), layerName };
+    const pointB = { x: Number(rawPointB[0]), y: Number(rawPointB[1]), layerName };
+    if (!Number.isFinite(pointA.x) || !Number.isFinite(pointA.y) || !Number.isFinite(pointB.x) || !Number.isFinite(pointB.y)) {
+        return null;
+    }
+
+    const bbox = createLineCandidateBounds(pointA, pointB);
+    if (!bbox) return null;
+
+    const shapeSeqnoValue = Number(shape.seqno);
+    const shapeSeqno = Number.isFinite(shapeSeqnoValue) ? shapeSeqnoValue : null;
+    const shapeSeqnoGroup = shapeSeqno !== null && Object.prototype.hasOwnProperty.call(seqnoGroups, shapeSeqno)
+        ? seqnoGroups[shapeSeqno]
+        : null;
+
+    return {
+        id: createNormalizedLineKey(layerName, pointA, pointB),
+        layerName,
+        points: [pointA, pointB],
+        bbox,
+        endpointKeys: [
+            getSnapPointKey(layerName, pointA.x, pointA.y),
+            getSnapPointKey(layerName, pointB.x, pointB.y)
+        ],
+        seqnos: shapeSeqno !== null ? [shapeSeqno] : [],
+        seqnoGroupIds: shapeSeqnoGroup !== null ? [shapeSeqnoGroup] : []
+    };
+}
+
+function mergeLineCandidateMetadata(targetLineCandidate, sourceLineCandidate) {
+    if (!targetLineCandidate || !sourceLineCandidate) return targetLineCandidate;
+    (sourceLineCandidate.seqnos || []).forEach(seqno => {
+        if (!targetLineCandidate.seqnos.includes(seqno)) {
+            targetLineCandidate.seqnos.push(seqno);
+        }
+    });
+    (sourceLineCandidate.seqnoGroupIds || []).forEach(groupId => {
+        if (!targetLineCandidate.seqnoGroupIds.includes(groupId)) {
+            targetLineCandidate.seqnoGroupIds.push(groupId);
+        }
+    });
+    return targetLineCandidate;
+}
+
+function queryLineCandidatesFromSharedShapeCache(layerName = null, queryRange = null) {
+    if (!hasManualLineCandidateSource()) return [];
+
+    const sourceShapes = queryRange && shapeQuadtree
+        ? Array.from(new Set(shapeQuadtree.query(queryRange)))
+        : (layerName && Array.isArray(layerIndex?.[layerName]) && layerIndex[layerName].length
+            ? layerIndex[layerName]
+            : (Array.isArray(allShapesSorted) ? allShapesSorted : []));
+    const uniqueLines = new Map();
+
+    sourceShapes.forEach(shape => {
+        const shapeLayerName = getShapeLayerNameForField(shape, currentLayerField);
+        if ((layerName && shapeLayerName !== layerName) || !isExportableAnnotationLayer(shapeLayerName) || !Array.isArray(shape.items)) return;
+        if (typeof layerVisibility === 'object' && layerVisibility && layerVisibility[shapeLayerName] === false) return;
+
+        shape.items.forEach(item => {
+            const lineCandidate = createLineCandidateFromShapeItem(shape, item, shapeLayerName);
+            if (!lineCandidate) return;
+            if (queryRange && !doBoundsIntersect(lineCandidate.bbox, queryRange)) return;
+
+            const existingLineCandidate = uniqueLines.get(lineCandidate.id);
+            if (existingLineCandidate) {
+                mergeLineCandidateMetadata(existingLineCandidate, lineCandidate);
+            } else {
+                uniqueLines.set(lineCandidate.id, lineCandidate);
+            }
+        });
+    });
+
+    return Array.from(uniqueLines.values());
+}
+
 function queryLayerLineCandidates(layerName, queryRange = null) {
     if (!layerName) return [];
 
     const lineCandidates = snapPointLineItemsByLayer.get(layerName) || [];
-    if (!queryRange) {
+    if (lineCandidates.length && !queryRange) {
         return lineCandidates.slice();
     }
 
@@ -147,7 +236,15 @@ function queryLayerLineCandidates(layerName, queryRange = null) {
         return Array.from(new Set(quadtree.query(queryRange)));
     }
 
-    return lineCandidates.filter(lineCandidate => doBoundsIntersect(getLineCandidateBounds(lineCandidate), queryRange));
+    if (lineCandidates.length) {
+        return lineCandidates.filter(lineCandidate => doBoundsIntersect(getLineCandidateBounds(lineCandidate), queryRange));
+    }
+
+    if (typeof snapPointIndexReady !== 'undefined' && snapPointIndexReady) {
+        return [];
+    }
+
+    return queryLineCandidatesFromSharedShapeCache(layerName, queryRange);
 }
 
 function getConnectLineKey(annotation) {
@@ -284,6 +381,16 @@ function getConnectAnnotationEndpointKeys(annotation) {
         if (!lineCandidate) return;
         lineCandidate.endpointKeys.forEach(endpointKey => endpointKeys.add(endpointKey));
     });
+
+    if (!endpointKeys.size) {
+        getConnectAnnotationSegments(annotation).forEach(segment => {
+            if (!Array.isArray(segment)) return;
+            segment.forEach(point => {
+                if (!point) return;
+                endpointKeys.add(getSnapPointKey(annotation.layerName, point.x, point.y));
+            });
+        });
+    }
 
     if (!endpointKeys.size && Array.isArray(annotation?.points)) {
         annotation.points.forEach(point => {
@@ -869,6 +976,90 @@ function getNearbySameLayerLineCandidatesForPoint(point, layerName, tolerance = 
     });
 }
 
+function getLineLikeEndpointSearchSegments(lineLike) {
+    if (!lineLike) return [];
+    if (lineLike.type === 'connect') {
+        return [
+            ...getConnectAnnotationSegments(lineLike),
+            ...getConnectAnnotationVirtualSegments(lineLike)
+        ].filter(segment => Array.isArray(segment) && segment.length >= 2);
+    }
+    return getLineLikeProbeSegments(lineLike).filter(segment => Array.isArray(segment) && segment.length >= 2);
+}
+
+function getLineLikeEndpointSearchBounds(lineLike, tolerance = getManualLineAttachToleranceWorld()) {
+    const searchSegments = getLineLikeEndpointSearchSegments(lineLike);
+    const segmentPoints = searchSegments.flatMap(segment => segment);
+    const boundaryPoints = Array.isArray(lineLike?.points) ? lineLike.points : [];
+    const bounds = getPointsBounds([...boundaryPoints, ...segmentPoints]);
+    return expandBounds(bounds, tolerance);
+}
+
+function isPointNearLineLikeForEndpointSearch(point, lineLike, tolerance = getManualLineAttachToleranceWorld()) {
+    if (!point || !lineLike) return false;
+
+    const boundaryPoints = Array.isArray(lineLike?.points) ? lineLike.points : [];
+    if (boundaryPoints.some(boundaryPoint => Math.hypot(
+        Number(boundaryPoint.x) - Number(point.x),
+        Number(boundaryPoint.y) - Number(point.y)
+    ) <= tolerance)) {
+        return true;
+    }
+
+    return getLineLikeEndpointSearchSegments(lineLike).some(segment =>
+        distancePointToSegment(
+            Number(point.x),
+            Number(point.y),
+            Number(segment[0].x),
+            Number(segment[0].y),
+            Number(segment[1].x),
+            Number(segment[1].y)
+        ) <= tolerance
+    );
+}
+
+function getNearbySameLayerLineCandidatesForLineLike(lineLike, layerName, tolerance = getManualLineAttachToleranceWorld()) {
+    if (!lineLike || !layerName || tolerance <= 1e-6) return [];
+
+    const queryRange = getLineLikeEndpointSearchBounds(lineLike, tolerance);
+    if (!queryRange) return [];
+
+    const mergedLineCandidates = new Map();
+    queryLayerLineCandidates(layerName, queryRange).forEach(lineCandidate => {
+        if (!lineCandidate || lineCandidate.layerName !== layerName) return;
+        mergedLineCandidates.set(lineCandidate.id, lineCandidate);
+    });
+
+    const pointQuadtree = typeof snapPointQuadtree !== 'undefined' ? snapPointQuadtree : null;
+
+    if (pointQuadtree) {
+        const endpointMap = typeof snapPointLineCandidates !== 'undefined' && snapPointLineCandidates instanceof Map
+            ? snapPointLineCandidates
+            : new Map();
+
+        Array.from(new Set(pointQuadtree.query(queryRange))).forEach(point => {
+            if (!point || point.layerName !== layerName) return;
+            if (!isPointNearLineLikeForEndpointSearch(point, lineLike, tolerance)) return;
+
+            const endpointKey = point.id || getSnapPointKey(layerName, point.x, point.y);
+            const exactLineCandidates = endpointMap.get(endpointKey);
+            if (Array.isArray(exactLineCandidates) && exactLineCandidates.length) {
+                exactLineCandidates.forEach(lineCandidate => {
+                    if (!lineCandidate || lineCandidate.layerName !== layerName) return;
+                    mergedLineCandidates.set(lineCandidate.id, lineCandidate);
+                });
+                return;
+            }
+
+            getNearbySameLayerLineCandidatesForPoint(point, layerName, tolerance).forEach(lineCandidate => {
+                mergedLineCandidates.set(lineCandidate.id, lineCandidate);
+            });
+        });
+    }
+
+    return Array.from(mergedLineCandidates.values());
+}
+
 function doesLineCandidateTouchPoints(lineCandidate, points, tolerance = getManualEndpointTouchToleranceWorld()) {
     if (!lineCandidate || !Array.isArray(points) || !points.length) return false;
     return points.some(point => isPointNearLineCandidateEndpoint(point, lineCandidate, tolerance));
@@ -1106,6 +1297,62 @@ function collectExistingConnectLineKeys(annotations) {
     return lineKeys;
 }
 
+function getConnectAnnotationTraversalKey(annotation) {
+    if (!annotation || annotation.type !== 'connect') return null;
+    const groupKey = getConnectAnnotationGroupKey(annotation);
+    if (groupKey) return groupKey;
+    if (annotation.id !== undefined && annotation.id !== null) {
+        return `id:${annotation.id}`;
+    }
+    const endpointKeys = getConnectAnnotationEndpointKeys(annotation);
+    return endpointKeys.length ? endpointKeys.slice().sort().join('||') : null;
+}
+
+function collectConnectedSuggestionRootAnnotations(connectAnnotations, existingAnnotations = []) {
+    const initialConnectAnnotations = (connectAnnotations || []).filter(annotation => annotation?.type === 'connect');
+    if (!initialConnectAnnotations.length) return [];
+
+    const endpointToConnectAnnotations = new Map();
+    [...initialConnectAnnotations, ...(existingAnnotations || []).filter(annotation => annotation?.type === 'connect')]
+        .forEach(annotation => {
+            const traversalKey = getConnectAnnotationTraversalKey(annotation);
+            if (!traversalKey) return;
+            getConnectAnnotationEndpointKeys(annotation).forEach(endpointKey => {
+                const connectList = endpointToConnectAnnotations.get(endpointKey);
+                if (connectList) {
+                    connectList.push(annotation);
+                } else {
+                    endpointToConnectAnnotations.set(endpointKey, [annotation]);
+                }
+            });
+        });
+
+    const connectedRoots = [];
+    const seenTraversalKeys = new Set();
+    const queuedAnnotations = initialConnectAnnotations.slice();
+
+    while (queuedAnnotations.length) {
+        const annotation = queuedAnnotations.shift();
+        const traversalKey = getConnectAnnotationTraversalKey(annotation);
+        if (!traversalKey || seenTraversalKeys.has(traversalKey)) continue;
+
+        seenTraversalKeys.add(traversalKey);
+        connectedRoots.push(annotation);
+
+        getConnectAnnotationEndpointKeys(annotation).forEach(endpointKey => {
+            const connectList = endpointToConnectAnnotations.get(endpointKey);
+            if (!Array.isArray(connectList)) return;
+            connectList.forEach(connectedAnnotation => {
+                const connectedTraversalKey = getConnectAnnotationTraversalKey(connectedAnnotation);
+                if (!connectedTraversalKey || seenTraversalKeys.has(connectedTraversalKey)) return;
+                queuedAnnotations.push(connectedAnnotation);
+            });
+        });
+    }
+
+    return connectedRoots;
+}
+
 function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnectLineKeys) {
     const groupedLineCandidates = [];
     const queuedLineCandidates = [seedLineCandidate];
@@ -1318,6 +1565,153 @@ function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLin
     });
 
     return Array.from(seedLineCandidates.values());
+}
+
+async function yieldManualSuggestionWorkIfNeeded(state, processedCount, batchSize = 80) {
+    if (!state || processedCount <= 0 || processedCount % batchSize !== 0) return;
+    if (typeof yieldToBrowser !== 'function') return;
+    if (performance.now() - state.lastYieldTime < 8) return;
+    await yieldToBrowser();
+    state.lastYieldTime = performance.now();
+}
+
+function shouldContinueManualSuggestionWork(options = {}) {
+    return typeof options.shouldContinue !== 'function' || options.shouldContinue();
+}
+
+async function collectStraightConnectSuggestionSeedsAsync(connectAnnotations, existingConnectLineKeys, options = {}) {
+    const seedLineCandidates = new Map();
+    const suggestableSeedLengthCache = new Map();
+    const yieldState = { lastYieldTime: performance.now() };
+    let processedCount = 0;
+
+    for (const annotation of connectAnnotations || []) {
+        if (!shouldContinueManualSuggestionWork(options)) return [];
+        if (!annotation || annotation.type !== 'connect') continue;
+        const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
+        const endpointKeys = Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation));
+        for (const endpointKey of endpointKeys) {
+            const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
+                tolerance: getManualParallelEndpointTouchToleranceWorld()
+            });
+            for (const lineCandidate of connectedLines) {
+                processedCount += 1;
+                await yieldManualSuggestionWorkIfNeeded(yieldState, processedCount);
+                if (!shouldContinueManualSuggestionWork(options)) return [];
+                if (!lineCandidate || existingConnectLineKeys.has(lineCandidate.id)) continue;
+                if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, annotation, getManualParallelEndpointTouchToleranceWorld())) continue;
+                if (referenceLineCandidate && !areParallelLineCandidates(referenceLineCandidate, lineCandidate)) continue;
+                if (!isSuggestableConnectSeedLineLongEnough(lineCandidate, existingConnectLineKeys, suggestableSeedLengthCache)) continue;
+                seedLineCandidates.set(lineCandidate.id, lineCandidate);
+            }
+        }
+    }
+
+    return Array.from(seedLineCandidates.values());
+}
+
+async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existingConnectLineKeys, options = {}) {
+    const seedLineCandidates = new Map();
+    const acceptedProbeGroupKeys = new Set();
+    const yieldState = { lastYieldTime: performance.now() };
+    let processedCount = 0;
+
+    for (const annotation of connectAnnotations || []) {
+        if (!shouldContinueManualSuggestionWork(options)) return [];
+        if (!annotation || annotation.type !== 'connect') continue;
+        const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
+        if (!referenceLineCandidate) continue;
+        const nearbyLineCandidates = queryLayerLineCandidates(
+            annotation.layerName,
+            getConnectAnnotationSearchBounds(annotation)
+        );
+
+        const endpointKeys = Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation))
+            .filter(endpointKey => isJunctionEndpoint(endpointKey, annotation.layerName, referenceLineCandidate, {
+                tolerance: getManualElbowEndpointTouchToleranceWorld()
+            }));
+        for (const endpointKey of endpointKeys) {
+            const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
+                tolerance: getManualElbowEndpointTouchToleranceWorld()
+            });
+            for (const lineCandidate of connectedLines) {
+                processedCount += 1;
+                await yieldManualSuggestionWorkIfNeeded(yieldState, processedCount);
+                if (!shouldContinueManualSuggestionWork(options)) return [];
+                if (!lineCandidate || existingConnectLineKeys.has(lineCandidate.id)) continue;
+                if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, annotation, getManualElbowEndpointTouchToleranceWorld())) continue;
+                if (!isElbowLineCandidate(referenceLineCandidate, lineCandidate)) continue;
+                seedLineCandidates.set(lineCandidate.id, lineCandidate);
+            }
+        }
+
+        for (const lineCandidate of nearbyLineCandidates) {
+            processedCount += 1;
+            await yieldManualSuggestionWorkIfNeeded(yieldState, processedCount);
+            if (!shouldContinueManualSuggestionWork(options)) return [];
+            if (!lineCandidate) continue;
+            if (existingConnectLineKeys.has(lineCandidate.id) || seedLineCandidates.has(lineCandidate.id)) continue;
+            if (!isTeeLineCandidate(referenceLineCandidate, lineCandidate)) continue;
+
+            const groupedProbe = buildGroupedConnectAnnotationFromSeedLine(lineCandidate, existingConnectLineKeys, {
+                id: `tee-probe:${lineCandidate.id}`,
+                source: 'suggested',
+                autoManaged: false
+            });
+            const teeProbe = groupedProbe?.annotation || lineCandidate;
+            const probeGroupKey = groupedProbe?.groupedLineKey || null;
+            if (!isSuggestConnectLineLikeLongEnough(teeProbe)) continue;
+            if (probeGroupKey && acceptedProbeGroupKeys.has(probeGroupKey)) continue;
+
+            const touchesConnectInterior = doesLineCandidateTouchConnectInterior(teeProbe, annotation);
+            const touchesLineInterior = doesConnectBoundaryTouchLineCandidateInterior(annotation, teeProbe);
+            const crossesConnectInterior = doesLineLikeCrossConnectInterior(teeProbe, annotation);
+            if (!touchesConnectInterior && !touchesLineInterior && !crossesConnectInterior) continue;
+
+            if (probeGroupKey) {
+                acceptedProbeGroupKeys.add(probeGroupKey);
+            }
+            seedLineCandidates.set(lineCandidate.id, lineCandidate);
+        }
+    }
+
+    return Array.from(seedLineCandidates.values());
+}
+
+async function buildConnectSuggestionsFromSeedLinesAsync(seedLineCandidates, existingConnectLineKeys, options = {}) {
+    const consumedLineKeys = new Set();
+    const suggestionGroupKeys = new Set();
+    const suggestions = [];
+    const yieldState = { lastYieldTime: performance.now() };
+    let processedCount = 0;
+
+    for (const seedLineCandidate of seedLineCandidates || []) {
+        processedCount += 1;
+        await yieldManualSuggestionWorkIfNeeded(yieldState, processedCount, 40);
+        if (!shouldContinueManualSuggestionWork(options)) return [];
+        if (!seedLineCandidate || consumedLineKeys.has(seedLineCandidate.id) || existingConnectLineKeys.has(seedLineCandidate.id)) {
+            continue;
+        }
+
+        const groupedSuggestion = buildGroupedConnectAnnotationFromSeedLine(seedLineCandidate, existingConnectLineKeys, {
+            source: 'suggested',
+            autoManaged: false
+        });
+        if (!groupedSuggestion) continue;
+
+        const { annotation: suggestion } = groupedSuggestion;
+        if (!isSuggestConnectLineLikeLongEnough(suggestion)) continue;
+
+        const groupKey = getConnectAnnotationGroupKey(suggestion);
+        if (groupKey && suggestionGroupKeys.has(groupKey)) continue;
+        if (groupKey) suggestionGroupKeys.add(groupKey);
+        getConnectAnnotationLineKeys(suggestion).forEach(groupedLineKey => {
+            consumedLineKeys.add(groupedLineKey);
+        });
+        suggestions.push(suggestion);
+    }
+
+    return suggestions;
 }
 
 function getConnectAnnotationResolvedLineCandidates(annotation) {

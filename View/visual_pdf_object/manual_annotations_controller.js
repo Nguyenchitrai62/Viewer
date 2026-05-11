@@ -114,7 +114,15 @@ function updateManualLabelUI() {
     syncPairCheckState();
     const pairCheckSelectionAnnotations = getPairCheckSelectionAnnotations();
     const pairCheckSelectionCount = pairCheckSelectionAnnotations.length;
-    const pairCheckConnectCount = manualAnnotations.filter(annotation => annotation.type === 'connect').length;
+    let pairCheckConnectCount = 0;
+    let autoJunctionCount = 0;
+    manualAnnotations.forEach(annotation => {
+        if (annotation.type === 'connect') {
+            pairCheckConnectCount += 1;
+        } else if (annotation.type === 'junction' && annotation.autoManaged) {
+            autoJunctionCount += 1;
+        }
+    });
 
     if (btnLabelJunction) btnLabelJunction.classList.toggle('active', annotationMode === 'junction');
     if (btnLabelConnect) btnLabelConnect.classList.toggle('active', annotationMode === 'connect');
@@ -140,7 +148,6 @@ function updateManualLabelUI() {
     }
 
     const counts = getManualLabelCounts();
-    const autoJunctionCount = manualAnnotations.filter(annotation => annotation.type === 'junction' && annotation.autoManaged).length;
     const suggestedConnectCount = suggestedConnectAnnotations.length;
     if (manualLabelCountBadge) {
         manualLabelCountBadge.textContent = String(counts.total);
@@ -268,6 +275,81 @@ function addReplaceHistoryEntry(addedAnnotations, removedAnnotations) {
         addedAnnotations: addedAnnotations.map(cloneAnnotation),
         removedAnnotations: removedAnnotations.map(cloneAnnotation)
     });
+}
+
+function invalidateManualAnnotationSpatialIndex() {
+    manualAnnotationSpatialIndex = null;
+    manualAnnotationSpatialIndexReady = false;
+}
+
+function getManualAnnotationSpatialBbox(annotation) {
+    const rect = getManualAnnotationWorldRect(annotation);
+    if (!rect) return null;
+    return {
+        minX: rect.x,
+        minY: rect.y,
+        maxX: rect.x + rect.width,
+        maxY: rect.y + rect.height
+    };
+}
+
+function ensureManualAnnotationSpatialIndex() {
+    if (manualAnnotationSpatialIndexReady) return;
+    manualAnnotationSpatialIndex = null;
+    manualAnnotationSpatialIndexReady = true;
+
+    if (!Array.isArray(manualAnnotations) || !manualAnnotations.length) return;
+
+    const indexedAnnotations = [];
+    let bounds = null;
+    manualAnnotations.forEach(annotation => {
+        const bbox = getManualAnnotationSpatialBbox(annotation);
+        if (!bbox) return;
+        indexedAnnotations.push({ annotation, bbox });
+        bounds = bounds
+            ? {
+                minX: Math.min(bounds.minX, bbox.minX),
+                minY: Math.min(bounds.minY, bbox.minY),
+                maxX: Math.max(bounds.maxX, bbox.maxX),
+                maxY: Math.max(bounds.maxY, bbox.maxY)
+            }
+            : { ...bbox };
+    });
+
+    if (!indexedAnnotations.length || !bounds) return;
+
+    const padding = getAnnotationSnapToleranceWorld();
+    manualAnnotationSpatialIndex = new Quadtree({
+        x: bounds.minX - padding,
+        y: bounds.minY - padding,
+        width: Math.max((bounds.maxX - bounds.minX) + padding * 2, padding * 2),
+        height: Math.max((bounds.maxY - bounds.minY) + padding * 2, padding * 2)
+    }, 25, 8);
+
+    indexedAnnotations.forEach(item => manualAnnotationSpatialIndex.insert(item));
+}
+
+function queryManualAnnotationsNearPoint(worldX, worldY, type = null) {
+    const worldTolerance = getAnnotationSnapToleranceWorld();
+    ensureManualAnnotationSpatialIndex();
+
+    if (!manualAnnotationSpatialIndex) {
+        return manualAnnotations.filter(annotation => !type || annotation?.type === type);
+    }
+
+    const queryRange = {
+        minX: worldX - worldTolerance,
+        minY: worldY - worldTolerance,
+        maxX: worldX + worldTolerance,
+        maxY: worldY + worldTolerance
+    };
+
+    return Array.from(new Set(
+        manualAnnotationSpatialIndex
+            .query(queryRange)
+            .map(item => item.annotation)
+            .filter(annotation => annotation && (!type || annotation.type === type))
+    ));
 }
 
 function getConnectAnnotationLineLikeCandidates(annotation) {
@@ -407,6 +489,9 @@ function finalizeAddedAnnotations(addedAnnotations, options = {}) {
         }
     }
 
+    if (finalAddedAnnotations.length || removedExistingAnnotations.length || removedNewConnectIds.size || orphanAutoJunctionIds.size) {
+        invalidateManualAnnotationSpatialIndex();
+    }
     updateManualLabelUI();
     if (typeof scheduleDraw === 'function') scheduleDraw();
 
@@ -427,6 +512,9 @@ function addAnnotations(annotations, options = {}) {
     if (options.record !== false && added.length) {
         addHistoryEntry('add', added);
     }
+    if (added.length) {
+        invalidateManualAnnotationSpatialIndex();
+    }
     updateManualLabelUI();
     if (typeof scheduleDraw === 'function') scheduleDraw();
     return added;
@@ -443,12 +531,14 @@ function removeAnnotationsByIds(annotationIds, options = {}) {
     if (hoveredAnnotationId !== null && idSet.has(hoveredAnnotationId)) {
         hoveredAnnotationId = null;
     }
+    invalidateManualAnnotationSpatialIndex();
     updateManualLabelUI();
     if (typeof scheduleDraw === 'function') scheduleDraw();
     return removed;
 }
 
-function rebuildSnapPointIndex() {
+async function rebuildSnapPointIndex() {
+    const buildToken = snapPointIndexBuildToken;
     snapPoints = [];
     snapPointQuadtree = null;
     snapPointLineCandidates = new Map();
@@ -461,7 +551,7 @@ function rebuildSnapPointIndex() {
     if (!allShapesSorted || !allShapesSorted.length) {
         snapPointIndexReady = true;
         updateManualLabelUI();
-        return;
+        return true;
     }
 
     const uniquePoints = new Map();
@@ -471,13 +561,18 @@ function rebuildSnapPointIndex() {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
-    if (typeof ensureSeqnoHoverIndex === 'function' && !seqnoHoverIndexReady) {
+    if (typeof ensureSeqnoHoverIndexAsync === 'function' && !seqnoHoverIndexReady) {
+        await ensureSeqnoHoverIndexAsync();
+        if (buildToken !== snapPointIndexBuildToken) return false;
+    } else if (typeof ensureSeqnoHoverIndex === 'function' && !seqnoHoverIndexReady) {
         ensureSeqnoHoverIndex();
     }
 
-    allShapesSorted.forEach(shape => {
+    let processedItems = 0;
+    let lastYieldTime = performance.now();
+    for (const shape of allShapesSorted) {
         const layerName = getShapeLayerNameForField(shape, currentLayerField);
-        if (!isExportableAnnotationLayer(layerName) || !Array.isArray(shape.items)) return;
+        if (!isExportableAnnotationLayer(layerName) || layerVisibility?.[layerName] === false || !Array.isArray(shape.items)) continue;
 
         const shapeSeqnoValue = Number(shape.seqno);
         const shapeSeqno = Number.isFinite(shapeSeqnoValue) ? shapeSeqnoValue : null;
@@ -485,16 +580,24 @@ function rebuildSnapPointIndex() {
             ? seqnoGroups[shapeSeqno]
             : null;
 
-        shape.items.forEach(item => {
-            if (item[0] !== 'l') return;
+        for (const item of shape.items) {
+            processedItems += 1;
+            if (item[0] !== 'l') {
+                if (processedItems % 1500 === 0 && performance.now() - lastYieldTime > 8) {
+                    await yieldToBrowser();
+                    if (buildToken !== snapPointIndexBuildToken) return false;
+                    lastYieldTime = performance.now();
+                }
+                continue;
+            }
             const rawPointA = Array.isArray(item[1]) ? item[1] : null;
             const rawPointB = Array.isArray(item[2]) ? item[2] : null;
-            if (!rawPointA || !rawPointB || rawPointA.length < 2 || rawPointB.length < 2) return;
+            if (!rawPointA || !rawPointB || rawPointA.length < 2 || rawPointB.length < 2) continue;
 
             const pointA = { x: Number(rawPointA[0]), y: Number(rawPointA[1]), layerName };
             const pointB = { x: Number(rawPointB[0]), y: Number(rawPointB[1]), layerName };
             if (!Number.isFinite(pointA.x) || !Number.isFinite(pointA.y) || !Number.isFinite(pointB.x) || !Number.isFinite(pointB.y)) {
-                return;
+                continue;
             }
 
             [pointA, pointB].forEach(point => {
@@ -517,7 +620,7 @@ function rebuildSnapPointIndex() {
             const lineKey = createNormalizedLineKey(layerName, pointA, pointB);
             if (!uniqueLines.has(lineKey)) {
                 const lineBounds = createLineCandidateBounds(pointA, pointB);
-                if (!lineBounds) return;
+                if (!lineBounds) continue;
                 uniqueLines.set(lineKey, {
                     id: lineKey,
                     layerName,
@@ -530,27 +633,41 @@ function rebuildSnapPointIndex() {
                     seqnos: shapeSeqno !== null ? [shapeSeqno] : [],
                     seqnoGroupIds: shapeSeqnoGroup !== null ? [shapeSeqnoGroup] : []
                 });
-                return;
+                if (processedItems % 1500 === 0 && performance.now() - lastYieldTime > 8) {
+                    await yieldToBrowser();
+                    if (buildToken !== snapPointIndexBuildToken) return false;
+                    lastYieldTime = performance.now();
+                }
+                continue;
             }
 
             const existingLineCandidate = uniqueLines.get(lineKey);
-            if (!existingLineCandidate) return;
+            if (!existingLineCandidate) continue;
             if (shapeSeqno !== null && !existingLineCandidate.seqnos.includes(shapeSeqno)) {
                 existingLineCandidate.seqnos.push(shapeSeqno);
             }
             if (shapeSeqnoGroup !== null && !existingLineCandidate.seqnoGroupIds.includes(shapeSeqnoGroup)) {
                 existingLineCandidate.seqnoGroupIds.push(shapeSeqnoGroup);
             }
-        });
-    });
+            if (processedItems % 1500 === 0 && performance.now() - lastYieldTime > 8) {
+                await yieldToBrowser();
+                if (buildToken !== snapPointIndexBuildToken) return false;
+                lastYieldTime = performance.now();
+            }
+        }
+    }
+
+    if (buildToken !== snapPointIndexBuildToken) return false;
 
     snapPoints = Array.from(uniquePoints.values());
 
     if (!snapPoints.length || minX === Infinity) {
         snapPointIndexReady = true;
         updateManualLabelUI();
-        return;
+        return true;
     }
+
+    if (buildToken !== snapPointIndexBuildToken) return false;
 
     const padding = 10;
     snapPointQuadtree = new Quadtree({
@@ -560,9 +677,18 @@ function rebuildSnapPointIndex() {
         height: Math.max((maxY - minY) + padding * 2, padding * 2)
     }, 25, 8);
 
-    snapPoints.forEach(point => snapPointQuadtree.insert(point));
+    for (let pointIndex = 0; pointIndex < snapPoints.length; pointIndex += 1) {
+        snapPointQuadtree.insert(snapPoints[pointIndex]);
+        if (pointIndex > 0 && pointIndex % 5000 === 0 && performance.now() - lastYieldTime > 8) {
+            await yieldToBrowser();
+            if (buildToken !== snapPointIndexBuildToken) return false;
+            lastYieldTime = performance.now();
+        }
+    }
     const layerLineBounds = new Map();
-    uniqueLines.forEach(lineCandidate => {
+    const uniqueLineCandidates = Array.from(uniqueLines.values());
+    for (let lineIndex = 0; lineIndex < uniqueLineCandidates.length; lineIndex += 1) {
+        const lineCandidate = uniqueLineCandidates[lineIndex];
         snapPointLineItems.set(lineCandidate.id, lineCandidate);
         const layerLineCandidates = snapPointLineItemsByLayer.get(lineCandidate.layerName);
         if (layerLineCandidates) {
@@ -589,11 +715,16 @@ function rebuildSnapPointIndex() {
                 snapPointLineCandidates.set(endpointKey, [lineCandidate]);
             }
         });
-    });
+        if (lineIndex > 0 && lineIndex % 3000 === 0 && performance.now() - lastYieldTime > 8) {
+            await yieldToBrowser();
+            if (buildToken !== snapPointIndexBuildToken) return false;
+            lastYieldTime = performance.now();
+        }
+    }
 
-    layerLineBounds.forEach((lineBounds, layerName) => {
+    for (const [layerName, lineBounds] of layerLineBounds.entries()) {
         const layerLineCandidates = snapPointLineItemsByLayer.get(layerName);
-        if (!Array.isArray(layerLineCandidates) || !layerLineCandidates.length) return;
+        if (!Array.isArray(layerLineCandidates) || !layerLineCandidates.length) continue;
 
         const layerQuadtree = new Quadtree({
             x: lineBounds.minX - padding,
@@ -602,14 +733,77 @@ function rebuildSnapPointIndex() {
             height: Math.max((lineBounds.maxY - lineBounds.minY) + padding * 2, padding * 2)
         }, 25, 8);
 
-        layerLineCandidates.forEach(lineCandidate => layerQuadtree.insert(lineCandidate));
+        for (let lineIndex = 0; lineIndex < layerLineCandidates.length; lineIndex += 1) {
+            layerQuadtree.insert(layerLineCandidates[lineIndex]);
+            if (lineIndex > 0 && lineIndex % 3000 === 0 && performance.now() - lastYieldTime > 8) {
+                await yieldToBrowser();
+                if (buildToken !== snapPointIndexBuildToken) return false;
+                lastYieldTime = performance.now();
+            }
+        }
         snapPointLineQuadtreesByLayer.set(layerName, layerQuadtree);
-    });
+    }
+    if (buildToken !== snapPointIndexBuildToken) return false;
+
     snapPointIndexReady = true;
     updateManualLabelUI();
+    return true;
+}
+
+function ensureSnapPointIndexAsync() {
+    cancelManualSnapPointIndexWarmup();
+    if (snapPointIndexReady) {
+        return Promise.resolve(true);
+    }
+    if (snapPointIndexBuildPromise) {
+        return snapPointIndexBuildPromise;
+    }
+
+    const buildPromise = rebuildSnapPointIndex()
+        .catch(error => {
+            snapPointIndexReady = false;
+            throw error;
+        })
+        .finally(() => {
+            if (snapPointIndexBuildPromise === buildPromise) {
+                snapPointIndexBuildPromise = null;
+            }
+        });
+
+    snapPointIndexBuildPromise = buildPromise;
+    return buildPromise;
+}
+
+function ensureSnapPointIndex() {
+    void ensureSnapPointIndexAsync();
+}
+
+function scheduleSnapPointIndexWarmup() {
+    if (snapPointIndexReady || snapPointIndexBuildPromise || !hasManualLineCandidateSource()) return;
+
+    cancelManualSnapPointIndexWarmup();
+
+    const startWarmup = () => {
+        snapPointIndexWarmupHandle = null;
+        snapPointIndexWarmupUsesIdleCallback = false;
+        if (snapPointIndexReady || snapPointIndexBuildPromise || !hasManualLineCandidateSource()) return;
+        void ensureSnapPointIndexAsync().catch(error => {
+            console.warn('Failed to warm up manual snap point index:', error);
+        });
+    };
+
+    if (typeof requestIdleCallback === 'function') {
+        snapPointIndexWarmupUsesIdleCallback = true;
+        snapPointIndexWarmupHandle = requestIdleCallback(startWarmup, { timeout: 200 });
+        return;
+    }
+
+    snapPointIndexWarmupUsesIdleCallback = false;
+    snapPointIndexWarmupHandle = setTimeout(startWarmup, 0);
 }
 
 function invalidateSnapPointIndex() {
+    cancelManualSnapPointIndexWarmup();
     snapPoints = [];
     snapPointQuadtree = null;
     snapPointLineCandidates = new Map();
@@ -619,35 +813,22 @@ function invalidateSnapPointIndex() {
     hoveredSnapPoint = null;
     snapPointIndexReady = false;
     snapPointIndexBuildPromise = null;
+    snapPointIndexBuildToken += 1;
     suggestedConnectAnnotations = [];
+    manualSuggestionRequestId += 1;
     updateManualLabelUI();
 }
 
-async function ensureSnapPointIndex() {
-    if (snapPointIndexReady) {
-        return snapPoints.length > 0;
-    }
-    if (snapPointIndexBuildPromise) {
-        return snapPointIndexBuildPromise;
-    }
+function cancelManualSnapPointIndexWarmup() {
+    if (snapPointIndexWarmupHandle === null) return;
 
-    snapPointIndexBuildPromise = (async () => {
-        showLoadingPopup('Preparing manual label mode...', 'Building snap points from visible drawing lines');
-        await yieldToBrowser();
-        rebuildSnapPointIndex();
-        return snapPoints.length > 0;
-    })()
-        .catch(error => {
-            console.error('Failed to build snap point index:', error);
-            invalidateSnapPointIndex();
-            return false;
-        })
-        .finally(() => {
-            hideLoadingPopup();
-            snapPointIndexBuildPromise = null;
-        });
-
-    return snapPointIndexBuildPromise;
+    if (snapPointIndexWarmupUsesIdleCallback && typeof cancelIdleCallback === 'function') {
+        cancelIdleCallback(snapPointIndexWarmupHandle);
+    } else {
+        clearTimeout(snapPointIndexWarmupHandle);
+    }
+    snapPointIndexWarmupHandle = null;
+    snapPointIndexWarmupUsesIdleCallback = false;
 }
 
 function getAnnotationSnapToleranceWorld() {
@@ -655,7 +836,6 @@ function getAnnotationSnapToleranceWorld() {
 }
 
 function findNearestSnapPoint(worldX, worldY, options = {}) {
-    if (!snapPointQuadtree) return null;
     const worldTolerance = options.worldTolerance || getAnnotationSnapToleranceWorld();
     const queryRange = {
         minX: worldX - worldTolerance,
@@ -665,7 +845,29 @@ function findNearestSnapPoint(worldX, worldY, options = {}) {
     };
 
     const requiredLayerName = options.layerName || null;
-    const candidates = Array.from(new Set(snapPointQuadtree.query(queryRange)));
+    const allowFallback = options.allowFallback !== false;
+    const candidates = snapPointQuadtree
+        ? Array.from(new Set(snapPointQuadtree.query(queryRange)))
+        : ((!allowFallback || snapPointIndexReady)
+            ? []
+            : (() => {
+            const pointMap = new Map();
+            queryLineCandidatesFromSharedShapeCache(requiredLayerName, queryRange).forEach(lineCandidate => {
+                lineCandidate.points.slice(0, 2).forEach(point => {
+                    const pointKey = getSnapPointKey(lineCandidate.layerName, point.x, point.y);
+                    if (!pointMap.has(pointKey)) {
+                        pointMap.set(pointKey, {
+                            id: pointKey,
+                            x: point.x,
+                            y: point.y,
+                            layerName: lineCandidate.layerName,
+                            bbox: { minX: point.x, minY: point.y, maxX: point.x, maxY: point.y }
+                        });
+                    }
+                });
+            });
+            return Array.from(pointMap.values());
+        })());
     let nearest = null;
     let bestDistance = Infinity;
 
@@ -692,8 +894,9 @@ function findNearestAnnotation(worldX, worldY) {
     const worldTolerance = getAnnotationSnapToleranceWorld();
     let nearest = null;
     let bestScore = Infinity;
+    const candidates = queryManualAnnotationsNearPoint(worldX, worldY);
 
-    manualAnnotations.forEach(annotation => {
+    candidates.forEach(annotation => {
         if (!layerVisibility[annotation.layerName]) return;
         const polygon = getManualAnnotationWorldPolygon(annotation);
         if (!polygon) return;
@@ -716,8 +919,9 @@ function findNearestConnectAnnotation(worldX, worldY) {
     const worldTolerance = getAnnotationSnapToleranceWorld();
     let nearest = null;
     let bestScore = Infinity;
+    const candidates = queryManualAnnotationsNearPoint(worldX, worldY, 'connect');
 
-    manualAnnotations.forEach(annotation => {
+    candidates.forEach(annotation => {
         if (annotation?.type !== 'connect' || !layerVisibility[annotation.layerName]) return;
         const polygon = getManualAnnotationWorldPolygon(annotation);
         if (!polygon) return;
@@ -773,7 +977,7 @@ function refreshAnnotationModeLabel() {
 }
 
 function collectSuggestedConnectAnnotationsForConnects(connectAnnotations) {
-    if (!Array.isArray(connectAnnotations) || !connectAnnotations.length || !(snapPointLineCandidates instanceof Map) || !snapPointLineCandidates.size) {
+    if (!Array.isArray(connectAnnotations) || !connectAnnotations.length || !hasManualLineCandidateSource()) {
         return [];
     }
 
@@ -795,6 +999,106 @@ function collectSuggestedConnectAnnotationsForConnects(connectAnnotations) {
         Array.from(mergedSeedLineCandidates.values()),
         existingConnectLineKeys
     );
+}
+
+async function collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotations, options = {}) {
+    if (!Array.isArray(connectAnnotations) || !connectAnnotations.length || !hasManualLineCandidateSource()) {
+        return [];
+    }
+
+    const existingConnectLineKeys = collectExistingConnectLineKeys([
+        ...manualAnnotations,
+        ...connectAnnotations
+    ]);
+    const mergedSeedLineCandidates = new Map();
+
+    const straightSeeds = typeof collectStraightConnectSuggestionSeedsAsync === 'function'
+        ? await collectStraightConnectSuggestionSeedsAsync(connectAnnotations, existingConnectLineKeys, options)
+        : collectStraightConnectSuggestionSeeds(connectAnnotations, existingConnectLineKeys);
+    if (!shouldContinueManualSuggestionWork(options)) return [];
+    straightSeeds.forEach(lineCandidate => {
+        if (!lineCandidate) return;
+        mergedSeedLineCandidates.set(lineCandidate.id, lineCandidate);
+    });
+
+    if (typeof yieldToBrowser === 'function') {
+        await yieldToBrowser();
+    }
+    if (!shouldContinueManualSuggestionWork(options)) return [];
+
+    const teeSeeds = typeof collectTeeConnectSuggestionSeedsAsync === 'function'
+        ? await collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existingConnectLineKeys, options)
+        : collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLineKeys);
+    if (!shouldContinueManualSuggestionWork(options)) return [];
+    teeSeeds.forEach(lineCandidate => {
+        if (!lineCandidate) return;
+        mergedSeedLineCandidates.set(lineCandidate.id, lineCandidate);
+    });
+
+    const seedLineCandidates = Array.from(mergedSeedLineCandidates.values());
+    return typeof buildConnectSuggestionsFromSeedLinesAsync === 'function'
+        ? buildConnectSuggestionsFromSeedLinesAsync(seedLineCandidates, existingConnectLineKeys, options)
+        : buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnectLineKeys);
+}
+
+function formatConnectSuggestionSuffix(suggestedConnectCount) {
+    return suggestedConnectCount
+        ? ` Đề xuất ${suggestedConnectCount} connect lân cận, nhấn Tab để thêm nhanh.`
+        : '';
+}
+
+function startSuggestedConnectAnnotationsRequest(requestId, connectAnnotations, baseMessage) {
+    if (requestId !== manualSuggestionRequestId || annotationMode !== 'connect') return;
+
+    setAnnotationFeedback(`${baseMessage} Đang tìm gợi ý...`, 'info');
+    updateManualLabelUI();
+    if (typeof scheduleDraw === 'function') scheduleDraw();
+
+    collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotations, {
+        shouldContinue: () => requestId === manualSuggestionRequestId && annotationMode === 'connect'
+    })
+        .then(suggestedConnects => {
+            if (requestId !== manualSuggestionRequestId || annotationMode !== 'connect') return;
+            setSuggestedConnectAnnotations(suggestedConnects, { redraw: false });
+            setAnnotationFeedback(`${baseMessage}${formatConnectSuggestionSuffix(suggestedConnects.length)}`, 'info');
+            updateManualLabelUI();
+            if (typeof scheduleDraw === 'function') scheduleDraw();
+        })
+        .catch(error => {
+            if (requestId !== manualSuggestionRequestId) return;
+            console.error('Failed to collect manual connect suggestions:', error);
+            setAnnotationFeedback(`${baseMessage} Không tính được gợi ý connect: ${error.message}`, 'error');
+            updateManualLabelUI();
+        });
+}
+
+function requestSuggestedConnectAnnotations(connectAnnotations, baseMessage) {
+    const requestId = ++manualSuggestionRequestId;
+    const suggestionRootAnnotations = collectConnectedSuggestionRootAnnotations(connectAnnotations, manualAnnotations);
+    suggestedConnectAnnotations = [];
+    updateManualLabelUI();
+    if (typeof scheduleDraw === 'function') scheduleDraw();
+
+    if (!snapPointIndexReady) {
+        setAnnotationFeedback(`${baseMessage} Đang chuẩn bị chỉ mục line để gợi ý...`, 'info');
+        updateManualLabelUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+        scheduleSnapPointIndexWarmup();
+        ensureSnapPointIndexAsync()
+            .then(indexReady => {
+                if (!indexReady) return;
+                startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage);
+            })
+            .catch(error => {
+                if (requestId !== manualSuggestionRequestId) return;
+                console.error('Failed to prepare manual snap point index:', error);
+                setAnnotationFeedback(`${baseMessage} Không chuẩn bị được chỉ mục gợi ý: ${error.message}`, 'error');
+                updateManualLabelUI();
+            });
+        return;
+    }
+
+    startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage);
 }
 
 function acceptSuggestedConnectAnnotations() {
@@ -842,6 +1146,7 @@ function acceptSuggestedConnectAnnotations() {
 
     if (!acceptedConnects.length) {
         clearSuggestedConnectAnnotations({ redraw: false });
+        manualSuggestionRequestId += 1;
         setAnnotationFeedback('Không có connect gợi ý mới để thêm.', 'info');
         return true;
     }
@@ -852,15 +1157,14 @@ function acceptSuggestedConnectAnnotations() {
         existingAnnotationIds,
         record: true
     });
-    const nextSuggestions = collectSuggestedConnectAnnotationsForConnects(finalizationResult.addedConnectAnnotations);
-    setSuggestedConnectAnnotations(nextSuggestions, { redraw: false });
-    const nextSuggestionMessage = nextSuggestions.length
-        ? ` Còn ${nextSuggestions.length} gợi ý nữa, nhấn Tab để thêm tiếp.`
-        : '';
-    setAnnotationFeedback(
-        `Đã thêm ${finalizationResult.addedConnectAnnotations.length} connect và ${finalizationResult.finalAddedAnnotations.filter(annotation => annotation.type === 'junction').length} junction từ gợi ý.${nextSuggestionMessage}`,
-        'info'
-    );
+    const baseMessage = `Đã thêm ${finalizationResult.addedConnectAnnotations.length} connect và ${finalizationResult.finalAddedAnnotations.filter(annotation => annotation.type === 'junction').length} junction từ gợi ý.`;
+    setSuggestedConnectAnnotations([], { redraw: false });
+    if (finalizationResult.addedConnectAnnotations.length) {
+        requestSuggestedConnectAnnotations(finalizationResult.addedConnectAnnotations, baseMessage);
+    } else {
+        manualSuggestionRequestId += 1;
+        setAnnotationFeedback(baseMessage, 'info');
+    }
     refreshAnnotationModeLabel();
     if (typeof scheduleDraw === 'function') scheduleDraw();
     return true;
@@ -871,6 +1175,7 @@ function deactivateManualLabelMode(options = {}) {
     hoveredSnapPoint = null;
     hoveredAnnotationId = null;
     suggestedConnectAnnotations = [];
+    manualSuggestionRequestId += 1;
     resetPairCheckState();
     if (options.clearPending !== false) {
         pendingConnectPoint = null;
@@ -887,12 +1192,8 @@ async function setAnnotationMode(mode) {
         return;
     }
 
-    if ((mode === 'junction' || mode === 'connect') && !snapPointIndexReady) {
-        await ensureSnapPointIndex();
-    }
-
-    if ((mode === 'junction' || mode === 'connect') && !snapPoints.length) {
-        setAnnotationFeedback('Không tìm thấy endpoint line để snap.', 'error');
+    if ((mode === 'junction' || mode === 'connect') && !hasManualLineCandidateSource()) {
+        setAnnotationFeedback('Không tìm thấy cache shape/line để snap.', 'error');
         return;
     }
 
@@ -933,8 +1234,14 @@ async function setAnnotationMode(mode) {
     annotationMode = mode;
     pendingConnectPoint = null;
     suggestedConnectAnnotations = [];
+    manualSuggestionRequestId += 1;
     resetPairCheckState();
-    hoveredSnapPoint = (mode === 'delete' || mode === 'pair-check') ? null : findNearestSnapPoint(mouseX, mouseY);
+    if (typeof applyManualLabelPanelState === 'function' && isManualLabelPanelCollapsed) {
+        applyManualLabelPanelState(false);
+    }
+    hoveredSnapPoint = (mode === 'delete' || mode === 'pair-check')
+        ? null
+        : findNearestSnapPoint(mouseX, mouseY, { allowFallback: false });
     hoveredAnnotationId = mode === 'delete'
         ? (findNearestAnnotation(mouseX, mouseY)?.id || null)
         : mode === 'pair-check'
@@ -955,6 +1262,10 @@ async function setAnnotationMode(mode) {
         setAnnotationFeedback('Click vào label muốn xóa. Ctrl+Z để phục hồi.', 'info');
     }
 
+    if (mode === 'connect' || mode === 'junction') {
+        scheduleSnapPointIndexWarmup();
+    }
+
     refreshAnnotationModeLabel();
     if (typeof scheduleDraw === 'function') scheduleDraw();
 }
@@ -968,6 +1279,8 @@ function resetManualLabelState(options = {}) {
     resetPairCheckState();
     hoveredSnapPoint = null;
     hoveredAnnotationId = null;
+    manualSuggestionRequestId += 1;
+    invalidateManualAnnotationSpatialIndex();
     annotationFeedbackMessage = options.message || '';
     annotationFeedbackTone = options.tone || 'info';
 
@@ -983,6 +1296,7 @@ function resetManualLabelState(options = {}) {
 
 function undoManualAnnotation() {
     suggestedConnectAnnotations = [];
+    manualSuggestionRequestId += 1;
     if (pendingConnectPoint) {
         pendingConnectPoint = null;
         hoveredSnapPoint = null;
@@ -1074,6 +1388,7 @@ function deleteAnnotationAtPoint(worldX, worldY) {
     const cascade = collectCascadeDeleteAnnotations(annotation);
     if (!cascade.length) return true;
     suggestedConnectAnnotations = [];
+    manualSuggestionRequestId += 1;
     removeAnnotationsByIds(cascade.map(item => item.id), { record: true });
     const removedConnects = cascade.filter(item => item.type === 'connect').length;
     const removedJunctions = cascade.filter(item => item.type === 'junction').length;
@@ -1087,8 +1402,9 @@ function updateHoveredSnapPoint() {
             hoveredSnapPoint = null;
             hoveredAnnotationId = null;
             if (typeof scheduleDraw === 'function') scheduleDraw();
+            return true;
         }
-        return;
+        return false;
     }
 
     if (annotationMode === 'delete') {
@@ -1097,9 +1413,11 @@ function updateHoveredSnapPoint() {
         if (hoveredAnnotationId !== nextId) {
             hoveredAnnotationId = nextId;
             if (typeof scheduleDraw === 'function') scheduleDraw();
+            hoveredSnapPoint = null;
+            return true;
         }
         hoveredSnapPoint = null;
-        return;
+        return false;
     }
 
     if (annotationMode === 'pair-check') {
@@ -1108,22 +1426,29 @@ function updateHoveredSnapPoint() {
         if (hoveredAnnotationId !== nextId) {
             hoveredAnnotationId = nextId;
             if (typeof scheduleDraw === 'function') scheduleDraw();
+            hoveredSnapPoint = null;
+            return true;
         }
         hoveredSnapPoint = null;
-        return;
+        return false;
     }
 
     const requiredLayerName = annotationMode === 'connect' && pendingConnectPoint
         ? pendingConnectPoint.layerName
         : null;
-    const nextPoint = findNearestSnapPoint(mouseX, mouseY, { layerName: requiredLayerName });
+    const nextPoint = findNearestSnapPoint(mouseX, mouseY, {
+        layerName: requiredLayerName,
+        allowFallback: false
+    });
     const previousId = hoveredSnapPoint ? hoveredSnapPoint.id : null;
     const nextId = nextPoint ? nextPoint.id : null;
     hoveredSnapPoint = nextPoint;
     hoveredAnnotationId = null;
     if (previousId !== nextId && typeof scheduleDraw === 'function') {
         scheduleDraw();
+        return true;
     }
+    return previousId !== nextId;
 }
 
 function handleAnnotationCanvasClick(worldX, worldY) {
@@ -1140,7 +1465,10 @@ function handleAnnotationCanvasClick(worldX, worldY) {
     const requiredLayerName = annotationMode === 'connect' && pendingConnectPoint
         ? pendingConnectPoint.layerName
         : null;
-    const snapPoint = findNearestSnapPoint(worldX, worldY, { layerName: requiredLayerName });
+    const snapPoint = findNearestSnapPoint(worldX, worldY, {
+        layerName: requiredLayerName,
+        allowFallback: true
+    });
 
     if (!snapPoint) {
         setAnnotationFeedback(
@@ -1166,6 +1494,7 @@ function handleAnnotationCanvasClick(worldX, worldY) {
 
     if (!pendingConnectPoint) {
         suggestedConnectAnnotations = [];
+        manualSuggestionRequestId += 1;
         pendingConnectPoint = { x: snapPoint.x, y: snapPoint.y, layerName: snapPoint.layerName };
         hoveredSnapPoint = snapPoint;
         setAnnotationFeedback(`Đã chọn điểm 1 trên layer ${snapPoint.layerName}.`, 'info');
@@ -1208,19 +1537,18 @@ function handleAnnotationCanvasClick(worldX, worldY) {
         record: true
     });
     const survivingConnects = finalizationResult.addedConnectAnnotations;
-    const suggestedConnects = collectSuggestedConnectAnnotationsForConnects(survivingConnects);
-    setSuggestedConnectAnnotations(suggestedConnects, { redraw: false });
     const addedJunctionCount = finalizationResult.finalAddedAnnotations.filter(annotation => annotation.type === 'junction').length;
     const autoMessage = addedJunctionCount ? ` và tự thêm ${addedJunctionCount} junction` : '';
-    const suggestionMessage = suggestedConnects.length
-        ? ` Đề xuất ${suggestedConnects.length} connect lân cận, nhấn Tab để thêm nhanh.`
-        : '';
     pendingConnectPoint = null;
     hoveredSnapPoint = snapPoint;
+    const baseMessage = !survivingConnects.length
+        ? 'Connect lớn bị loại vì đã có các connect con bao phủ.'
+        : `Đã thêm connect cho layer ${connectAnnotation.layerName}${autoMessage}.`;
     if (!survivingConnects.length) {
-        setAnnotationFeedback(`Connect lớn bị loại vì đã có các connect con bao phủ.${suggestionMessage}`, 'info');
+        manualSuggestionRequestId += 1;
+        setAnnotationFeedback(baseMessage, 'info');
     } else {
-        setAnnotationFeedback(`Đã thêm connect cho layer ${connectAnnotation.layerName}${autoMessage}.${suggestionMessage}`, 'info');
+        requestSuggestedConnectAnnotations(survivingConnects, baseMessage);
     }
     refreshAnnotationModeLabel();
     return true;
@@ -1245,6 +1573,7 @@ function drawWorldPolygon(targetCtx, polygon) {
 
 function drawManualAnnotationOverlays(targetCtx) {
     if ((!manualAnnotations || !manualAnnotations.length) && !pendingConnectPoint && !hoveredSnapPoint && !hasSuggestedConnectAnnotations()) return;
+    if (isManualLabelPanelCollapsed) return;
     const radiusWorld = Math.max(3 / Math.max(zoom, 0.01), 1 / Math.max(zoom, 0.01));
     targetCtx.save();
     targetCtx.lineJoin = 'round';
@@ -1340,34 +1669,28 @@ function drawManualAnnotationOverlays(targetCtx) {
 
     if (pendingConnectPoint && layerVisibility[pendingConnectPoint.layerName]) {
         drawWorldPoint(targetCtx, pendingConnectPoint, MANUAL_LABEL_COLORS.pending, radiusWorld * 1.2);
-        targetCtx.strokeStyle = MANUAL_LABEL_COLORS.pending;
-        targetCtx.lineWidth = 1.5 / Math.max(zoom, 0.01);
-        targetCtx.setLineDash([4 / Math.max(zoom, 0.01), 4 / Math.max(zoom, 0.01)]);
-
-        const previewTarget = hoveredSnapPoint && layerVisibility[hoveredSnapPoint.layerName]
-            ? hoveredSnapPoint
-            : { x: mouseX, y: mouseY };
-        const previewPolygon = getManualAnnotationWorldPolygon({
-            type: 'connect',
-            points: [pendingConnectPoint, previewTarget]
-        });
-        if (previewPolygon) {
-            targetCtx.fillStyle = 'rgba(245, 158, 11, 0.10)';
-            drawWorldPolygon(targetCtx, previewPolygon);
-            targetCtx.fill();
-            drawWorldPolygon(targetCtx, previewPolygon);
-            targetCtx.stroke();
-        }
-
-        targetCtx.beginPath();
-        targetCtx.moveTo(pendingConnectPoint.x, pendingConnectPoint.y);
         if (hoveredSnapPoint && layerVisibility[hoveredSnapPoint.layerName]) {
+            targetCtx.strokeStyle = MANUAL_LABEL_COLORS.pending;
+            targetCtx.lineWidth = 1.5 / Math.max(zoom, 0.01);
+            targetCtx.setLineDash([4 / Math.max(zoom, 0.01), 4 / Math.max(zoom, 0.01)]);
+            const previewPolygon = getManualAnnotationWorldPolygon({
+                type: 'connect',
+                points: [pendingConnectPoint, hoveredSnapPoint]
+            });
+            if (previewPolygon) {
+                targetCtx.fillStyle = 'rgba(245, 158, 11, 0.10)';
+                drawWorldPolygon(targetCtx, previewPolygon);
+                targetCtx.fill();
+                drawWorldPolygon(targetCtx, previewPolygon);
+                targetCtx.stroke();
+            }
+
+            targetCtx.beginPath();
+            targetCtx.moveTo(pendingConnectPoint.x, pendingConnectPoint.y);
             targetCtx.lineTo(hoveredSnapPoint.x, hoveredSnapPoint.y);
-        } else {
-            targetCtx.lineTo(mouseX, mouseY);
+            targetCtx.stroke();
+            targetCtx.setLineDash([]);
         }
-        targetCtx.stroke();
-        targetCtx.setLineDash([]);
     }
 
     if (hoveredSnapPoint && layerVisibility[hoveredSnapPoint.layerName]) {
