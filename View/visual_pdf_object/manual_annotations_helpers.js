@@ -45,15 +45,6 @@ function getSnapPointKey(layerName, x, y) {
     return `${layerName}|${Number(x).toFixed(3)}|${Number(y).toFixed(3)}`;
 }
 
-function getSnapPointCoordinateKey(x, y) {
-    return `${Number(x).toFixed(3)}|${Number(y).toFixed(3)}`;
-}
-
-function getSnapPointCoordinateKeyFromEndpointKey(endpointKey, fallbackLayerName = null) {
-    const point = parseSnapPointKey(endpointKey, fallbackLayerName);
-    return point ? getSnapPointCoordinateKey(point.x, point.y) : null;
-}
-
 function createNormalizedLineKey(layerName, pointA, pointB) {
     const endpointKeyA = getSnapPointKey(layerName, pointA.x, pointA.y);
     const endpointKeyB = getSnapPointKey(layerName, pointB.x, pointB.y);
@@ -254,27 +245,6 @@ function queryLayerLineCandidates(layerName, queryRange = null) {
     }
 
     return queryLineCandidatesFromSharedShapeCache(layerName, queryRange);
-}
-
-function queryAllVisibleLineCandidates(queryRange = null) {
-    const uniqueLineCandidates = new Map();
-
-    if (snapPointLineItemsByLayer instanceof Map && snapPointLineItemsByLayer.size) {
-        snapPointLineItemsByLayer.forEach((lineCandidates, layerName) => {
-            if (!isExportableAnnotationLayer(layerName)) return;
-            if (typeof layerVisibility === 'object' && layerVisibility && layerVisibility[layerName] === false) return;
-            queryLayerLineCandidates(layerName, queryRange).forEach(lineCandidate => {
-                if (!lineCandidate) return;
-                uniqueLineCandidates.set(lineCandidate.id, lineCandidate);
-            });
-        });
-
-        if (uniqueLineCandidates.size || (typeof snapPointIndexReady !== 'undefined' && snapPointIndexReady)) {
-            return Array.from(uniqueLineCandidates.values());
-        }
-    }
-
-    return queryLineCandidatesFromSharedShapeCache(null, queryRange);
 }
 
 function getConnectLineKey(annotation) {
@@ -667,44 +637,18 @@ function getDashedAlignedNeighborLineCandidates(currentLineCandidate, referenceL
         .map(entry => entry.lineCandidate);
 }
 
-function getNearbyLineCandidatesForPoint(point, layerName, tolerance = getManualEndpointTouchToleranceWorld(), options = {}) {
-    const restrictToLayer = options?.restrictToLayer !== false;
-    const queryLayerName = restrictToLayer ? layerName : null;
-    if (!point || (restrictToLayer && !layerName) || tolerance <= 1e-6) return [];
-
-    const queryRange = expandBounds({
-        minX: Number(point.x),
-        minY: Number(point.y),
-        maxX: Number(point.x),
-        maxY: Number(point.y)
-    }, tolerance);
-
-    const lineCandidates = queryLayerName
-        ? queryLayerLineCandidates(queryLayerName, queryRange)
-        : queryAllVisibleLineCandidates(queryRange);
-
-    return lineCandidates.filter(lineCandidate => {
-        if (!lineCandidate) return false;
-        if (queryLayerName && lineCandidate.layerName !== queryLayerName) return false;
-        return isPointNearLineCandidateEndpoint(point, lineCandidate, tolerance);
-    });
-}
-
-function getLineCandidatesForEndpoint(endpointKey, layerName, options = {}) {
+function getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options = {}) {
+    if (!layerName) return [];
     const tolerance = Number.isFinite(options?.tolerance)
         ? Number(options.tolerance)
         : getManualEndpointTouchToleranceWorld();
-    const restrictToLayer = options?.restrictToLayer !== false;
     const mergedLineCandidates = new Map();
-
-    if (restrictToLayer) {
-        const exactLineCandidates = snapPointLineCandidates.get(endpointKey);
-        if (Array.isArray(exactLineCandidates)) {
-            exactLineCandidates.forEach(lineCandidate => {
-                if (!lineCandidate || lineCandidate.layerName !== layerName) return;
-                mergedLineCandidates.set(lineCandidate.id, lineCandidate);
-            });
-        }
+    const exactLineCandidates = snapPointLineCandidates.get(endpointKey);
+    if (Array.isArray(exactLineCandidates)) {
+        exactLineCandidates.forEach(lineCandidate => {
+            if (!lineCandidate || lineCandidate.layerName !== layerName) return;
+            mergedLineCandidates.set(lineCandidate.id, lineCandidate);
+        });
     }
 
     const endpointPoint = parseSnapPointKey(endpointKey, layerName);
@@ -712,19 +656,11 @@ function getLineCandidatesForEndpoint(endpointKey, layerName, options = {}) {
         return Array.from(mergedLineCandidates.values());
     }
 
-    getNearbyLineCandidatesForPoint(endpointPoint, layerName, tolerance, { restrictToLayer }).forEach(lineCandidate => {
+    getNearbySameLayerLineCandidatesForPoint(endpointPoint, layerName, tolerance).forEach(lineCandidate => {
         mergedLineCandidates.set(lineCandidate.id, lineCandidate);
     });
 
     return Array.from(mergedLineCandidates.values());
-}
-
-function getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options = {}) {
-    if (!layerName) return [];
-    return getLineCandidatesForEndpoint(endpointKey, layerName, {
-        ...options,
-        restrictToLayer: true
-    });
 }
 
 function getReferenceLineCandidateForLines(lineCandidates) {
@@ -777,7 +713,7 @@ function areLineCandidatesStraightContinuationAtEndpoint(referenceLineCandidate,
 
 function isStraightThroughEndpoint(endpointKey, layerName, referenceLineCandidate, groupedLineKeySet = null, options = {}) {
     if (!referenceLineCandidate) return false;
-    const sameLayerLineCandidates = getLineCandidatesForEndpoint(endpointKey, layerName, options);
+    const sameLayerLineCandidates = getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options);
     if (sameLayerLineCandidates.length < 2) return false;
 
     const eligibleLineCandidates = sameLayerLineCandidates.filter(lineCandidate => {
@@ -814,7 +750,7 @@ function isStraightThroughEndpoint(endpointKey, layerName, referenceLineCandidat
 
 function isJunctionEndpoint(endpointKey, layerName, referenceLineCandidate, options = {}) {
     if (!referenceLineCandidate) return false;
-    const sameLayerLineCandidates = getLineCandidatesForEndpoint(endpointKey, layerName, options);
+    const sameLayerLineCandidates = getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options);
     if (sameLayerLineCandidates.length < 2) return false;
     if (sameLayerLineCandidates.length !== 2) return true;
     return sameLayerLineCandidates.some(lineCandidate => isElbowLineCandidate(referenceLineCandidate, lineCandidate));
@@ -1025,7 +961,19 @@ function isPointNearLineCandidateEndpoint(point, lineCandidate, tolerance = getM
 }
 
 function getNearbySameLayerLineCandidatesForPoint(point, layerName, tolerance = getManualEndpointTouchToleranceWorld()) {
-    return getNearbyLineCandidatesForPoint(point, layerName, tolerance, { restrictToLayer: true });
+    if (!point || !layerName || tolerance <= 1e-6) return [];
+
+    const queryRange = expandBounds({
+        minX: Number(point.x),
+        minY: Number(point.y),
+        maxX: Number(point.x),
+        maxY: Number(point.y)
+    }, tolerance);
+
+    return queryLayerLineCandidates(layerName, queryRange).filter(lineCandidate => {
+        if (!lineCandidate || lineCandidate.layerName !== layerName) return false;
+        return isPointNearLineCandidateEndpoint(point, lineCandidate, tolerance);
+    });
 }
 
 function getLineLikeEndpointSearchSegments(lineLike) {
@@ -1126,7 +1074,7 @@ function getMinimumDistanceToPoints(point, points) {
 }
 
 function doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, connectAnnotation, tolerance = getManualEndpointTouchToleranceWorld()) {
-    if (!lineCandidate || !connectAnnotation) return false;
+    if (!lineCandidate || !connectAnnotation || lineCandidate.layerName !== connectAnnotation.layerName) return false;
     const internalPoints = getConnectAnnotationInternalPoints(connectAnnotation);
     if (!internalPoints.length) return false;
 
@@ -1165,12 +1113,13 @@ function isPointOnSegmentInterior(point, segmentStart, segmentEnd, tolerance = g
 }
 
 function doesLineCandidateTouchConnectInterior(lineCandidate, connectAnnotation) {
-    if (!lineCandidate || !connectAnnotation) return false;
-    const boundaryPoints = Array.isArray(connectAnnotation?.points) ? connectAnnotation.points : [];
+    if (!lineCandidate || !connectAnnotation || lineCandidate.layerName !== connectAnnotation.layerName) return false;
+    const boundaryEndpointKeys = getConnectAnnotationBoundaryEndpointKeys(connectAnnotation);
     const probeSegments = getConnectAnnotationVirtualSegments(connectAnnotation);
     if (!probeSegments.length) return false;
     return lineCandidate.points.some(point => {
-        if (getMinimumDistanceToPoints(point, boundaryPoints) <= getManualLineAttachToleranceWorld()) return false;
+        const endpointKey = getSnapPointKey(connectAnnotation.layerName, point.x, point.y);
+        if (boundaryEndpointKeys.has(endpointKey)) return false;
         return probeSegments.some(segment =>
             Array.isArray(segment)
                 && segment.length >= 2
@@ -1180,13 +1129,20 @@ function doesLineCandidateTouchConnectInterior(lineCandidate, connectAnnotation)
 }
 
 function doesConnectBoundaryTouchLineCandidateInterior(connectAnnotation, lineCandidate) {
-    if (!connectAnnotation || !lineCandidate) return false;
+    if (!connectAnnotation || !lineCandidate || connectAnnotation.layerName !== lineCandidate.layerName) return false;
     if (!Array.isArray(connectAnnotation?.points) || connectAnnotation.points.length < 2) return false;
     if (!Array.isArray(lineCandidate?.points) || lineCandidate.points.length < 2) return false;
-    const lineEndpoints = lineCandidate.points.slice(0, 2);
+
+    const lineEndpointKeys = new Set(
+        (Array.isArray(lineCandidate.endpointKeys) && lineCandidate.endpointKeys.length
+            ? lineCandidate.endpointKeys
+            : lineCandidate.points.slice(0, 2).map(point => getSnapPointKey(lineCandidate.layerName, point.x, point.y)))
+            .map(endpointKey => String(endpointKey))
+    );
 
     return connectAnnotation.points.some(point => {
-        if (getMinimumDistanceToPoints(point, lineEndpoints) <= getManualLineAttachToleranceWorld()) return false;
+        const endpointKey = getSnapPointKey(connectAnnotation.layerName, point.x, point.y);
+        if (lineEndpointKeys.has(endpointKey)) return false;
         return isPointOnSegmentInterior(point, lineCandidate.points[0], lineCandidate.points[1]);
     });
 }
@@ -1301,7 +1257,7 @@ function isSegmentParameterInterior(parameter, segmentLength, tolerance = getMan
 }
 
 function doesLineLikeCrossConnectInterior(lineLike, connectAnnotation, tolerance = getManualTeeAttachToleranceWorld()) {
-    if (!lineLike || !connectAnnotation) return false;
+    if (!lineLike || !connectAnnotation || lineLike.layerName !== connectAnnotation.layerName) return false;
 
     const lineLikeSegments = getLineLikeProbeSegments(lineLike);
     const connectSegments = getConnectAnnotationVirtualSegments(connectAnnotation);
@@ -1357,27 +1313,17 @@ function collectConnectedSuggestionRootAnnotations(connectAnnotations, existingA
     if (!initialConnectAnnotations.length) return [];
 
     const endpointToConnectAnnotations = new Map();
-
-    function addConnectAnnotationForEndpointKey(endpointKey, annotation) {
-        if (!endpointKey || !annotation) return;
-        const connectList = endpointToConnectAnnotations.get(endpointKey);
-        if (connectList) {
-            connectList.push(annotation);
-        } else {
-            endpointToConnectAnnotations.set(endpointKey, [annotation]);
-        }
-    }
-
     [...initialConnectAnnotations, ...(existingAnnotations || []).filter(annotation => annotation?.type === 'connect')]
         .forEach(annotation => {
             const traversalKey = getConnectAnnotationTraversalKey(annotation);
             if (!traversalKey) return;
             getConnectAnnotationEndpointKeys(annotation).forEach(endpointKey => {
-                addConnectAnnotationForEndpointKey(endpointKey, annotation);
-                addConnectAnnotationForEndpointKey(
-                    getSnapPointCoordinateKeyFromEndpointKey(endpointKey, annotation.layerName),
-                    annotation
-                );
+                const connectList = endpointToConnectAnnotations.get(endpointKey);
+                if (connectList) {
+                    connectList.push(annotation);
+                } else {
+                    endpointToConnectAnnotations.set(endpointKey, [annotation]);
+                }
             });
         });
 
@@ -1394,17 +1340,12 @@ function collectConnectedSuggestionRootAnnotations(connectAnnotations, existingA
         connectedRoots.push(annotation);
 
         getConnectAnnotationEndpointKeys(annotation).forEach(endpointKey => {
-            [
-                endpointKey,
-                getSnapPointCoordinateKeyFromEndpointKey(endpointKey, annotation.layerName)
-            ].filter(Boolean).forEach(connectKey => {
-                const connectList = endpointToConnectAnnotations.get(connectKey);
-                if (!Array.isArray(connectList)) return;
-                connectList.forEach(connectedAnnotation => {
-                    const connectedTraversalKey = getConnectAnnotationTraversalKey(connectedAnnotation);
-                    if (!connectedTraversalKey || seenTraversalKeys.has(connectedTraversalKey)) return;
-                    queuedAnnotations.push(connectedAnnotation);
-                });
+            const connectList = endpointToConnectAnnotations.get(endpointKey);
+            if (!Array.isArray(connectList)) return;
+            connectList.forEach(connectedAnnotation => {
+                const connectedTraversalKey = getConnectAnnotationTraversalKey(connectedAnnotation);
+                if (!connectedTraversalKey || seenTraversalKeys.has(connectedTraversalKey)) return;
+                queuedAnnotations.push(connectedAnnotation);
             });
         });
     }
@@ -1552,9 +1493,8 @@ function collectStraightConnectSuggestionSeeds(connectAnnotations, existingConne
         if (!annotation || annotation.type !== 'connect') return;
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
         Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation)).forEach(endpointKey => {
-            const connectedLines = getLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
-                tolerance: getManualParallelEndpointTouchToleranceWorld(),
-                restrictToLayer: false
+            const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
+                tolerance: getManualParallelEndpointTouchToleranceWorld()
             });
             connectedLines.forEach(lineCandidate => {
                 if (!lineCandidate || existingConnectLineKeys.has(lineCandidate.id)) return;
@@ -1576,17 +1516,18 @@ function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLin
         if (!annotation || annotation.type !== 'connect') return;
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
         if (!referenceLineCandidate) return;
-        const nearbyLineCandidates = queryAllVisibleLineCandidates(getConnectAnnotationSearchBounds(annotation));
+        const nearbyLineCandidates = queryLayerLineCandidates(
+            annotation.layerName,
+            getConnectAnnotationSearchBounds(annotation)
+        );
 
         Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation))
             .filter(endpointKey => isJunctionEndpoint(endpointKey, annotation.layerName, referenceLineCandidate, {
-                tolerance: getManualElbowEndpointTouchToleranceWorld(),
-                restrictToLayer: false
+                tolerance: getManualElbowEndpointTouchToleranceWorld()
             }))
             .forEach(endpointKey => {
-                const connectedLines = getLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
-                    tolerance: getManualElbowEndpointTouchToleranceWorld(),
-                    restrictToLayer: false
+                const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
+                    tolerance: getManualElbowEndpointTouchToleranceWorld()
                 });
                 connectedLines.forEach(lineCandidate => {
                     if (!lineCandidate || existingConnectLineKeys.has(lineCandidate.id)) return;
@@ -1650,9 +1591,8 @@ async function collectStraightConnectSuggestionSeedsAsync(connectAnnotations, ex
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
         const endpointKeys = Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation));
         for (const endpointKey of endpointKeys) {
-            const connectedLines = getLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
-                tolerance: getManualParallelEndpointTouchToleranceWorld(),
-                restrictToLayer: false
+            const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
+                tolerance: getManualParallelEndpointTouchToleranceWorld()
             });
             for (const lineCandidate of connectedLines) {
                 processedCount += 1;
@@ -1681,17 +1621,18 @@ async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existin
         if (!annotation || annotation.type !== 'connect') continue;
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
         if (!referenceLineCandidate) continue;
-        const nearbyLineCandidates = queryAllVisibleLineCandidates(getConnectAnnotationSearchBounds(annotation));
+        const nearbyLineCandidates = queryLayerLineCandidates(
+            annotation.layerName,
+            getConnectAnnotationSearchBounds(annotation)
+        );
 
         const endpointKeys = Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation))
             .filter(endpointKey => isJunctionEndpoint(endpointKey, annotation.layerName, referenceLineCandidate, {
-                tolerance: getManualElbowEndpointTouchToleranceWorld(),
-                restrictToLayer: false
+                tolerance: getManualElbowEndpointTouchToleranceWorld()
             }));
         for (const endpointKey of endpointKeys) {
-            const connectedLines = getLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
-                tolerance: getManualElbowEndpointTouchToleranceWorld(),
-                restrictToLayer: false
+            const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
+                tolerance: getManualElbowEndpointTouchToleranceWorld()
             });
             for (const lineCandidate of connectedLines) {
                 processedCount += 1;
@@ -1997,10 +1938,20 @@ function createConnectPairPathDiagnostics(path) {
 function evaluateStraightConnectSuggestionDirection(sourceAnnotation, targetAnnotation, existingConnectLineKeys, targetGroupKey) {
     const diagnostics = createConnectPairPathDiagnostics('straight');
     const sourceLayerName = sourceAnnotation?.layerName || null;
+    const targetLayerName = targetAnnotation?.layerName || null;
     const sourceReferenceLineCandidate = getReferenceLineCandidateForAnnotation(sourceAnnotation);
     const targetReferenceLineCandidate = getReferenceLineCandidateForAnnotation(targetAnnotation);
     const targetLineCandidates = getConnectAnnotationResolvedLineCandidates(targetAnnotation);
     diagnostics.targetLineIds = targetLineCandidates.map(lineCandidate => lineCandidate.id);
+
+    if (sourceLayerName !== targetLayerName) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `${sourceLayerName || 'null'}!=${targetLayerName || 'null'} failed: Khác layer nên không thể gợi ý connect thẳng.`,
+            ['#rule:PAIR_CHECK_SAME_LAYER_REQUIRED']
+        );
+        return diagnostics;
+    }
     if (!sourceReferenceLineCandidate) {
         pushUniquePairCheckReason(diagnostics.reasons, 'sourceReferenceLine=null failed: Source connect không có reference line để kiểm tra straight.', ['#rule:PAIR_CHECK_REFERENCE_LINE_REQUIRED']);
         return diagnostics;
@@ -2028,9 +1979,8 @@ function evaluateStraightConnectSuggestionDirection(sourceAnnotation, targetAnno
     const minimumParallelAngle = getMinimumAngleDegreesBetweenReferenceAndLineCandidates(sourceReferenceLineCandidate, targetLineCandidates);
 
     diagnostics.sourceBoundaryEndpointKeys.forEach(endpointKey => {
-        const connectedLines = getLineCandidatesForEndpoint(endpointKey, sourceLayerName, {
-            tolerance: straightTolerance,
-            restrictToLayer: false
+        const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, sourceLayerName, {
+            tolerance: straightTolerance
         });
         connectedLines.forEach(lineCandidate => {
             if (!lineCandidate || !targetLineKeySet.has(lineCandidate.id)) return;
@@ -2134,10 +2084,20 @@ function evaluateStraightConnectSuggestionDirection(sourceAnnotation, targetAnno
 function evaluateTeeConnectSuggestionDirection(sourceAnnotation, targetAnnotation, existingConnectLineKeys, targetGroupKey) {
     const diagnostics = createConnectPairPathDiagnostics('tee');
     const sourceLayerName = sourceAnnotation?.layerName || null;
+    const targetLayerName = targetAnnotation?.layerName || null;
     const sourceReferenceLineCandidate = getReferenceLineCandidateForAnnotation(sourceAnnotation);
     const targetReferenceLineCandidate = getReferenceLineCandidateForAnnotation(targetAnnotation);
     const targetLineCandidates = getConnectAnnotationResolvedLineCandidates(targetAnnotation);
     diagnostics.targetLineIds = targetLineCandidates.map(lineCandidate => lineCandidate.id);
+
+    if (sourceLayerName !== targetLayerName) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `${sourceLayerName || 'null'}!=${targetLayerName || 'null'} failed: Khác layer nên không thể gợi ý tee/elbow.`,
+            ['#rule:PAIR_CHECK_SAME_LAYER_REQUIRED']
+        );
+        return diagnostics;
+    }
     if (!sourceReferenceLineCandidate) {
         pushUniquePairCheckReason(diagnostics.reasons, 'sourceReferenceLine=null failed: Source connect không có reference line để kiểm tra tee/elbow.', ['#rule:PAIR_CHECK_REFERENCE_LINE_REQUIRED']);
         return diagnostics;
@@ -2157,10 +2117,7 @@ function evaluateTeeConnectSuggestionDirection(sourceAnnotation, targetAnnotatio
         endpointKey,
         sourceLayerName,
         sourceReferenceLineCandidate,
-        {
-            tolerance: elbowTolerance,
-            restrictToLayer: false
-        }
+        { tolerance: elbowTolerance }
     ));
     const targetLineKeySet = new Set(targetLineCandidates.map(lineCandidate => lineCandidate.id));
     const elbowSeedLineIds = [];
@@ -2171,9 +2128,8 @@ function evaluateTeeConnectSuggestionDirection(sourceAnnotation, targetAnnotatio
     const minimumAngle = getMinimumAngleDegreesBetweenReferenceAndLineCandidates(sourceReferenceLineCandidate, targetLineCandidates);
 
     junctionEndpointKeys.forEach(endpointKey => {
-        const connectedLines = getLineCandidatesForEndpoint(endpointKey, sourceLayerName, {
-            tolerance: elbowTolerance,
-            restrictToLayer: false
+        const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, sourceLayerName, {
+            tolerance: elbowTolerance
         });
         connectedLines.forEach(lineCandidate => {
             if (!lineCandidate || !targetLineKeySet.has(lineCandidate.id)) return;
