@@ -380,6 +380,9 @@ if (btnExportImages) {
 }
 btnLabelJunction.addEventListener('click', () => { void setAnnotationMode('junction'); });
 btnLabelConnect.addEventListener('click', () => { void setAnnotationMode('connect'); });
+if (btnCheckConnectPair) {
+    btnCheckConnectPair.addEventListener('click', () => { void setAnnotationMode('pair-check'); });
+}
 btnUndoLabel.addEventListener('click', undoManualAnnotation);
 btnClearLabels.addEventListener('click', () => { void setAnnotationMode('delete'); });
 btnExportLabelPackage.addEventListener('click', exportAnnotatedLayerPackage);
@@ -570,6 +573,9 @@ function updateModeLabel(mode) {
     } else if (mode === 'connect') {
         label.textContent = pendingConnectPoint ? `${UI_TEXT.MODE_CONNECT} • Point 2` : UI_TEXT.MODE_CONNECT;
         label.classList.add('connect-mode');
+    } else if (mode === 'pair-check') {
+        label.textContent = UI_TEXT.MODE_PAIR_CHECK;
+        label.classList.add('pair-check-mode');
     } else if (mode === 'delete') {
         label.textContent = UI_TEXT.MODE_DELETE;
         label.classList.add('delete-mode');

@@ -122,7 +122,8 @@ function getPointsBounds(points) {
 function getManualSuggestionSearchPadding() {
     return (CONFIG.MANUAL_LABEL_DASH_MAX_ENDPOINT_GAP || 0)
         + (CONFIG.MANUAL_LABEL_DASH_MAX_OFFSET || 0)
-        + getDashedLineSegmentSoftMaxLength();
+    + getDashedLineSegmentSoftMaxLength()
+    + getManualLineAttachToleranceWorld();
 }
 
 function getConnectAnnotationSearchBounds(annotation, padding = getManualSuggestionSearchPadding()) {
@@ -261,6 +262,21 @@ function getConnectAnnotationLength(annotation) {
     }, 0);
 }
 
+function getConnectAnnotationVirtualLength(annotation) {
+    if (!Array.isArray(annotation?.points) || annotation.points.length < 2) return 0;
+    return Math.hypot(
+        Number(annotation.points[1].x) - Number(annotation.points[0].x),
+        Number(annotation.points[1].y) - Number(annotation.points[0].y)
+    );
+}
+
+function getConnectAnnotationEffectiveLength(annotation) {
+    return Math.max(
+        getConnectAnnotationLength(annotation),
+        getConnectAnnotationVirtualLength(annotation)
+    );
+}
+
 function getConnectAnnotationEndpointKeys(annotation) {
     const endpointKeys = new Set();
     getConnectAnnotationLineKeys(annotation).forEach(lineKey => {
@@ -295,12 +311,67 @@ function getLineCandidateUnitDirection(lineCandidate) {
     };
 }
 
-function areParallelLineCandidates(lineCandidateA, lineCandidateB) {
+const MANUAL_LABEL_INTERNAL_PARALLEL_MAX_ANGLE_DEGREES = 5;
+const MANUAL_LABEL_INTERNAL_ELBOW_MAX_ANGLE_DEGREES = 90;
+
+function getManualParallelMaxAngleDegrees() {
+    const configuredValue = Number(CONFIG.MANUAL_LABEL_PARALLEL_MAX_ANGLE_DEGREES);
+    return configuredValue > 0
+        ? configuredValue
+        : MANUAL_LABEL_INTERNAL_PARALLEL_MAX_ANGLE_DEGREES;
+}
+
+function getManualElbowMinAngleDegrees() {
+    return getManualParallelMaxAngleDegrees();
+}
+
+function getManualElbowMaxAngleDegrees() {
+    return Math.max(MANUAL_LABEL_INTERNAL_ELBOW_MAX_ANGLE_DEGREES, getManualElbowMinAngleDegrees());
+}
+
+function getManualTeeMinAngleDegrees() {
+    return getManualParallelMaxAngleDegrees();
+}
+
+function getLineCandidateUndirectedAngleDegrees(lineCandidateA, lineCandidateB) {
     const directionA = getLineCandidateUnitDirection(lineCandidateA);
     const directionB = getLineCandidateUnitDirection(lineCandidateB);
-    if (!directionA || !directionB) return false;
-    const dot = (directionA.x * directionB.x) + (directionA.y * directionB.y);
-    return Math.abs(dot) >= 0.98;
+    if (!directionA || !directionB) return Infinity;
+
+    const rawDot = (directionA.x * directionB.x) + (directionA.y * directionB.y);
+    const clampedDot = Math.min(1, Math.max(-1, Math.abs(rawDot)));
+    return Math.acos(clampedDot) * (180 / Math.PI);
+}
+
+function areParallelLineCandidates(lineCandidateA, lineCandidateB) {
+    return getLineCandidateUndirectedAngleDegrees(lineCandidateA, lineCandidateB) <= getManualParallelMaxAngleDegrees();
+}
+
+function isLineCandidateAngleInRange(referenceLineCandidate, lineCandidate, minAngleDegrees, maxAngleDegrees = 90) {
+    const angleDegrees = getLineCandidateUndirectedAngleDegrees(referenceLineCandidate, lineCandidate);
+    return angleDegrees >= minAngleDegrees && angleDegrees <= maxAngleDegrees;
+}
+
+function isElbowLineCandidate(referenceLineCandidate, lineCandidate) {
+    return isLineCandidateAngleInRange(
+        referenceLineCandidate,
+        lineCandidate,
+        getManualElbowMinAngleDegrees(),
+        getManualElbowMaxAngleDegrees()
+    );
+}
+
+function isTeeLineCandidate(referenceLineCandidate, lineCandidate) {
+    return isLineCandidateAngleInRange(
+        referenceLineCandidate,
+        lineCandidate,
+        getManualTeeMinAngleDegrees(),
+        90
+    );
+}
+
+function isAngledBranchLineCandidate(referenceLineCandidate, lineCandidate) {
+    return isElbowLineCandidate(referenceLineCandidate, lineCandidate);
 }
 
 function getLineCandidateSeqnoGroupIds(lineCandidate) {
@@ -459,10 +530,30 @@ function getDashedAlignedNeighborLineCandidates(currentLineCandidate, referenceL
         .map(entry => entry.lineCandidate);
 }
 
-function getSameLayerLineCandidatesForEndpoint(endpointKey, layerName) {
+function getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options = {}) {
     if (!layerName) return [];
-    const lineCandidates = snapPointLineCandidates.get(endpointKey);
-    return Array.isArray(lineCandidates) ? lineCandidates : [];
+    const tolerance = Number.isFinite(options?.tolerance)
+        ? Number(options.tolerance)
+        : getManualEndpointTouchToleranceWorld();
+    const mergedLineCandidates = new Map();
+    const exactLineCandidates = snapPointLineCandidates.get(endpointKey);
+    if (Array.isArray(exactLineCandidates)) {
+        exactLineCandidates.forEach(lineCandidate => {
+            if (!lineCandidate || lineCandidate.layerName !== layerName) return;
+            mergedLineCandidates.set(lineCandidate.id, lineCandidate);
+        });
+    }
+
+    const endpointPoint = parseSnapPointKey(endpointKey, layerName);
+    if (!endpointPoint) {
+        return Array.from(mergedLineCandidates.values());
+    }
+
+    getNearbySameLayerLineCandidatesForPoint(endpointPoint, layerName, tolerance).forEach(lineCandidate => {
+        mergedLineCandidates.set(lineCandidate.id, lineCandidate);
+    });
+
+    return Array.from(mergedLineCandidates.values());
 }
 
 function getReferenceLineCandidateForLines(lineCandidates) {
@@ -471,25 +562,91 @@ function getReferenceLineCandidateForLines(lineCandidates) {
         .sort((left, right) => getLineCandidateLength(right) - getLineCandidateLength(left))[0] || null;
 }
 
-function isStraightThroughEndpoint(endpointKey, layerName, referenceLineCandidate, groupedLineKeySet = null) {
-    if (!referenceLineCandidate) return false;
-    const sameLayerLineCandidates = getSameLayerLineCandidatesForEndpoint(endpointKey, layerName);
-    if (sameLayerLineCandidates.length !== 2) return false;
-    if (!sameLayerLineCandidates.every(lineCandidate => areParallelLineCandidates(referenceLineCandidate, lineCandidate))) {
-        return false;
-    }
-    if (groupedLineKeySet instanceof Set) {
-        return sameLayerLineCandidates.every(lineCandidate => groupedLineKeySet.has(lineCandidate.id));
-    }
-    return true;
+function getLineCandidateDirectionFromEndpoint(lineCandidate, endpointKey) {
+    if (!lineCandidate?.points || lineCandidate.points.length < 2 || !endpointKey) return null;
+
+    const endpointIndex = [0, 1].findIndex(pointIndex => {
+        const candidateEndpointKey = lineCandidate.endpointKeys?.[pointIndex]
+            || getSnapPointKey(lineCandidate.layerName, lineCandidate.points[pointIndex].x, lineCandidate.points[pointIndex].y);
+        return candidateEndpointKey === endpointKey;
+    });
+    if (endpointIndex < 0) return null;
+
+    const otherPointIndex = endpointIndex === 0 ? 1 : 0;
+    const endpointPoint = lineCandidate.points[endpointIndex];
+    const otherPoint = lineCandidate.points[otherPointIndex];
+    const dx = Number(otherPoint.x) - Number(endpointPoint.x);
+    const dy = Number(otherPoint.y) - Number(endpointPoint.y);
+    const length = Math.hypot(dx, dy);
+    if (length <= 1e-6) return null;
+
+    return {
+        x: dx / length,
+        y: dy / length
+    };
 }
 
-function isJunctionEndpoint(endpointKey, layerName, referenceLineCandidate) {
+function areLineCandidatesStraightContinuationAtEndpoint(referenceLineCandidate, lineCandidateA, lineCandidateB, endpointKey) {
+    if (!referenceLineCandidate || !lineCandidateA || !lineCandidateB || lineCandidateA.id === lineCandidateB.id) {
+        return false;
+    }
+    if (!areParallelLineCandidates(referenceLineCandidate, lineCandidateA)
+        || !areParallelLineCandidates(referenceLineCandidate, lineCandidateB)) {
+        return false;
+    }
+
+    const directionA = getLineCandidateDirectionFromEndpoint(lineCandidateA, endpointKey);
+    const directionB = getLineCandidateDirectionFromEndpoint(lineCandidateB, endpointKey);
+    if (!directionA || !directionB) return false;
+
+    const oppositeDirectionDotThreshold = -Math.cos((getManualParallelMaxAngleDegrees() * Math.PI) / 180);
+    const directionDot = (directionA.x * directionB.x) + (directionA.y * directionB.y);
+    return directionDot <= oppositeDirectionDotThreshold;
+}
+
+function isStraightThroughEndpoint(endpointKey, layerName, referenceLineCandidate, groupedLineKeySet = null, options = {}) {
     if (!referenceLineCandidate) return false;
-    const sameLayerLineCandidates = getSameLayerLineCandidatesForEndpoint(endpointKey, layerName);
+    const sameLayerLineCandidates = getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options);
+    if (sameLayerLineCandidates.length < 2) return false;
+
+    const eligibleLineCandidates = sameLayerLineCandidates.filter(lineCandidate => {
+        if (!lineCandidate || !areParallelLineCandidates(referenceLineCandidate, lineCandidate)) {
+            return false;
+        }
+        if (groupedLineKeySet instanceof Set) {
+            return groupedLineKeySet.has(lineCandidate.id);
+        }
+        return true;
+    });
+    if (eligibleLineCandidates.length < 2) return false;
+
+    const extraIncidentLineCount = sameLayerLineCandidates.length - eligibleLineCandidates.length;
+    if (extraIncidentLineCount > 1) {
+        return false;
+    }
+
+    for (let candidateIndex = 0; candidateIndex < eligibleLineCandidates.length; candidateIndex += 1) {
+        for (let otherCandidateIndex = candidateIndex + 1; otherCandidateIndex < eligibleLineCandidates.length; otherCandidateIndex += 1) {
+            if (areLineCandidatesStraightContinuationAtEndpoint(
+                referenceLineCandidate,
+                eligibleLineCandidates[candidateIndex],
+                eligibleLineCandidates[otherCandidateIndex],
+                endpointKey
+            )) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function isJunctionEndpoint(endpointKey, layerName, referenceLineCandidate, options = {}) {
+    if (!referenceLineCandidate) return false;
+    const sameLayerLineCandidates = getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options);
     if (sameLayerLineCandidates.length < 2) return false;
     if (sameLayerLineCandidates.length !== 2) return true;
-    return !sameLayerLineCandidates.every(lineCandidate => areParallelLineCandidates(referenceLineCandidate, lineCandidate));
+    return sameLayerLineCandidates.some(lineCandidate => isElbowLineCandidate(referenceLineCandidate, lineCandidate));
 }
 
 function pickMergedConnectEndpointsFromLines(lineCandidates) {
@@ -501,7 +658,9 @@ function pickMergedConnectEndpointsFromLines(lineCandidates) {
         lineCandidate.points.forEach((point, pointIndex) => {
             const endpointKey = lineCandidate.endpointKeys?.[pointIndex]
                 || getSnapPointKey(lineCandidate.layerName, point.x, point.y);
-            if (isStraightThroughEndpoint(endpointKey, lineCandidate.layerName, referenceLineCandidate, groupedLineKeySet)) {
+            if (isStraightThroughEndpoint(endpointKey, lineCandidate.layerName, referenceLineCandidate, groupedLineKeySet, {
+                tolerance: getManualParallelEndpointTouchToleranceWorld()
+            })) {
                 return;
             }
             if (!exposedEndpointMap.has(endpointKey)) {
@@ -639,8 +798,103 @@ function getConnectAnnotationInternalEndpointKeys(annotation) {
         .filter(endpointKey => !boundaryEndpointKeys.has(endpointKey));
 }
 
+function getConnectAnnotationInternalPoints(annotation) {
+    return getConnectAnnotationInternalEndpointKeys(annotation)
+        .map(endpointKey => parseSnapPointKey(endpointKey, annotation?.layerName || null))
+        .filter(Boolean);
+}
+
+function getManualParallelEndpointTouchToleranceWorld() {
+    return Math.max(Number(CONFIG.MANUAL_LABEL_PARALLEL_SUGGEST_TOUCH_TOLERANCE) || 0, 1e-4);
+}
+
+function getManualElbowEndpointTouchToleranceWorld() {
+    return Math.max(Number(CONFIG.MANUAL_LABEL_ELBOW_SUGGEST_TOUCH_TOLERANCE) || 0, 1e-4);
+}
+
+function getManualEndpointTouchToleranceWorld() {
+    return Math.max(
+        getManualParallelEndpointTouchToleranceWorld(),
+        getManualElbowEndpointTouchToleranceWorld(),
+        1e-4
+    );
+}
+
+function getManualTeeAttachToleranceWorld() {
+    return Math.max(Number(CONFIG.MANUAL_LABEL_TEE_SUGGEST_TOUCH_TOLERANCE) || 0, 1e-4);
+}
+
 function getManualLineAttachToleranceWorld() {
-    return 1e-4;
+    return Math.max(
+        getManualEndpointTouchToleranceWorld(),
+        getManualTeeAttachToleranceWorld(),
+        1e-4
+    );
+}
+
+function parseSnapPointKey(endpointKey, fallbackLayerName = null) {
+    if (!endpointKey) return null;
+    const parts = String(endpointKey).split('|');
+    if (parts.length < 3) return null;
+
+    const y = Number(parts.pop());
+    const x = Number(parts.pop());
+    const layerName = parts.join('|') || fallbackLayerName;
+    if (!layerName || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+    return { x, y, layerName };
+}
+
+function isPointNearLineCandidateEndpoint(point, lineCandidate, tolerance = getManualEndpointTouchToleranceWorld()) {
+    if (!point || !lineCandidate?.points || lineCandidate.points.length < 2) return false;
+    return lineCandidate.points.slice(0, 2).some(candidatePoint => Math.hypot(
+        Number(candidatePoint.x) - Number(point.x),
+        Number(candidatePoint.y) - Number(point.y)
+    ) <= tolerance);
+}
+
+function getNearbySameLayerLineCandidatesForPoint(point, layerName, tolerance = getManualEndpointTouchToleranceWorld()) {
+    if (!point || !layerName || tolerance <= 1e-6) return [];
+
+    const queryRange = expandBounds({
+        minX: Number(point.x),
+        minY: Number(point.y),
+        maxX: Number(point.x),
+        maxY: Number(point.y)
+    }, tolerance);
+
+    return queryLayerLineCandidates(layerName, queryRange).filter(lineCandidate => {
+        if (!lineCandidate || lineCandidate.layerName !== layerName) return false;
+        return isPointNearLineCandidateEndpoint(point, lineCandidate, tolerance);
+    });
+}
+
+function doesLineCandidateTouchPoints(lineCandidate, points, tolerance = getManualEndpointTouchToleranceWorld()) {
+    if (!lineCandidate || !Array.isArray(points) || !points.length) return false;
+    return points.some(point => isPointNearLineCandidateEndpoint(point, lineCandidate, tolerance));
+}
+
+function getMinimumDistanceToPoints(point, points) {
+    if (!point || !Array.isArray(points) || !points.length) return Infinity;
+    return Math.min(...points.map(candidatePoint => Math.hypot(
+        Number(candidatePoint.x) - Number(point.x),
+        Number(candidatePoint.y) - Number(point.y)
+    )));
+}
+
+function doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, connectAnnotation, tolerance = getManualEndpointTouchToleranceWorld()) {
+    if (!lineCandidate || !connectAnnotation || lineCandidate.layerName !== connectAnnotation.layerName) return false;
+    const internalPoints = getConnectAnnotationInternalPoints(connectAnnotation);
+    if (!internalPoints.length) return false;
+
+    const boundaryPoints = Array.isArray(connectAnnotation?.points) ? connectAnnotation.points : [];
+    return lineCandidate.points.slice(0, 2).some(point => {
+        const minimumInternalDistance = getMinimumDistanceToPoints(point, internalPoints);
+        if (minimumInternalDistance > tolerance) return false;
+
+        const minimumBoundaryDistance = getMinimumDistanceToPoints(point, boundaryPoints);
+        return minimumInternalDistance + 1e-6 < minimumBoundaryDistance;
+    });
 }
 
 function isPointOnSegmentInterior(point, segmentStart, segmentEnd, tolerance = getManualLineAttachToleranceWorld()) {
@@ -702,6 +956,147 @@ function doesConnectBoundaryTouchLineCandidateInterior(connectAnnotation, lineCa
     });
 }
 
+function getLineLikeProbeSegments(lineLike) {
+    if (!lineLike) return [];
+    if (lineLike.type === 'connect') {
+        return getConnectAnnotationVirtualSegments(lineLike);
+    }
+    if (Array.isArray(lineLike?.points) && lineLike.points.length >= 2) {
+        return [[
+            cloneAnnotationPoint(lineLike.points[0]),
+            cloneAnnotationPoint(lineLike.points[1])
+        ]];
+    }
+    return [];
+}
+
+function getClosestPointsBetweenSegments(segmentAStart, segmentAEnd, segmentBStart, segmentBEnd) {
+    const ux = Number(segmentAEnd.x) - Number(segmentAStart.x);
+    const uy = Number(segmentAEnd.y) - Number(segmentAStart.y);
+    const vx = Number(segmentBEnd.x) - Number(segmentBStart.x);
+    const vy = Number(segmentBEnd.y) - Number(segmentBStart.y);
+    const wx = Number(segmentAStart.x) - Number(segmentBStart.x);
+    const wy = Number(segmentAStart.y) - Number(segmentBStart.y);
+
+    const a = (ux * ux) + (uy * uy);
+    const b = (ux * vx) + (uy * vy);
+    const c = (vx * vx) + (vy * vy);
+    const d = (ux * wx) + (uy * wy);
+    const e = (vx * wx) + (vy * wy);
+    const denominator = (a * c) - (b * b);
+    const epsilon = 1e-9;
+
+    let sNumerator;
+    let sDenominator = denominator;
+    let tNumerator;
+    let tDenominator = denominator;
+
+    if (a <= epsilon || c <= epsilon) {
+        return null;
+    }
+
+    if (denominator <= epsilon) {
+        sNumerator = 0;
+        sDenominator = 1;
+        tNumerator = e;
+        tDenominator = c;
+    } else {
+        sNumerator = (b * e) - (c * d);
+        tNumerator = (a * e) - (b * d);
+
+        if (sNumerator < 0) {
+            sNumerator = 0;
+            tNumerator = e;
+            tDenominator = c;
+        } else if (sNumerator > sDenominator) {
+            sNumerator = sDenominator;
+            tNumerator = e + b;
+            tDenominator = c;
+        }
+    }
+
+    if (tNumerator < 0) {
+        tNumerator = 0;
+        if (-d < 0) {
+            sNumerator = 0;
+        } else if (-d > a) {
+            sNumerator = sDenominator;
+        } else {
+            sNumerator = -d;
+            sDenominator = a;
+        }
+    } else if (tNumerator > tDenominator) {
+        tNumerator = tDenominator;
+        if ((b - d) < 0) {
+            sNumerator = 0;
+        } else if ((b - d) > a) {
+            sNumerator = sDenominator;
+        } else {
+            sNumerator = b - d;
+            sDenominator = a;
+        }
+    }
+
+    const segmentAParameter = Math.abs(sNumerator) <= epsilon ? 0 : (sNumerator / sDenominator);
+    const segmentBParameter = Math.abs(tNumerator) <= epsilon ? 0 : (tNumerator / tDenominator);
+    const closestPointA = {
+        x: Number(segmentAStart.x) + (segmentAParameter * ux),
+        y: Number(segmentAStart.y) + (segmentAParameter * uy)
+    };
+    const closestPointB = {
+        x: Number(segmentBStart.x) + (segmentBParameter * vx),
+        y: Number(segmentBStart.y) + (segmentBParameter * vy)
+    };
+
+    return {
+        pointA: closestPointA,
+        pointB: closestPointB,
+        distance: Math.hypot(closestPointA.x - closestPointB.x, closestPointA.y - closestPointB.y),
+        segmentAParameter,
+        segmentBParameter,
+        segmentALength: Math.sqrt(a),
+        segmentBLength: Math.sqrt(c)
+    };
+}
+
+function isSegmentParameterInterior(parameter, segmentLength, tolerance = getManualLineAttachToleranceWorld()) {
+    if (!Number.isFinite(parameter) || !Number.isFinite(segmentLength) || segmentLength <= 1e-6) return false;
+    const normalizedEdgeTolerance = Math.min(tolerance / Math.max(segmentLength, tolerance), 0.499999);
+    return parameter > normalizedEdgeTolerance && parameter < 1 - normalizedEdgeTolerance;
+}
+
+function doesLineLikeCrossConnectInterior(lineLike, connectAnnotation, tolerance = getManualTeeAttachToleranceWorld()) {
+    if (!lineLike || !connectAnnotation || lineLike.layerName !== connectAnnotation.layerName) return false;
+
+    const lineLikeSegments = getLineLikeProbeSegments(lineLike);
+    const connectSegments = getConnectAnnotationVirtualSegments(connectAnnotation);
+    if (!lineLikeSegments.length || !connectSegments.length) return false;
+
+    return lineLikeSegments.some(lineSegment => {
+        if (!Array.isArray(lineSegment) || lineSegment.length < 2) return false;
+        return connectSegments.some(connectSegment => {
+            if (!Array.isArray(connectSegment) || connectSegment.length < 2) return false;
+            const closestApproach = getClosestPointsBetweenSegments(
+                lineSegment[0],
+                lineSegment[1],
+                connectSegment[0],
+                connectSegment[1]
+            );
+            if (!closestApproach || closestApproach.distance > tolerance) return false;
+
+            return isSegmentParameterInterior(
+                closestApproach.segmentAParameter,
+                closestApproach.segmentALength,
+                tolerance
+            ) && isSegmentParameterInterior(
+                closestApproach.segmentBParameter,
+                closestApproach.segmentBLength,
+                tolerance
+            );
+        });
+    });
+}
+
 function collectExistingConnectLineKeys(annotations) {
     const lineKeys = new Set();
     (annotations || []).forEach(annotation => {
@@ -726,10 +1121,14 @@ function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnect
 
         groupedLineCandidates.push(currentLineCandidate);
         currentLineCandidate.endpointKeys.forEach(nextEndpointKey => {
-            if (!isStraightThroughEndpoint(nextEndpointKey, currentLineCandidate.layerName, seedLineCandidate)) {
+            if (!isStraightThroughEndpoint(nextEndpointKey, currentLineCandidate.layerName, seedLineCandidate, null, {
+                tolerance: getManualParallelEndpointTouchToleranceWorld()
+            })) {
                 return;
             }
-            const adjacentLineCandidates = getSameLayerLineCandidatesForEndpoint(nextEndpointKey, currentLineCandidate.layerName);
+            const adjacentLineCandidates = getSameLayerLineCandidatesForEndpoint(nextEndpointKey, currentLineCandidate.layerName, {
+                tolerance: getManualParallelEndpointTouchToleranceWorld()
+            });
             adjacentLineCandidates.forEach(adjacentLineCandidate => {
                 if (!adjacentLineCandidate || seenLineKeys.has(adjacentLineCandidate.id)) return;
                 if (adjacentLineCandidate.layerName !== seedLineCandidate.layerName) return;
@@ -748,6 +1147,67 @@ function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnect
     return groupedLineCandidates;
 }
 
+function buildGroupedConnectAnnotationFromSeedLine(seedLineCandidate, existingConnectLineKeys, options = {}) {
+    if (!seedLineCandidate) return null;
+
+    const groupedLineCandidates = collectStraightGroupedLineCandidates(seedLineCandidate, existingConnectLineKeys);
+    if (!groupedLineCandidates.length) return null;
+
+    const groupedLineKey = groupedLineCandidates.map(candidate => candidate.id).sort().join('||');
+    const annotation = createConnectAnnotationFromLineCandidates(groupedLineCandidates, {
+        id: options.id !== undefined ? options.id : `suggested:${groupedLineKey}`,
+        source: options.source || 'suggested',
+        autoManaged: Boolean(options.autoManaged)
+    });
+
+    if (!annotation) return null;
+    return {
+        annotation,
+        groupedLineCandidates,
+        groupedLineKey
+    };
+}
+
+function getManualMinSuggestConnectLength() {
+    return Math.max(Number(CONFIG.MANUAL_LABEL_MIN_SUGGEST_CONNECT_LENGTH) || 0, 0);
+}
+
+function getSuggestConnectLineLikeEffectiveLength(lineLike) {
+    if (!lineLike) return 0;
+    if (lineLike.type === 'connect') {
+        return getConnectAnnotationEffectiveLength(lineLike);
+    }
+    return getLineCandidateLength(lineLike);
+}
+
+function isSuggestConnectLineLikeLongEnough(lineLike) {
+    return getSuggestConnectLineLikeEffectiveLength(lineLike) >= getManualMinSuggestConnectLength();
+}
+
+function buildSuggestableConnectLineLikeFromSeedLine(seedLineCandidate, existingConnectLineKeys) {
+    if (!seedLineCandidate) return null;
+    const groupedSuggestion = buildGroupedConnectAnnotationFromSeedLine(seedLineCandidate, existingConnectLineKeys, {
+        id: `suggested-probe:${seedLineCandidate.id}`,
+        source: 'suggested',
+        autoManaged: false
+    });
+    return groupedSuggestion?.annotation || seedLineCandidate;
+}
+
+function isSuggestableConnectSeedLineLongEnough(seedLineCandidate, existingConnectLineKeys, cache = null) {
+    if (!seedLineCandidate) return false;
+    if (cache instanceof Map && cache.has(seedLineCandidate.id)) {
+        return cache.get(seedLineCandidate.id);
+    }
+    const isLongEnough = isSuggestConnectLineLikeLongEnough(
+        buildSuggestableConnectLineLikeFromSeedLine(seedLineCandidate, existingConnectLineKeys)
+    );
+    if (cache instanceof Map) {
+        cache.set(seedLineCandidate.id, isLongEnough);
+    }
+    return isLongEnough;
+}
+
 function buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnectLineKeys) {
     const consumedLineKeys = new Set();
     const suggestionGroupKeys = new Set();
@@ -758,14 +1218,14 @@ function buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnec
             return;
         }
 
-        const groupedLineCandidates = collectStraightGroupedLineCandidates(seedLineCandidate, existingConnectLineKeys);
-        const suggestion = createConnectAnnotationFromLineCandidates(groupedLineCandidates, {
-            id: `suggested:${groupedLineCandidates.map(candidate => candidate.id).sort().join('||')}`,
+        const groupedSuggestion = buildGroupedConnectAnnotationFromSeedLine(seedLineCandidate, existingConnectLineKeys, {
             source: 'suggested',
             autoManaged: false
         });
-        if (!suggestion) return;
-        if (getConnectAnnotationLength(suggestion) < (CONFIG.MANUAL_LABEL_MIN_SUGGEST_CONNECT_LENGTH || 0)) return;
+        if (!groupedSuggestion) return;
+
+        const { annotation: suggestion, groupedLineCandidates } = groupedSuggestion;
+        if (!isSuggestConnectLineLikeLongEnough(suggestion)) return;
 
         const groupKey = getConnectAnnotationGroupKey(suggestion);
         if (groupKey && suggestionGroupKeys.has(groupKey)) return;
@@ -781,14 +1241,19 @@ function buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnec
 
 function collectStraightConnectSuggestionSeeds(connectAnnotations, existingConnectLineKeys) {
     const seedLineCandidates = new Map();
+    const suggestableSeedLengthCache = new Map();
     connectAnnotations.forEach(annotation => {
         if (!annotation || annotation.type !== 'connect') return;
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
-        getConnectAnnotationEndpointKeys(annotation).forEach(endpointKey => {
-            const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName);
+        Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation)).forEach(endpointKey => {
+            const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
+                tolerance: getManualParallelEndpointTouchToleranceWorld()
+            });
             connectedLines.forEach(lineCandidate => {
                 if (!lineCandidate || existingConnectLineKeys.has(lineCandidate.id)) return;
+                if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, annotation, getManualParallelEndpointTouchToleranceWorld())) return;
                 if (referenceLineCandidate && !areParallelLineCandidates(referenceLineCandidate, lineCandidate)) return;
+                if (!isSuggestableConnectSeedLineLongEnough(lineCandidate, existingConnectLineKeys, suggestableSeedLengthCache)) return;
                 seedLineCandidates.set(lineCandidate.id, lineCandidate);
             });
         });
@@ -798,6 +1263,7 @@ function collectStraightConnectSuggestionSeeds(connectAnnotations, existingConne
 
 function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLineKeys) {
     const seedLineCandidates = new Map();
+    const acceptedProbeGroupKeys = new Set();
 
     connectAnnotations.forEach(annotation => {
         if (!annotation || annotation.type !== 'connect') return;
@@ -808,13 +1274,18 @@ function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLin
             getConnectAnnotationSearchBounds(annotation)
         );
 
-        getConnectAnnotationEndpointKeys(annotation)
-            .filter(endpointKey => isJunctionEndpoint(endpointKey, annotation.layerName, referenceLineCandidate))
+        Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation))
+            .filter(endpointKey => isJunctionEndpoint(endpointKey, annotation.layerName, referenceLineCandidate, {
+                tolerance: getManualElbowEndpointTouchToleranceWorld()
+            }))
             .forEach(endpointKey => {
-                const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName);
+                const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
+                    tolerance: getManualElbowEndpointTouchToleranceWorld()
+                });
                 connectedLines.forEach(lineCandidate => {
                     if (!lineCandidate || existingConnectLineKeys.has(lineCandidate.id)) return;
-                    if (areParallelLineCandidates(referenceLineCandidate, lineCandidate)) return;
+                    if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, annotation, getManualElbowEndpointTouchToleranceWorld())) return;
+                    if (!isElbowLineCandidate(referenceLineCandidate, lineCandidate)) return;
                     seedLineCandidates.set(lineCandidate.id, lineCandidate);
                 });
             });
@@ -822,15 +1293,623 @@ function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLin
         nearbyLineCandidates.forEach(lineCandidate => {
             if (!lineCandidate) return;
             if (existingConnectLineKeys.has(lineCandidate.id) || seedLineCandidates.has(lineCandidate.id)) return;
-            if (areParallelLineCandidates(referenceLineCandidate, lineCandidate)) return;
-            const touchesConnectInterior = doesLineCandidateTouchConnectInterior(lineCandidate, annotation);
-            const touchesLineInterior = doesConnectBoundaryTouchLineCandidateInterior(annotation, lineCandidate);
-            if (!touchesConnectInterior && !touchesLineInterior) return;
+            if (!isTeeLineCandidate(referenceLineCandidate, lineCandidate)) return;
+
+            const groupedProbe = buildGroupedConnectAnnotationFromSeedLine(lineCandidate, existingConnectLineKeys, {
+                id: `tee-probe:${lineCandidate.id}`,
+                source: 'suggested',
+                autoManaged: false
+            });
+            const teeProbe = groupedProbe?.annotation || lineCandidate;
+            const probeGroupKey = groupedProbe?.groupedLineKey || null;
+            if (!isSuggestConnectLineLikeLongEnough(teeProbe)) return;
+            if (probeGroupKey && acceptedProbeGroupKeys.has(probeGroupKey)) return;
+
+            const touchesConnectInterior = doesLineCandidateTouchConnectInterior(teeProbe, annotation);
+            const touchesLineInterior = doesConnectBoundaryTouchLineCandidateInterior(annotation, teeProbe);
+            const crossesConnectInterior = doesLineLikeCrossConnectInterior(teeProbe, annotation);
+            if (!touchesConnectInterior && !touchesLineInterior && !crossesConnectInterior) return;
+
+            if (probeGroupKey) {
+                acceptedProbeGroupKeys.add(probeGroupKey);
+            }
             seedLineCandidates.set(lineCandidate.id, lineCandidate);
         });
     });
 
     return Array.from(seedLineCandidates.values());
+}
+
+function getConnectAnnotationResolvedLineCandidates(annotation) {
+    const lineCandidates = getConnectAnnotationLineKeys(annotation)
+        .map(lineKey => snapPointLineItems.get(lineKey))
+        .filter(Boolean);
+    if (lineCandidates.length) {
+        return lineCandidates;
+    }
+
+    return getConnectAnnotationSegments(annotation)
+        .filter(segment => Array.isArray(segment) && segment.length >= 2)
+        .map((segment, segmentIndex) => ({
+            id: `segment:${annotation?.id ?? 'unknown'}:${segmentIndex}`,
+            layerName: annotation?.layerName || segment[0]?.layerName,
+            points: segment.map(cloneAnnotationPoint),
+            endpointKeys: segment.map(point => getSnapPointKey(annotation?.layerName || point.layerName, point.x, point.y))
+        }))
+        .filter(lineCandidate => lineCandidate.layerName && lineCandidate.points.length >= 2);
+}
+
+function getLineLikeGroupKey(lineLike) {
+    if (!lineLike) return null;
+    if (lineLike.type === 'connect') {
+        return getConnectAnnotationGroupKey(lineLike);
+    }
+    if (lineLike.id !== undefined && lineLike.id !== null) {
+        return String(lineLike.id);
+    }
+    if (lineLike.layerName && Array.isArray(lineLike.points) && lineLike.points.length >= 2) {
+        return createNormalizedLineKey(lineLike.layerName, lineLike.points[0], lineLike.points[1]);
+    }
+    return null;
+}
+
+function pushUniquePairCheckValue(list, value) {
+    if (!Array.isArray(list) || value === undefined || value === null) return;
+    if (!list.includes(value)) {
+        list.push(value);
+    }
+}
+
+function normalizePairCheckConditionRefs(conditionRefs = []) {
+    const normalizedRefs = Array.isArray(conditionRefs) ? conditionRefs : [conditionRefs];
+    return Array.from(new Set(
+        normalizedRefs
+            .flatMap(conditionRef => Array.isArray(conditionRef) ? conditionRef : [conditionRef])
+            .map(conditionRef => String(conditionRef || '').trim())
+            .filter(Boolean)
+    ));
+}
+
+function formatPairCheckConditionRef(conditionRef) {
+    if (!conditionRef) return '';
+    if (conditionRef.startsWith('>#')) return conditionRef.slice(1);
+    if (conditionRef.startsWith('#')) return conditionRef;
+    if (conditionRef.startsWith('sym:') || conditionRef.startsWith('rule:') || conditionRef.startsWith('fn:')) {
+        return `#${conditionRef}`;
+    }
+    return `#sym:${conditionRef}`;
+}
+
+function formatPairCheckNumber(value) {
+    if (!Number.isFinite(value)) return 'Infinity';
+    return Number(value.toFixed(3)).toString();
+}
+
+function createPairCheckComparisonMessage(metricLabel, actualValue, comparator, expectedValue, message) {
+    const metricPrefix = metricLabel ? `${metricLabel} ` : '';
+    return `${metricPrefix}${formatPairCheckNumber(actualValue)}${comparator}${formatPairCheckNumber(expectedValue)} failed: ${message}`;
+}
+
+function createPairCheckReason(message, conditionRefs = []) {
+    const normalizedRefs = normalizePairCheckConditionRefs(conditionRefs);
+    const prefix = normalizedRefs.map(formatPairCheckConditionRef).join(' ');
+    return prefix ? `${prefix} ${message}` : message;
+}
+
+function pushUniquePairCheckReason(reasons, message, conditionRefs = []) {
+    if (!Array.isArray(reasons) || !message) return;
+    const reason = createPairCheckReason(message, conditionRefs);
+    if (!reasons.includes(reason)) {
+        reasons.push(reason);
+    }
+}
+
+function pushUniquePairCheckComparisonReason(reasons, metricLabel, actualValue, comparator, expectedValue, message, conditionRefs = []) {
+    pushUniquePairCheckReason(
+        reasons,
+        createPairCheckComparisonMessage(metricLabel, actualValue, comparator, expectedValue, message),
+        conditionRefs
+    );
+}
+
+function getLineCandidateEndpointPoints(lineCandidate) {
+    if (!Array.isArray(lineCandidate?.points)) return [];
+    return lineCandidate.points.slice(0, 2).map(cloneAnnotationPoint);
+}
+
+function getConnectAnnotationBoundaryPoints(annotation) {
+    if (!Array.isArray(annotation?.points)) return [];
+    return annotation.points.map(cloneAnnotationPoint);
+}
+
+function getMinimumDistanceBetweenPointSets(pointsA, pointsB) {
+    if (!Array.isArray(pointsA) || !Array.isArray(pointsB) || !pointsA.length || !pointsB.length) {
+        return Infinity;
+    }
+
+    let minimumDistance = Infinity;
+    pointsA.forEach(pointA => {
+        pointsB.forEach(pointB => {
+            minimumDistance = Math.min(minimumDistance, Math.hypot(
+                Number(pointA.x) - Number(pointB.x),
+                Number(pointA.y) - Number(pointB.y)
+            ));
+        });
+    });
+    return minimumDistance;
+}
+
+function getMinimumBoundaryEndpointGapForLineCandidates(annotation, lineCandidates) {
+    return getMinimumDistanceBetweenPointSets(
+        getConnectAnnotationBoundaryPoints(annotation),
+        (lineCandidates || []).flatMap(getLineCandidateEndpointPoints)
+    );
+}
+
+function getMinimumInternalEndpointGapForLineCandidates(annotation, lineCandidates) {
+    return getMinimumDistanceBetweenPointSets(
+        getConnectAnnotationInternalPoints(annotation),
+        (lineCandidates || []).flatMap(getLineCandidateEndpointPoints)
+    );
+}
+
+function getMinimumAngleDegreesBetweenReferenceAndLineCandidates(referenceLineCandidate, lineCandidates) {
+    if (!referenceLineCandidate || !Array.isArray(lineCandidates) || !lineCandidates.length) return Infinity;
+    let minimumAngle = Infinity;
+    lineCandidates.forEach(lineCandidate => {
+        minimumAngle = Math.min(minimumAngle, getLineCandidateUndirectedAngleDegrees(referenceLineCandidate, lineCandidate));
+    });
+    return minimumAngle;
+}
+
+function getMaximumProbeEffectiveLengthFromLineCandidates(lineCandidates, existingConnectLineKeys) {
+    if (!Array.isArray(lineCandidates) || !lineCandidates.length) return 0;
+    let maximumLength = 0;
+    lineCandidates.forEach(lineCandidate => {
+        const probeInfo = getPairCheckProbeInfoFromSeedLine(lineCandidate, existingConnectLineKeys, 'pair-check-metric');
+        maximumLength = Math.max(maximumLength, getSuggestConnectLineLikeEffectiveLength(probeInfo.probe));
+    });
+    return maximumLength;
+}
+
+function getMinimumLineLikeToConnectGap(lineLike, connectAnnotation) {
+    const lineLikeSegments = getLineLikeProbeSegments(lineLike);
+    const connectSegments = getConnectAnnotationVirtualSegments(connectAnnotation);
+    if (!lineLikeSegments.length || !connectSegments.length) return Infinity;
+
+    let minimumDistance = Infinity;
+    lineLikeSegments.forEach(lineSegment => {
+        if (!Array.isArray(lineSegment) || lineSegment.length < 2) return;
+        connectSegments.forEach(connectSegment => {
+            if (!Array.isArray(connectSegment) || connectSegment.length < 2) return;
+            const closestApproach = getClosestPointsBetweenSegments(
+                lineSegment[0],
+                lineSegment[1],
+                connectSegment[0],
+                connectSegment[1]
+            );
+            if (!closestApproach) return;
+            minimumDistance = Math.min(minimumDistance, closestApproach.distance);
+        });
+    });
+    return minimumDistance;
+}
+
+function getMinimumProbeAttachGapForLineCandidates(lineCandidates, connectAnnotation, existingConnectLineKeys) {
+    if (!Array.isArray(lineCandidates) || !lineCandidates.length) return Infinity;
+    let minimumGap = Infinity;
+    lineCandidates.forEach(lineCandidate => {
+        const probeInfo = getPairCheckProbeInfoFromSeedLine(lineCandidate, existingConnectLineKeys, 'pair-check-attach');
+        minimumGap = Math.min(minimumGap, getMinimumLineLikeToConnectGap(probeInfo.probe, connectAnnotation));
+    });
+    return minimumGap;
+}
+
+function getPairCheckProbeInfoFromSeedLine(seedLineCandidate, existingConnectLineKeys, probePrefix = 'pair-check-probe') {
+    const groupedProbe = buildGroupedConnectAnnotationFromSeedLine(seedLineCandidate, existingConnectLineKeys, {
+        id: `${probePrefix}:${seedLineCandidate.id}`,
+        source: 'suggested',
+        autoManaged: false
+    });
+
+    if (groupedProbe?.annotation) {
+        return {
+            probe: groupedProbe.annotation,
+            groupKey: getConnectAnnotationGroupKey(groupedProbe.annotation),
+            groupedLineKey: groupedProbe.groupedLineKey
+        };
+    }
+
+    return {
+        probe: seedLineCandidate,
+        groupKey: getLineLikeGroupKey(seedLineCandidate),
+        groupedLineKey: null
+    };
+}
+
+function createConnectPairPathDiagnostics(path) {
+    return {
+        path,
+        matched: false,
+        reasons: [],
+        seedLineIds: [],
+        suggestionGroupKeys: [],
+        probeGroupKeys: [],
+        sourceBoundaryEndpointKeys: [],
+        matchedSuggestionGroupKey: null,
+        targetLineIds: []
+    };
+}
+
+function evaluateStraightConnectSuggestionDirection(sourceAnnotation, targetAnnotation, existingConnectLineKeys, targetGroupKey) {
+    const diagnostics = createConnectPairPathDiagnostics('straight');
+    const sourceLayerName = sourceAnnotation?.layerName || null;
+    const targetLayerName = targetAnnotation?.layerName || null;
+    const sourceReferenceLineCandidate = getReferenceLineCandidateForAnnotation(sourceAnnotation);
+    const targetReferenceLineCandidate = getReferenceLineCandidateForAnnotation(targetAnnotation);
+    const targetLineCandidates = getConnectAnnotationResolvedLineCandidates(targetAnnotation);
+    diagnostics.targetLineIds = targetLineCandidates.map(lineCandidate => lineCandidate.id);
+
+    if (sourceLayerName !== targetLayerName) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `${sourceLayerName || 'null'}!=${targetLayerName || 'null'} failed: Khác layer nên không thể gợi ý connect thẳng.`,
+            ['#rule:PAIR_CHECK_SAME_LAYER_REQUIRED']
+        );
+        return diagnostics;
+    }
+    if (!sourceReferenceLineCandidate) {
+        pushUniquePairCheckReason(diagnostics.reasons, 'sourceReferenceLine=null failed: Source connect không có reference line để kiểm tra straight.', ['#rule:PAIR_CHECK_REFERENCE_LINE_REQUIRED']);
+        return diagnostics;
+    }
+    if (!targetReferenceLineCandidate) {
+        pushUniquePairCheckReason(diagnostics.reasons, 'targetReferenceLine=null failed: Target connect không có reference line để kiểm tra straight.', ['#rule:PAIR_CHECK_REFERENCE_LINE_REQUIRED']);
+        return diagnostics;
+    }
+    if (!targetGroupKey) {
+        pushUniquePairCheckReason(diagnostics.reasons, 'targetGroupKey=null failed: Target connect không có group key hợp lệ.', ['#rule:PAIR_CHECK_GROUP_KEY_REQUIRED']);
+        return diagnostics;
+    }
+
+    diagnostics.sourceBoundaryEndpointKeys = Array.from(getConnectAnnotationBoundaryEndpointKeys(sourceAnnotation));
+
+    const touchingTargetLineIds = [];
+    const nonInternalTouchTargetLineIds = [];
+    const parallelTargetLineIds = [];
+    const longEnoughTargetLineIds = [];
+    const candidateSeedLineCandidates = new Map();
+    const targetLineKeySet = new Set(targetLineCandidates.map(lineCandidate => lineCandidate.id));
+    const straightTolerance = getManualParallelEndpointTouchToleranceWorld();
+    const minimumBoundaryGap = getMinimumBoundaryEndpointGapForLineCandidates(sourceAnnotation, targetLineCandidates);
+    const minimumInternalGap = getMinimumInternalEndpointGapForLineCandidates(sourceAnnotation, targetLineCandidates);
+    const minimumParallelAngle = getMinimumAngleDegreesBetweenReferenceAndLineCandidates(sourceReferenceLineCandidate, targetLineCandidates);
+
+    diagnostics.sourceBoundaryEndpointKeys.forEach(endpointKey => {
+        const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, sourceLayerName, {
+            tolerance: straightTolerance
+        });
+        connectedLines.forEach(lineCandidate => {
+            if (!lineCandidate || !targetLineKeySet.has(lineCandidate.id)) return;
+            pushUniquePairCheckValue(touchingTargetLineIds, lineCandidate.id);
+            if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, sourceAnnotation, straightTolerance)) {
+                return;
+            }
+
+            pushUniquePairCheckValue(nonInternalTouchTargetLineIds, lineCandidate.id);
+            if (!areParallelLineCandidates(sourceReferenceLineCandidate, lineCandidate)) {
+                return;
+            }
+
+            pushUniquePairCheckValue(parallelTargetLineIds, lineCandidate.id);
+            if (!isSuggestableConnectSeedLineLongEnough(lineCandidate, existingConnectLineKeys)) {
+                return;
+            }
+
+            pushUniquePairCheckValue(longEnoughTargetLineIds, lineCandidate.id);
+            candidateSeedLineCandidates.set(lineCandidate.id, lineCandidate);
+        });
+    });
+
+    const straightSeeds = collectStraightConnectSuggestionSeeds([sourceAnnotation], existingConnectLineKeys);
+    diagnostics.seedLineIds = straightSeeds.map(lineCandidate => lineCandidate.id);
+    const straightSuggestions = buildConnectSuggestionsFromSeedLines(straightSeeds, existingConnectLineKeys);
+    diagnostics.suggestionGroupKeys = straightSuggestions
+        .map(getConnectAnnotationGroupKey)
+        .filter(Boolean);
+
+    const matchedSuggestion = straightSuggestions.find(suggestion => getConnectAnnotationGroupKey(suggestion) === targetGroupKey);
+    if (matchedSuggestion) {
+        diagnostics.matched = true;
+        diagnostics.matchedSuggestionGroupKey = targetGroupKey;
+        return diagnostics;
+    }
+
+    Array.from(candidateSeedLineCandidates.values()).forEach(lineCandidate => {
+        const probeInfo = getPairCheckProbeInfoFromSeedLine(lineCandidate, existingConnectLineKeys, 'pair-check-straight');
+        pushUniquePairCheckValue(diagnostics.probeGroupKeys, probeInfo.groupKey);
+    });
+
+    if (!touchingTargetLineIds.length) {
+        pushUniquePairCheckComparisonReason(
+            diagnostics.reasons,
+            'minEndpointGap',
+            minimumBoundaryGap,
+            '>',
+            straightTolerance,
+            'Target không chạm boundary endpoint của source trong ngưỡng straight.',
+            ['MANUAL_LABEL_PARALLEL_SUGGEST_TOUCH_TOLERANCE']
+        );
+    }
+    if (touchingTargetLineIds.length && !nonInternalTouchTargetLineIds.length) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `minInternalGap ${formatPairCheckNumber(minimumInternalGap)}<=${formatPairCheckNumber(straightTolerance)} failed: Target chỉ chạm internal endpoint của source nên bị loại khỏi straight seed.`,
+            ['#rule:PAIR_CHECK_INTERNAL_ENDPOINT_EXCLUDED', 'MANUAL_LABEL_PARALLEL_SUGGEST_TOUCH_TOLERANCE']
+        );
+    }
+    if (nonInternalTouchTargetLineIds.length && !parallelTargetLineIds.length) {
+        pushUniquePairCheckComparisonReason(
+            diagnostics.reasons,
+            'angle',
+            minimumParallelAngle,
+            '>',
+            getManualParallelMaxAngleDegrees(),
+            'Target không song song với hướng source theo ngưỡng straight.',
+            ['#sym:MANUAL_LABEL_PARALLEL_MAX_ANGLE_DEGREES']
+        );
+    }
+    if (parallelTargetLineIds.length && !longEnoughTargetLineIds.length) {
+        pushUniquePairCheckComparisonReason(
+            diagnostics.reasons,
+            'maxProbeLength',
+            getMaximumProbeEffectiveLengthFromLineCandidates(targetLineCandidates, existingConnectLineKeys),
+            '<',
+            getManualMinSuggestConnectLength(),
+            'Seed straight không đạt chiều dài tối thiểu.',
+            ['MANUAL_LABEL_MIN_SUGGEST_CONNECT_LENGTH']
+        );
+    }
+    if (longEnoughTargetLineIds.length && !diagnostics.probeGroupKeys.includes(targetGroupKey)) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `probeGroup=${diagnostics.probeGroupKeys.join('|') || 'none'} != targetGroup=${targetGroupKey} failed: Gộp straight từ seed hiện tại không tạo đúng group line của target.`,
+            ['#rule:PAIR_CHECK_GROUP_KEY_MISMATCH']
+        );
+    }
+    if (!diagnostics.reasons.length) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `suggestionGroup=${diagnostics.suggestionGroupKeys.join('|') || 'none'} != targetGroup=${targetGroupKey} failed: Không có straight suggestion nào trùng group key với target.`,
+            ['#rule:PAIR_CHECK_NO_MATCHING_SUGGESTION_GROUP']
+        );
+    }
+
+    return diagnostics;
+}
+
+function evaluateTeeConnectSuggestionDirection(sourceAnnotation, targetAnnotation, existingConnectLineKeys, targetGroupKey) {
+    const diagnostics = createConnectPairPathDiagnostics('tee');
+    const sourceLayerName = sourceAnnotation?.layerName || null;
+    const targetLayerName = targetAnnotation?.layerName || null;
+    const sourceReferenceLineCandidate = getReferenceLineCandidateForAnnotation(sourceAnnotation);
+    const targetReferenceLineCandidate = getReferenceLineCandidateForAnnotation(targetAnnotation);
+    const targetLineCandidates = getConnectAnnotationResolvedLineCandidates(targetAnnotation);
+    diagnostics.targetLineIds = targetLineCandidates.map(lineCandidate => lineCandidate.id);
+
+    if (sourceLayerName !== targetLayerName) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `${sourceLayerName || 'null'}!=${targetLayerName || 'null'} failed: Khác layer nên không thể gợi ý tee/elbow.`,
+            ['#rule:PAIR_CHECK_SAME_LAYER_REQUIRED']
+        );
+        return diagnostics;
+    }
+    if (!sourceReferenceLineCandidate) {
+        pushUniquePairCheckReason(diagnostics.reasons, 'sourceReferenceLine=null failed: Source connect không có reference line để kiểm tra tee/elbow.', ['#rule:PAIR_CHECK_REFERENCE_LINE_REQUIRED']);
+        return diagnostics;
+    }
+    if (!targetReferenceLineCandidate) {
+        pushUniquePairCheckReason(diagnostics.reasons, 'targetReferenceLine=null failed: Target connect không có reference line để kiểm tra tee/elbow.', ['#rule:PAIR_CHECK_REFERENCE_LINE_REQUIRED']);
+        return diagnostics;
+    }
+    if (!targetGroupKey) {
+        pushUniquePairCheckReason(diagnostics.reasons, 'targetGroupKey=null failed: Target connect không có group key hợp lệ.', ['#rule:PAIR_CHECK_GROUP_KEY_REQUIRED']);
+        return diagnostics;
+    }
+
+    const elbowTolerance = getManualElbowEndpointTouchToleranceWorld();
+    diagnostics.sourceBoundaryEndpointKeys = Array.from(getConnectAnnotationBoundaryEndpointKeys(sourceAnnotation));
+    const junctionEndpointKeys = diagnostics.sourceBoundaryEndpointKeys.filter(endpointKey => isJunctionEndpoint(
+        endpointKey,
+        sourceLayerName,
+        sourceReferenceLineCandidate,
+        { tolerance: elbowTolerance }
+    ));
+    const targetLineKeySet = new Set(targetLineCandidates.map(lineCandidate => lineCandidate.id));
+    const elbowSeedLineIds = [];
+    const angleQualifiedTargetLineIds = [];
+    const interiorAttachTargetLineIds = [];
+    const longEnoughProbeLineIds = [];
+    const minimumBoundaryGap = getMinimumBoundaryEndpointGapForLineCandidates(sourceAnnotation, targetLineCandidates);
+    const minimumAngle = getMinimumAngleDegreesBetweenReferenceAndLineCandidates(sourceReferenceLineCandidate, targetLineCandidates);
+
+    junctionEndpointKeys.forEach(endpointKey => {
+        const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, sourceLayerName, {
+            tolerance: elbowTolerance
+        });
+        connectedLines.forEach(lineCandidate => {
+            if (!lineCandidate || !targetLineKeySet.has(lineCandidate.id)) return;
+            if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, sourceAnnotation, elbowTolerance)) {
+                return;
+            }
+            if (!isElbowLineCandidate(sourceReferenceLineCandidate, lineCandidate)) {
+                return;
+            }
+            pushUniquePairCheckValue(elbowSeedLineIds, lineCandidate.id);
+
+            const probeInfo = getPairCheckProbeInfoFromSeedLine(lineCandidate, existingConnectLineKeys, 'pair-check-tee-elbow');
+            pushUniquePairCheckValue(diagnostics.probeGroupKeys, probeInfo.groupKey);
+            if (isSuggestConnectLineLikeLongEnough(probeInfo.probe)) {
+                pushUniquePairCheckValue(longEnoughProbeLineIds, lineCandidate.id);
+            }
+        });
+    });
+
+    targetLineCandidates.forEach(lineCandidate => {
+        if (!lineCandidate) return;
+        if (!isTeeLineCandidate(sourceReferenceLineCandidate, lineCandidate)) {
+            return;
+        }
+
+        pushUniquePairCheckValue(angleQualifiedTargetLineIds, lineCandidate.id);
+        const probeInfo = getPairCheckProbeInfoFromSeedLine(lineCandidate, existingConnectLineKeys, 'pair-check-tee');
+        pushUniquePairCheckValue(diagnostics.probeGroupKeys, probeInfo.groupKey);
+
+        if (!isSuggestConnectLineLikeLongEnough(probeInfo.probe)) {
+            return;
+        }
+
+        pushUniquePairCheckValue(longEnoughProbeLineIds, lineCandidate.id);
+        const touchesConnectInterior = doesLineCandidateTouchConnectInterior(probeInfo.probe, sourceAnnotation);
+        const touchesLineInterior = doesConnectBoundaryTouchLineCandidateInterior(sourceAnnotation, probeInfo.probe);
+        const crossesConnectInterior = doesLineLikeCrossConnectInterior(probeInfo.probe, sourceAnnotation);
+        if (touchesConnectInterior || touchesLineInterior || crossesConnectInterior) {
+            pushUniquePairCheckValue(interiorAttachTargetLineIds, lineCandidate.id);
+        }
+    });
+
+    const teeSeeds = collectTeeConnectSuggestionSeeds([sourceAnnotation], existingConnectLineKeys);
+    diagnostics.seedLineIds = teeSeeds.map(lineCandidate => lineCandidate.id);
+    const teeSuggestions = buildConnectSuggestionsFromSeedLines(teeSeeds, existingConnectLineKeys);
+    diagnostics.suggestionGroupKeys = teeSuggestions
+        .map(getConnectAnnotationGroupKey)
+        .filter(Boolean);
+
+    const matchedSuggestion = teeSuggestions.find(suggestion => getConnectAnnotationGroupKey(suggestion) === targetGroupKey);
+    if (matchedSuggestion) {
+        diagnostics.matched = true;
+        diagnostics.matchedSuggestionGroupKey = targetGroupKey;
+        return diagnostics;
+    }
+
+    if (!elbowSeedLineIds.length && !angleQualifiedTargetLineIds.length) {
+        pushUniquePairCheckComparisonReason(
+            diagnostics.reasons,
+            'angle',
+            minimumAngle,
+            '<=',
+            getManualParallelMaxAngleDegrees(),
+            'Target vẫn còn nằm trong vùng parallel nên chưa được xem là góc tee/elbow.',
+            ['#sym:MANUAL_LABEL_PARALLEL_MAX_ANGLE_DEGREES']
+        );
+    }
+    if (!junctionEndpointKeys.length && !interiorAttachTargetLineIds.length) {
+        if (minimumBoundaryGap > elbowTolerance) {
+            pushUniquePairCheckComparisonReason(
+                diagnostics.reasons,
+                'minEndpointGap',
+                minimumBoundaryGap,
+                '>',
+                elbowTolerance,
+                'Source không có junction endpoint hợp lệ cho nhánh tee/elbow.',
+                ['MANUAL_LABEL_ELBOW_SUGGEST_TOUCH_TOLERANCE', '#rule:PAIR_CHECK_JUNCTION_ENDPOINT_REQUIRED']
+            );
+        } else {
+            pushUniquePairCheckReason(
+                diagnostics.reasons,
+                `junctionEndpointCount ${junctionEndpointKeys.length}<1 failed: Source không có junction endpoint hợp lệ cho nhánh tee/elbow dù khoảng cách endpoint đã nằm trong ngưỡng elbow.`,
+                ['#rule:PAIR_CHECK_JUNCTION_ENDPOINT_REQUIRED']
+            );
+        }
+    }
+    if ((elbowSeedLineIds.length || angleQualifiedTargetLineIds.length) && !longEnoughProbeLineIds.length) {
+        pushUniquePairCheckComparisonReason(
+            diagnostics.reasons,
+            'maxProbeLength',
+            getMaximumProbeEffectiveLengthFromLineCandidates(targetLineCandidates, existingConnectLineKeys),
+            '<',
+            getManualMinSuggestConnectLength(),
+            'Probe tee/elbow không đạt chiều dài tối thiểu.',
+            ['MANUAL_LABEL_MIN_SUGGEST_CONNECT_LENGTH']
+        );
+    }
+    if (longEnoughProbeLineIds.length && !interiorAttachTargetLineIds.length && !elbowSeedLineIds.length) {
+        pushUniquePairCheckComparisonReason(
+            diagnostics.reasons,
+            'minAttachGap',
+            getMinimumProbeAttachGapForLineCandidates(targetLineCandidates, sourceAnnotation, existingConnectLineKeys),
+            '>',
+            getManualTeeAttachToleranceWorld(),
+            'Target không chạm hoặc cắt interior của source theo ngưỡng tee.',
+            ['MANUAL_LABEL_TEE_SUGGEST_TOUCH_TOLERANCE']
+        );
+    }
+    if ((interiorAttachTargetLineIds.length || elbowSeedLineIds.length) && !diagnostics.probeGroupKeys.includes(targetGroupKey)) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `probeGroup=${diagnostics.probeGroupKeys.join('|') || 'none'} != targetGroup=${targetGroupKey} failed: Gộp tee/elbow từ seed hiện tại không tạo đúng group line của target.`,
+            ['#rule:PAIR_CHECK_GROUP_KEY_MISMATCH']
+        );
+    }
+    if (!diagnostics.reasons.length) {
+        pushUniquePairCheckReason(
+            diagnostics.reasons,
+            `suggestionGroup=${diagnostics.suggestionGroupKeys.join('|') || 'none'} != targetGroup=${targetGroupKey} failed: Không có tee/elbow suggestion nào trùng group key với target.`,
+            ['#rule:PAIR_CHECK_NO_MATCHING_SUGGESTION_GROUP']
+        );
+    }
+
+    return diagnostics;
+}
+
+function evaluateConnectSuggestionDirection(sourceAnnotation, targetAnnotation) {
+    const direction = {
+        sourceId: sourceAnnotation?.id ?? null,
+        targetId: targetAnnotation?.id ?? null,
+        sourceLayerName: sourceAnnotation?.layerName ?? null,
+        targetLayerName: targetAnnotation?.layerName ?? null,
+        targetGroupKey: getConnectAnnotationGroupKey(targetAnnotation),
+        isValid: false,
+        matchedPath: null,
+        straight: createConnectPairPathDiagnostics('straight'),
+        tee: createConnectPairPathDiagnostics('tee')
+    };
+
+    if (sourceAnnotation?.type !== 'connect' || targetAnnotation?.type !== 'connect') {
+        pushUniquePairCheckReason(direction.straight.reasons, 'sourceType!=connect hoặc targetType!=connect failed: Cả source và target phải là connect annotation.', ['#rule:PAIR_CHECK_CONNECT_ANNOTATION_REQUIRED']);
+        pushUniquePairCheckReason(direction.tee.reasons, 'sourceType!=connect hoặc targetType!=connect failed: Cả source và target phải là connect annotation.', ['#rule:PAIR_CHECK_CONNECT_ANNOTATION_REQUIRED']);
+        return direction;
+    }
+
+    const isolatedExistingConnectLineKeys = collectExistingConnectLineKeys([sourceAnnotation]);
+    direction.straight = evaluateStraightConnectSuggestionDirection(
+        sourceAnnotation,
+        targetAnnotation,
+        isolatedExistingConnectLineKeys,
+        direction.targetGroupKey
+    );
+    direction.tee = evaluateTeeConnectSuggestionDirection(
+        sourceAnnotation,
+        targetAnnotation,
+        isolatedExistingConnectLineKeys,
+        direction.targetGroupKey
+    );
+    direction.isValid = Boolean(direction.straight.matched || direction.tee.matched);
+    direction.matchedPath = direction.straight.matched ? 'straight' : (direction.tee.matched ? 'tee' : null);
+    return direction;
+}
+
+function evaluateBidirectionalConnectSuggestionPair(annotationA, annotationB) {
+    const forward = evaluateConnectSuggestionDirection(annotationA, annotationB);
+    const backward = evaluateConnectSuggestionDirection(annotationB, annotationA);
+
+    return {
+        annotationAId: annotationA?.id ?? null,
+        annotationBId: annotationB?.id ?? null,
+        hasAnySuggestion: Boolean(forward.isValid || backward.isValid),
+        isMutualSuggestion: Boolean(forward.isValid && backward.isValid),
+        directions: [forward, backward]
+    };
 }
 
 function getManualLabelHalfSizeWorld() {

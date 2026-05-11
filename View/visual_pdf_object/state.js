@@ -144,6 +144,7 @@ const btnToggleLayerMode = document.getElementById('btn-toggle-layer-mode');
 const btnAIExtract = document.getElementById('btn-ai-extract');
 const btnLabelJunction = document.getElementById('btn-label-junction');
 const btnLabelConnect = document.getElementById('btn-label-connect');
+const btnCheckConnectPair = document.getElementById('btn-check-connect-pair');
 const btnUndoLabel = document.getElementById('btn-undo-label');
 const btnClearLabels = document.getElementById('btn-clear-labels');
 const btnExportLabelPackage = document.getElementById('btn-export-label-package');
@@ -239,6 +240,8 @@ let annotationFeedbackMessage = '';
 let annotationFeedbackTone = 'info';
 let hoveredAnnotationId = null;
 let suggestedConnectAnnotations = [];
+let pairCheckSelectionIds = [];
+let pairCheckLastReport = null;
 let extractedCellOverlays = [];
 let extractedCellDownloadBundle = null;
 
@@ -313,6 +316,7 @@ const UI_TEXT = Object.freeze({
     MODE_SYMBOL: '🏷️ Symbol',
     MODE_JUNCTION: '● Junction',
     MODE_CONNECT: '↔ Connect',
+    MODE_PAIR_CHECK: '⇄ Pair Check',
     MODE_DELETE: '⌦ Delete',
     TREE_EXPANDED: ' ▼',
     TREE_COLLAPSED: ' ▶',

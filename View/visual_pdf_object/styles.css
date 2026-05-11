@@ -423,6 +423,7 @@ body {
 #canvas-container.drawing-bbox::after,
 #canvas-container.annotation-junction-mode::after,
 #canvas-container.annotation-connect-mode::after,
+#canvas-container.annotation-pair-check-mode::after,
 #canvas-container.annotation-delete-mode::after {
     display: none !important;
 }
@@ -440,6 +441,11 @@ body {
 #canvas-container.annotation-connect-mode::after {
     background: rgba(14, 165, 233, 0.9);
     box-shadow: 0 0 20px rgba(14, 165, 233, 0.6);
+}
+
+#canvas-container.annotation-pair-check-mode::after {
+    background: rgba(124, 58, 237, 0.92);
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.55);
 }
 
 #canvas-container.annotation-delete-mode::after {
@@ -476,6 +482,10 @@ body {
 
 .mode-label.connect-mode {
     background: rgba(14, 165, 233, 0.92);
+}
+
+.mode-label.pair-check-mode {
+    background: rgba(124, 58, 237, 0.94);
 }
 
 .mode-label.delete-mode {
@@ -541,6 +551,7 @@ body {
 
 #canvas-container.annotation-junction-mode,
 #canvas-container.annotation-connect-mode,
+#canvas-container.annotation-pair-check-mode,
 #canvas-container.annotation-delete-mode {
     cursor: crosshair !important;
 }
@@ -655,6 +666,17 @@ body {
     color: var(--danger-color);
 }
 
+.manual-label-pair-detail {
+    font-size: 10px;
+    line-height: 1.4;
+    color: #475569;
+    word-break: break-word;
+}
+
+.manual-label-pair-detail strong {
+    color: #0f172a;
+}
+
 .manual-label-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -684,6 +706,10 @@ body {
     color: #fff;
 }
 
+.manual-label-btn-wide {
+    grid-column: 1 / -1;
+}
+
 #btn-label-junction.active {
     background: #ef4444;
     border-color: #ef4444;
@@ -692,6 +718,11 @@ body {
 #btn-label-connect.active {
     background: #0ea5e9;
     border-color: #0ea5e9;
+}
+
+#btn-check-connect-pair.active {
+    background: #7c3aed;
+    border-color: #7c3aed;
 }
 
 #btn-clear-labels.active {

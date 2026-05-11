@@ -2,6 +2,8 @@ const MANUAL_LABEL_COLORS = Object.freeze({
     junction: '#ef4444',
     connect: '#0ea5e9',
     suggested: '#22c55e',
+    pairCheckSelected: '#7c3aed',
+    pairCheckHover: '#8b5cf6',
     delete: '#f59e0b',
     pending: '#f59e0b',
     snap: '#10b981',
@@ -23,13 +25,103 @@ function setAnnotationFeedback(message = '', tone = 'info') {
     updateManualLabelUI();
 }
 
+function syncPairCheckState() {
+    const connectIdSet = new Set(
+        manualAnnotations
+            .filter(annotation => annotation?.type === 'connect')
+            .map(annotation => annotation.id)
+    );
+    pairCheckSelectionIds = pairCheckSelectionIds.filter(annotationId => connectIdSet.has(annotationId));
+    if (pairCheckSelectionIds.length < 2) {
+        pairCheckLastReport = null;
+    }
+}
+
+function resetPairCheckState() {
+    pairCheckSelectionIds = [];
+    pairCheckLastReport = null;
+}
+
+function getPairCheckSelectionAnnotations() {
+    if (!Array.isArray(pairCheckSelectionIds) || !pairCheckSelectionIds.length) return [];
+    const annotationsById = new Map(manualAnnotations.map(annotation => [annotation.id, annotation]));
+    return pairCheckSelectionIds
+        .map(annotationId => annotationsById.get(annotationId))
+        .filter(annotation => annotation?.type === 'connect');
+}
+
+function getConnectAnnotationDisplayLabel(annotation) {
+    if (!annotation) return 'connect ?';
+    return `#${annotation.id} • ${annotation.layerName}`;
+}
+
+function getPairCheckDirectionLabel(direction, annotationA, annotationB) {
+    const sourceAnnotation = direction?.sourceId === annotationA?.id ? annotationA : annotationB;
+    const targetAnnotation = direction?.targetId === annotationA?.id ? annotationA : annotationB;
+    return `${getConnectAnnotationDisplayLabel(sourceAnnotation)} -> ${getConnectAnnotationDisplayLabel(targetAnnotation)}`;
+}
+
+function getPairCheckDirectionReasonLines(direction) {
+    if (!direction || direction.isValid) return [];
+    const reasonLines = [];
+    if (Array.isArray(direction.straight?.reasons) && direction.straight.reasons.length) {
+        reasonLines.push(`straight: ${direction.straight.reasons.join(' | ')}`);
+    }
+    if (Array.isArray(direction.tee?.reasons) && direction.tee.reasons.length) {
+        reasonLines.push(`tee: ${direction.tee.reasons.join(' | ')}`);
+    }
+    return reasonLines;
+}
+
+function buildPairCheckFeedbackMessage(pairReport, annotationA, annotationB) {
+    if (!pairReport) {
+        return 'Không kiểm tra được cặp connect đã chọn.';
+    }
+
+    const validDirections = pairReport.directions
+        .filter(direction => direction.isValid)
+        .map(direction => `${getPairCheckDirectionLabel(direction, annotationA, annotationB)} [${direction.matchedPath}]`);
+
+    if (pairReport.isMutualSuggestion) {
+        return `Cặp connect đạt điều kiện gợi ý 2 chiều. ${validDirections.join(' | ')}`;
+    }
+    if (pairReport.hasAnySuggestion) {
+        return `Cặp connect đạt ${validDirections.length}/2 chiều gợi ý. ${validDirections.join(' | ')}. Các điều kiện fail được liệt kê ngay bên dưới với ref #sym:... và cũng có trong console.`;
+    }
+    return 'Cặp connect chưa đủ điều kiện gợi ý. Các điều kiện fail được liệt kê ngay bên dưới với ref #sym:... và cũng có trong console.';
+}
+
+function logConnectPairCheckReport(pairReport, annotationA, annotationB) {
+    if (!pairReport || typeof console === 'undefined') return;
+    const pairLabel = `${getConnectAnnotationDisplayLabel(annotationA)} <-> ${getConnectAnnotationDisplayLabel(annotationB)}`;
+    console.groupCollapsed(`[manual pair-check] ${pairLabel}`);
+    pairReport.directions.forEach(direction => {
+        const directionLabel = getPairCheckDirectionLabel(direction, annotationA, annotationB);
+        console.group(`${directionLabel} : ${direction.isValid ? 'PASS' : 'FAIL'}`);
+        console.log('matchedPath', direction.matchedPath);
+        console.log('straight', direction.straight);
+        console.log('tee', direction.tee);
+        console.groupEnd();
+    });
+    console.groupEnd();
+}
+
 function getActionHistoryDepth() {
     return manualAnnotationHistory.length + (pendingConnectPoint ? 1 : 0);
 }
 
 function updateManualLabelUI() {
+    syncPairCheckState();
+    const pairCheckSelectionAnnotations = getPairCheckSelectionAnnotations();
+    const pairCheckSelectionCount = pairCheckSelectionAnnotations.length;
+    const pairCheckConnectCount = manualAnnotations.filter(annotation => annotation.type === 'connect').length;
+
     if (btnLabelJunction) btnLabelJunction.classList.toggle('active', annotationMode === 'junction');
     if (btnLabelConnect) btnLabelConnect.classList.toggle('active', annotationMode === 'connect');
+    if (btnCheckConnectPair) {
+        btnCheckConnectPair.classList.toggle('active', annotationMode === 'pair-check');
+        btnCheckConnectPair.disabled = pairCheckConnectCount < 2;
+    }
     if (btnClearLabels) {
         btnClearLabels.classList.toggle('active', annotationMode === 'delete');
         btnClearLabels.disabled = manualAnnotations.length === 0;
@@ -65,10 +157,40 @@ function updateManualLabelUI() {
         } else {
             statusLines.push('<div>mode: connect</div>');
         }
+    } else if (annotationMode === 'pair-check') {
+        if (pairCheckSelectionCount === 0) {
+            statusLines.push('<div>mode: pair-check • chọn connect 1</div>');
+        } else if (pairCheckSelectionCount === 1) {
+            statusLines.push('<div>mode: pair-check • chọn connect 2</div>');
+        } else {
+            statusLines.push('<div>mode: pair-check • đã chọn 2 connect</div>');
+        }
     } else if (annotationMode === 'delete') {
         statusLines.push('<div>mode: delete</div>');
     } else {
         statusLines.push('<div>mode: off</div>');
+    }
+
+    if (pairCheckSelectionCount) {
+        statusLines.push(`<div>pair-check: ${pairCheckSelectionCount}/2 selected • ${pairCheckSelectionAnnotations.map(annotation => escapeHtml(getConnectAnnotationDisplayLabel(annotation))).join(' | ')}</div>`);
+    }
+    if (pairCheckLastReport) {
+        const pairSummary = pairCheckLastReport.isMutualSuggestion
+            ? 'pair-check: 2/2 chiều đạt'
+            : pairCheckLastReport.hasAnySuggestion
+                ? 'pair-check: 1/2 chiều đạt'
+                : 'pair-check: 0/2 chiều đạt';
+        statusLines.push(`<div>${escapeHtml(pairSummary)}</div>`);
+
+        const [annotationA, annotationB] = pairCheckSelectionAnnotations;
+        pairCheckLastReport.directions
+            .filter(direction => !direction.isValid)
+            .forEach(direction => {
+                statusLines.push(`<div class="manual-label-pair-detail"><strong>${escapeHtml(getPairCheckDirectionLabel(direction, annotationA, annotationB))}</strong></div>`);
+                getPairCheckDirectionReasonLines(direction).forEach(reasonLine => {
+                    statusLines.push(`<div class="manual-label-pair-detail">${escapeHtml(reasonLine)}</div>`);
+                });
+            });
     }
 
     if (suggestedConnectCount) {
@@ -148,16 +270,57 @@ function addReplaceHistoryEntry(addedAnnotations, removedAnnotations) {
     });
 }
 
-function findRedundantParentConnectIds(connectAnnotations) {
+function getConnectAnnotationLineLikeCandidates(annotation) {
+    const lineCandidates = getConnectAnnotationLineKeys(annotation)
+        .map(lineKey => snapPointLineItems.get(lineKey))
+        .filter(Boolean);
+    if (lineCandidates.length) {
+        return lineCandidates;
+    }
+
+    return getConnectAnnotationSegments(annotation)
+        .filter(segment => Array.isArray(segment) && segment.length >= 2)
+        .map((segment, segmentIndex) => ({
+            id: `segment:${annotation.id}:${segmentIndex}`,
+            layerName: annotation.layerName,
+            points: segment.map(cloneAnnotationPoint),
+            endpointKeys: segment.map(point => getSnapPointKey(annotation.layerName, point.x, point.y))
+        }));
+}
+
+function isStraightParallelConnectAnnotation(annotation) {
+    if (!annotation || annotation.type !== 'connect') return false;
+    const lineCandidates = getConnectAnnotationLineLikeCandidates(annotation);
+    if (lineCandidates.length < 2) return false;
+
+    const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
+    if (!referenceLineCandidate) return false;
+    return lineCandidates.every(lineCandidate => areParallelLineCandidates(referenceLineCandidate, lineCandidate));
+}
+
+function shouldPreferMergedStraightConnect(parentAnnotation, childAnnotations) {
+    if (!isStraightParallelConnectAnnotation(parentAnnotation)) return false;
+    const parentReferenceLineCandidate = getReferenceLineCandidateForAnnotation(parentAnnotation);
+    if (!parentReferenceLineCandidate) return false;
+
+    return childAnnotations.every(childAnnotation => {
+        if (!childAnnotation || childAnnotation.type !== 'connect') return false;
+        const childReferenceLineCandidate = getReferenceLineCandidateForAnnotation(childAnnotation);
+        return childReferenceLineCandidate && areParallelLineCandidates(parentReferenceLineCandidate, childReferenceLineCandidate);
+    });
+}
+
+function findRedundantConnectIds(connectAnnotations) {
     const connectOnlyAnnotations = (connectAnnotations || []).filter(annotation => annotation?.type === 'connect');
     const redundantConnectIds = new Set();
 
     connectOnlyAnnotations.forEach(parentAnnotation => {
+        if (!parentAnnotation || redundantConnectIds.has(parentAnnotation.id)) return;
         const parentLineKeys = getConnectAnnotationLineKeys(parentAnnotation);
         if (parentLineKeys.length < 2) return;
         const parentLineKeySet = new Set(parentLineKeys);
         const childAnnotations = connectOnlyAnnotations.filter(childAnnotation => {
-            if (!childAnnotation || childAnnotation.id === parentAnnotation.id) return false;
+            if (!childAnnotation || childAnnotation.id === parentAnnotation.id || redundantConnectIds.has(childAnnotation.id)) return false;
             const childLineKeys = getConnectAnnotationLineKeys(childAnnotation);
             return childLineKeys.length > 0
                 && childLineKeys.length < parentLineKeys.length
@@ -170,6 +333,10 @@ function findRedundantParentConnectIds(connectAnnotations) {
             getConnectAnnotationLineKeys(childAnnotation).forEach(lineKey => coveredLineKeys.add(lineKey));
         });
         if (parentLineKeys.every(lineKey => coveredLineKeys.has(lineKey))) {
+            if (shouldPreferMergedStraightConnect(parentAnnotation, childAnnotations)) {
+                childAnnotations.forEach(childAnnotation => redundantConnectIds.add(childAnnotation.id));
+                return;
+            }
             redundantConnectIds.add(parentAnnotation.id);
         }
     });
@@ -190,7 +357,7 @@ function doesConnectReachPoint(annotation, point) {
 
 function finalizeAddedAnnotations(addedAnnotations, options = {}) {
     const existingAnnotationIds = options.existingAnnotationIds || new Set();
-    const redundantConnectIds = findRedundantParentConnectIds(manualAnnotations);
+    const redundantConnectIds = findRedundantConnectIds(manualAnnotations);
     const removedExistingAnnotations = [];
     const removedNewConnectIds = new Set();
 
@@ -206,9 +373,9 @@ function finalizeAddedAnnotations(addedAnnotations, options = {}) {
         });
     }
 
-    const orphanNewJunctionIds = new Set();
-    addedAnnotations.forEach(annotation => {
-        if (annotation?.type !== 'junction' || !annotation.autoManaged || removedNewConnectIds.has(annotation.id)) return;
+    const orphanAutoJunctionIds = new Set();
+    manualAnnotations.forEach(annotation => {
+        if (annotation?.type !== 'junction' || !annotation.autoManaged) return;
         const point = annotation.points?.[0];
         if (!point) return;
         const isStillUsed = manualAnnotations.some(existingAnnotation =>
@@ -217,16 +384,19 @@ function finalizeAddedAnnotations(addedAnnotations, options = {}) {
             && doesConnectReachPoint(existingAnnotation, point)
         );
         if (!isStillUsed) {
-            orphanNewJunctionIds.add(annotation.id);
+            if (existingAnnotationIds.has(annotation.id)) {
+                removedExistingAnnotations.push(cloneAnnotation(annotation));
+            }
+            orphanAutoJunctionIds.add(annotation.id);
         }
     });
 
-    if (orphanNewJunctionIds.size) {
-        manualAnnotations = manualAnnotations.filter(annotation => !orphanNewJunctionIds.has(annotation.id));
+    if (orphanAutoJunctionIds.size) {
+        manualAnnotations = manualAnnotations.filter(annotation => !orphanAutoJunctionIds.has(annotation.id));
     }
 
     const finalAddedAnnotations = addedAnnotations.filter(annotation =>
-        !removedNewConnectIds.has(annotation.id) && !orphanNewJunctionIds.has(annotation.id)
+        !removedNewConnectIds.has(annotation.id) && !orphanAutoJunctionIds.has(annotation.id)
     );
 
     if (options.record !== false) {
@@ -542,6 +712,60 @@ function findNearestAnnotation(worldX, worldY) {
     return nearest;
 }
 
+function findNearestConnectAnnotation(worldX, worldY) {
+    const worldTolerance = getAnnotationSnapToleranceWorld();
+    let nearest = null;
+    let bestScore = Infinity;
+
+    manualAnnotations.forEach(annotation => {
+        if (annotation?.type !== 'connect' || !layerVisibility[annotation.layerName]) return;
+        const polygon = getManualAnnotationWorldPolygon(annotation);
+        if (!polygon) return;
+
+        const score = distancePointToPolygon(worldX, worldY, polygon);
+        if (score <= worldTolerance && score < bestScore) {
+            nearest = annotation;
+            bestScore = score;
+        }
+    });
+
+    return nearest;
+}
+
+function handleConnectPairCheckSelection(worldX, worldY) {
+    const targetAnnotation = findNearestConnectAnnotation(worldX, worldY);
+    if (!targetAnnotation) {
+        setAnnotationFeedback('Chỉ chọn được connect annotation đã gán nhãn để pair-check.', 'error');
+        return true;
+    }
+
+    if (!pairCheckSelectionIds.length || pairCheckSelectionIds.length >= 2) {
+        pairCheckSelectionIds = [targetAnnotation.id];
+        pairCheckLastReport = null;
+        hoveredAnnotationId = targetAnnotation.id;
+        setAnnotationFeedback(`Đã chọn connect 1: ${getConnectAnnotationDisplayLabel(targetAnnotation)}. Chọn connect còn lại để kiểm tra.`, 'info');
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+        return true;
+    }
+
+    if (pairCheckSelectionIds[0] === targetAnnotation.id) {
+        setAnnotationFeedback('Connect thứ 2 phải khác connect thứ 1.', 'error');
+        return true;
+    }
+
+    pairCheckSelectionIds = [pairCheckSelectionIds[0], targetAnnotation.id];
+    hoveredAnnotationId = targetAnnotation.id;
+    const [annotationA, annotationB] = getPairCheckSelectionAnnotations();
+    pairCheckLastReport = evaluateBidirectionalConnectSuggestionPair(annotationA, annotationB);
+    logConnectPairCheckReport(pairCheckLastReport, annotationA, annotationB);
+    setAnnotationFeedback(
+        buildPairCheckFeedbackMessage(pairCheckLastReport, annotationA, annotationB),
+        pairCheckLastReport.hasAnySuggestion ? 'info' : 'error'
+    );
+    if (typeof scheduleDraw === 'function') scheduleDraw();
+    return true;
+}
+
 function refreshAnnotationModeLabel() {
     if (typeof updateModeLabel === 'function') {
         updateModeLabel(annotationMode);
@@ -647,10 +871,11 @@ function deactivateManualLabelMode(options = {}) {
     hoveredSnapPoint = null;
     hoveredAnnotationId = null;
     suggestedConnectAnnotations = [];
+    resetPairCheckState();
     if (options.clearPending !== false) {
         pendingConnectPoint = null;
     }
-    canvasContainer.classList.remove('annotation-junction-mode', 'annotation-connect-mode', 'annotation-delete-mode');
+    canvasContainer.classList.remove('annotation-junction-mode', 'annotation-connect-mode', 'annotation-pair-check-mode', 'annotation-delete-mode');
     refreshAnnotationModeLabel();
     updateManualLabelUI();
     if (typeof scheduleDraw === 'function') scheduleDraw();
@@ -673,6 +898,11 @@ async function setAnnotationMode(mode) {
 
     if (mode === 'delete' && !manualAnnotations.length) {
         setAnnotationFeedback('Chưa có nhãn nào để xóa.', 'error');
+        return;
+    }
+
+    if (mode === 'pair-check' && getManualLabelCounts().connect < 2) {
+        setAnnotationFeedback('Cần ít nhất 2 connect annotation để kiểm tra cặp.', 'error');
         return;
     }
 
@@ -703,16 +933,24 @@ async function setAnnotationMode(mode) {
     annotationMode = mode;
     pendingConnectPoint = null;
     suggestedConnectAnnotations = [];
-    hoveredSnapPoint = mode === 'delete' ? null : findNearestSnapPoint(mouseX, mouseY);
-    hoveredAnnotationId = mode === 'delete' ? (findNearestAnnotation(mouseX, mouseY)?.id || null) : null;
+    resetPairCheckState();
+    hoveredSnapPoint = (mode === 'delete' || mode === 'pair-check') ? null : findNearestSnapPoint(mouseX, mouseY);
+    hoveredAnnotationId = mode === 'delete'
+        ? (findNearestAnnotation(mouseX, mouseY)?.id || null)
+        : mode === 'pair-check'
+            ? (findNearestConnectAnnotation(mouseX, mouseY)?.id || null)
+            : null;
     canvasContainer.classList.toggle('annotation-junction-mode', mode === 'junction');
     canvasContainer.classList.toggle('annotation-connect-mode', mode === 'connect');
+    canvasContainer.classList.toggle('annotation-pair-check-mode', mode === 'pair-check');
     canvasContainer.classList.toggle('annotation-delete-mode', mode === 'delete');
 
     if (mode === 'connect') {
         setAnnotationFeedback('Chọn điểm 1 cho connect. Hệ thống sẽ gộp line hợp lệ và thêm junction ở mọi đầu mút của connect.', 'info');
     } else if (mode === 'junction') {
         setAnnotationFeedback('Click vào endpoint line để tạo junction.', 'info');
+    } else if (mode === 'pair-check') {
+        setAnnotationFeedback('Click 2 connect đã gán nhãn để kiểm tra xem khi vẽ 1 connect thì connect còn lại có được gợi ý không. Kết quả chi tiết được log ở console.', 'info');
     } else {
         setAnnotationFeedback('Click vào label muốn xóa. Ctrl+Z để phục hồi.', 'info');
     }
@@ -727,6 +965,7 @@ function resetManualLabelState(options = {}) {
     manualAnnotationHistory = [];
     pendingConnectPoint = null;
     suggestedConnectAnnotations = [];
+    resetPairCheckState();
     hoveredSnapPoint = null;
     hoveredAnnotationId = null;
     annotationFeedbackMessage = options.message || '';
@@ -734,7 +973,7 @@ function resetManualLabelState(options = {}) {
 
     if (options.clearMode !== false) {
         annotationMode = null;
-        canvasContainer.classList.remove('annotation-junction-mode', 'annotation-connect-mode', 'annotation-delete-mode');
+        canvasContainer.classList.remove('annotation-junction-mode', 'annotation-connect-mode', 'annotation-pair-check-mode', 'annotation-delete-mode');
         refreshAnnotationModeLabel();
     }
 
@@ -863,6 +1102,17 @@ function updateHoveredSnapPoint() {
         return;
     }
 
+    if (annotationMode === 'pair-check') {
+        const nextAnnotation = findNearestConnectAnnotation(mouseX, mouseY);
+        const nextId = nextAnnotation ? nextAnnotation.id : null;
+        if (hoveredAnnotationId !== nextId) {
+            hoveredAnnotationId = nextId;
+            if (typeof scheduleDraw === 'function') scheduleDraw();
+        }
+        hoveredSnapPoint = null;
+        return;
+    }
+
     const requiredLayerName = annotationMode === 'connect' && pendingConnectPoint
         ? pendingConnectPoint.layerName
         : null;
@@ -881,6 +1131,10 @@ function handleAnnotationCanvasClick(worldX, worldY) {
 
     if (annotationMode === 'delete') {
         return deleteAnnotationAtPoint(worldX, worldY);
+    }
+
+    if (annotationMode === 'pair-check') {
+        return handleConnectPairCheckSelection(worldX, worldY);
     }
 
     const requiredLayerName = annotationMode === 'connect' && pendingConnectPoint
@@ -1001,12 +1255,33 @@ function drawManualAnnotationOverlays(targetCtx) {
         if (!polygon) return;
 
         const isHovered = hoveredAnnotationId === annotation.id;
+        const isPairCheckSelected = annotation.type === 'connect' && pairCheckSelectionIds.includes(annotation.id);
+        const isPairCheckHover = annotationMode === 'pair-check' && isHovered;
+        const isDeleteHover = isHovered && annotationMode === 'delete';
         const color = annotation.type === 'junction' ? MANUAL_LABEL_COLORS.junction : MANUAL_LABEL_COLORS.connect;
-        const fillColor = annotation.type === 'junction' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(14, 165, 233, 0.12)';
-        targetCtx.fillStyle = isHovered && annotationMode === 'delete' ? 'rgba(245, 158, 11, 0.18)' : fillColor;
-        targetCtx.strokeStyle = isHovered && annotationMode === 'delete' ? MANUAL_LABEL_COLORS.delete : color;
-        targetCtx.lineWidth = 2 / Math.max(zoom, 0.01);
-        if (isHovered && annotationMode === 'delete') {
+        let fillStyle = annotation.type === 'junction' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(14, 165, 233, 0.12)';
+        let strokeStyle = color;
+        let lineWidth = 2 / Math.max(zoom, 0.01);
+
+        if (isPairCheckSelected) {
+            fillStyle = 'rgba(124, 58, 237, 0.14)';
+            strokeStyle = MANUAL_LABEL_COLORS.pairCheckSelected;
+            lineWidth = 2.5 / Math.max(zoom, 0.01);
+        }
+        if (isPairCheckHover) {
+            fillStyle = 'rgba(139, 92, 246, 0.18)';
+            strokeStyle = MANUAL_LABEL_COLORS.pairCheckHover;
+            lineWidth = 2.5 / Math.max(zoom, 0.01);
+        }
+        if (isDeleteHover) {
+            fillStyle = 'rgba(245, 158, 11, 0.18)';
+            strokeStyle = MANUAL_LABEL_COLORS.delete;
+        }
+
+        targetCtx.fillStyle = fillStyle;
+        targetCtx.strokeStyle = strokeStyle;
+        targetCtx.lineWidth = lineWidth;
+        if (isDeleteHover || isPairCheckHover) {
             targetCtx.setLineDash([5 / Math.max(zoom, 0.01), 3 / Math.max(zoom, 0.01)]);
         }
         drawWorldPolygon(targetCtx, polygon);
@@ -1026,7 +1301,14 @@ function drawManualAnnotationOverlays(targetCtx) {
             });
         }
 
-        annotation.points.forEach(point => drawWorldPoint(targetCtx, point, isHovered && annotationMode === 'delete' ? MANUAL_LABEL_COLORS.delete : color, radiusWorld));
+        const pointColor = isDeleteHover
+            ? MANUAL_LABEL_COLORS.delete
+            : isPairCheckHover
+                ? MANUAL_LABEL_COLORS.pairCheckHover
+                : isPairCheckSelected
+                    ? MANUAL_LABEL_COLORS.pairCheckSelected
+                    : color;
+        annotation.points.forEach(point => drawWorldPoint(targetCtx, point, pointColor, radiusWorld));
     });
 
     suggestedConnectAnnotations.forEach(annotation => {
@@ -1102,12 +1384,16 @@ function drawManualAnnotationOverlays(targetCtx) {
 function drawManualLabelCrosshairOverlay() {
     if (!annotationMode) return false;
 
-    const isDeleteMode = annotationMode === 'delete';
-    const anchorX = !isDeleteMode && hoveredSnapPoint ? hoveredSnapPoint.x : mouseX;
-    const anchorY = !isDeleteMode && hoveredSnapPoint ? hoveredSnapPoint.y : mouseY;
+    const isAnnotationSelectionMode = annotationMode === 'delete' || annotationMode === 'pair-check';
+    const anchorX = !isAnnotationSelectionMode && hoveredSnapPoint ? hoveredSnapPoint.x : mouseX;
+    const anchorY = !isAnnotationSelectionMode && hoveredSnapPoint ? hoveredSnapPoint.y : mouseY;
     const screenX = anchorX * zoom + offsetX;
     const screenY = anchorY * zoom + offsetY;
-    const lineColor = isDeleteMode ? MANUAL_LABEL_COLORS.delete : (hoveredSnapPoint ? MANUAL_LABEL_COLORS.snap : MANUAL_LABEL_COLORS.idle);
+    const lineColor = annotationMode === 'delete'
+        ? MANUAL_LABEL_COLORS.delete
+        : annotationMode === 'pair-check'
+            ? (hoveredAnnotationId !== null ? MANUAL_LABEL_COLORS.pairCheckHover : MANUAL_LABEL_COLORS.pairCheckSelected)
+            : (hoveredSnapPoint ? MANUAL_LABEL_COLORS.snap : MANUAL_LABEL_COLORS.idle);
 
     crosshairCtx.strokeStyle = lineColor;
     crosshairCtx.lineWidth = 0.75;
@@ -1145,7 +1431,7 @@ function drawManualLabelCrosshairOverlay() {
     crosshairCtx.arc(screenX, screenY, 6, 0, Math.PI * 2);
     crosshairCtx.stroke();
 
-    if (!isDeleteMode && hoveredSnapPoint) {
+    if (!isAnnotationSelectionMode && hoveredSnapPoint) {
         crosshairCtx.fillStyle = lineColor;
         crosshairCtx.beginPath();
         crosshairCtx.arc(screenX, screenY, 6, 0, Math.PI * 2);
