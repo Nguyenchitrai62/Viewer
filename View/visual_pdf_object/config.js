@@ -37,7 +37,7 @@ const CONFIG = {
     MANUAL_LABEL_SNAP_SCREEN_PX: 18,
     MANUAL_LABEL_PARALLEL_SUGGEST_TOUCH_TOLERANCE: 0.01, // Ngưỡng để 2 đầu mút được tính là chạm nhau khi gợi ý connect thẳng giữa 2 line song song
     MANUAL_LABEL_ELBOW_SUGGEST_TOUCH_TOLERANCE: 0.3, // Ngưỡng để 2 đầu mút được tính là chạm nhau khi gợi ý elbow
-    MANUAL_LABEL_TEE_SUGGEST_TOUCH_TOLERANCE: 0.3, // Ngưỡng để đầu mút branch được tính là chạm vào main line khi gợi ý tee
+    MANUAL_LABEL_TEE_SUGGEST_TOUCH_TOLERANCE: 0.5, // Ngưỡng để đầu mút branch được tính là chạm vào main line khi gợi ý tee
     MANUAL_LABEL_PARALLEL_MAX_ANGLE_DEGREES: 5, // Góc lệch tối đa để vẫn coi là song song trong pair-check/gợi ý connect thẳng
     MANUAL_LABEL_MIN_SUGGEST_CONNECT_LENGTH: 10,
     MANUAL_LABEL_DASH_SEGMENT_MAX_LENGTH: 4, // Do dai toi da cua moi doan line de xem la net dut

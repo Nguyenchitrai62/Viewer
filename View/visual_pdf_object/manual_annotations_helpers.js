@@ -1288,10 +1288,55 @@ function doesLineLikeCrossConnectInterior(lineLike, connectAnnotation, tolerance
     });
 }
 
+function isDashedLineLikeForTeeSuggestion(lineLike) {
+    if (!lineLike) return false;
+    if (lineLike.type === 'connect') {
+        return getConnectAnnotationResolvedLineCandidates(lineLike).some(lineCandidate => isShortDashedLineCandidate(lineCandidate));
+    }
+    return isShortDashedLineCandidate(lineLike);
+}
+
+function doesAnyBoundaryPointReachSegments(points, segments, tolerance) {
+    if (!Array.isArray(points) || !points.length || !Array.isArray(segments) || !segments.length) {
+        return false;
+    }
+
+    return points.some(point => segments.some(segment => {
+        if (!Array.isArray(segment) || segment.length < 2) return false;
+        return distancePointToSegment(
+            Number(point.x),
+            Number(point.y),
+            Number(segment[0].x),
+            Number(segment[0].y),
+            Number(segment[1].x),
+            Number(segment[1].y)
+        ) <= tolerance;
+    }));
+}
+
+function doesDashedLineLikeEndpointReachConnect(lineLike, connectAnnotation, tolerance = getManualTeeAttachToleranceWorld()) {
+    if (!lineLike || !connectAnnotation || lineLike.layerName !== connectAnnotation.layerName) return false;
+
+    const lineLikeBoundaryPoints = Array.isArray(lineLike?.points) ? lineLike.points : [];
+    const lineLikeSegments = getLineLikeProbeSegments(lineLike);
+    const connectBoundaryPoints = Array.isArray(connectAnnotation?.points) ? connectAnnotation.points : [];
+    const connectSegments = getConnectAnnotationVirtualSegments(connectAnnotation);
+    const dashedLineLikeNearConnect = isDashedLineLikeForTeeSuggestion(lineLike)
+        && doesAnyBoundaryPointReachSegments(lineLikeBoundaryPoints, connectSegments, tolerance);
+
+    if (dashedLineLikeNearConnect) return true;
+
+    const dashedConnectNearLineLike = isDashedLineLikeForTeeSuggestion(connectAnnotation)
+        && doesAnyBoundaryPointReachSegments(connectBoundaryPoints, lineLikeSegments, tolerance);
+
+    return dashedConnectNearLineLike;
+}
+
 function collectExistingConnectLineKeys(annotations) {
     const lineKeys = new Set();
     (annotations || []).forEach(annotation => {
         if (annotation?.type !== 'connect') return;
+        if (annotation.virtualSuggestionRoot) return;
         getConnectAnnotationLineKeys(annotation).forEach(lineKey => lineKeys.add(lineKey));
     });
     return lineKeys;
@@ -1308,12 +1353,168 @@ function getConnectAnnotationTraversalKey(annotation) {
     return endpointKeys.length ? endpointKeys.slice().sort().join('||') : null;
 }
 
+function collectUniqueConnectAnnotationsForSuggestionTraversal(annotations) {
+    const uniqueAnnotations = [];
+    const seenCollectionKeys = new Set();
+
+    (annotations || []).forEach((annotation, index) => {
+        if (annotation?.type !== 'connect') return;
+        const collectionKey = getConnectAnnotationTraversalKey(annotation)
+            || (annotation.id !== undefined && annotation.id !== null ? `id:${annotation.id}` : `index:${index}`);
+        if (seenCollectionKeys.has(collectionKey)) return;
+        seenCollectionKeys.add(collectionKey);
+        uniqueAnnotations.push(annotation);
+    });
+
+    return uniqueAnnotations;
+}
+
+function getConnectSuggestionTraversalTouchToleranceWorld() {
+    return getManualLineAttachToleranceWorld();
+}
+
+function getConnectAnnotationTraversalPoints(annotation) {
+    if (!annotation || annotation.type !== 'connect') return [];
+
+    const pointMap = new Map();
+    getConnectAnnotationBoundaryPoints(annotation).forEach(point => {
+        if (!point) return;
+        pointMap.set(`${Number(point.x).toFixed(3)}|${Number(point.y).toFixed(3)}`, cloneAnnotationPoint(point));
+    });
+    getConnectAnnotationInternalPoints(annotation).forEach(point => {
+        if (!point) return;
+        pointMap.set(`${Number(point.x).toFixed(3)}|${Number(point.y).toFixed(3)}`, cloneAnnotationPoint(point));
+    });
+    return Array.from(pointMap.values());
+}
+
+function getConnectAnnotationTraversalBounds(annotation, padding = getConnectSuggestionTraversalTouchToleranceWorld()) {
+    return getConnectAnnotationSearchBounds(annotation, padding);
+}
+
+function buildConnectSuggestionTraversalIndex(connectAnnotations, padding = getConnectSuggestionTraversalTouchToleranceWorld()) {
+    const indexedConnectAnnotations = [];
+    let bounds = null;
+
+    (connectAnnotations || []).forEach(annotation => {
+        if (annotation?.type !== 'connect') return;
+        const bbox = getConnectAnnotationTraversalBounds(annotation, padding);
+        if (!bbox) return;
+
+        indexedConnectAnnotations.push({ annotation, bbox });
+        bounds = bounds
+            ? {
+                minX: Math.min(bounds.minX, bbox.minX),
+                minY: Math.min(bounds.minY, bbox.minY),
+                maxX: Math.max(bounds.maxX, bbox.maxX),
+                maxY: Math.max(bounds.maxY, bbox.maxY)
+            }
+            : { ...bbox };
+    });
+
+    if (!indexedConnectAnnotations.length || !bounds || typeof Quadtree !== 'function') {
+        return {
+            indexedConnectAnnotations,
+            quadtree: null,
+            padding
+        };
+    }
+
+    const quadtree = new Quadtree({
+        x: bounds.minX,
+        y: bounds.minY,
+        width: Math.max(bounds.maxX - bounds.minX, padding * 2, 1e-3),
+        height: Math.max(bounds.maxY - bounds.minY, padding * 2, 1e-3)
+    }, 25, 8);
+    indexedConnectAnnotations.forEach(item => quadtree.insert(item));
+
+    return {
+        indexedConnectAnnotations,
+        quadtree,
+        padding
+    };
+}
+
+function queryConnectedSuggestionTraversalCandidates(annotation, traversalIndex) {
+    if (!annotation || annotation.type !== 'connect') return [];
+
+    const padding = traversalIndex?.padding || getConnectSuggestionTraversalTouchToleranceWorld();
+    const queryBounds = getConnectAnnotationTraversalBounds(annotation, padding);
+    if (!queryBounds) return [];
+
+    const indexedItems = traversalIndex?.quadtree
+        ? Array.from(new Set(traversalIndex.quadtree.query(queryBounds)))
+        : (traversalIndex?.indexedConnectAnnotations || []).filter(item => doBoundsIntersect(item?.bbox, queryBounds));
+
+    return indexedItems
+        .map(item => item?.annotation)
+        .filter(candidate => candidate && candidate !== annotation);
+}
+
+function doConnectAnnotationsTouchForSuggestionTraversal(annotationA, annotationB, tolerance = getConnectSuggestionTraversalTouchToleranceWorld()) {
+    if (!annotationA || !annotationB || annotationA.type !== 'connect' || annotationB.type !== 'connect') {
+        return false;
+    }
+
+    const boundsA = getConnectAnnotationTraversalBounds(annotationA, 0);
+    const boundsB = getConnectAnnotationTraversalBounds(annotationB, 0);
+    if (boundsA && boundsB && !doBoundsIntersect(expandBounds(boundsA, tolerance), expandBounds(boundsB, tolerance))) {
+        return false;
+    }
+
+    const traversalPointsA = getConnectAnnotationTraversalPoints(annotationA);
+    const traversalPointsB = getConnectAnnotationTraversalPoints(annotationB);
+    if (!traversalPointsA.length || !traversalPointsB.length) return false;
+
+    return traversalPointsA.some(point => isPointNearLineLikeForEndpointSearch(point, annotationB, tolerance))
+        || traversalPointsB.some(point => isPointNearLineLikeForEndpointSearch(point, annotationA, tolerance));
+}
+
+function projectConnectAnnotationToLayerForSuggestionTraversal(annotation, targetLayerName) {
+    if (!annotation || annotation.type !== 'connect' || !targetLayerName) return null;
+
+    const projectedAnnotation = cloneAnnotation(annotation);
+    projectedAnnotation.layerName = targetLayerName;
+    projectedAnnotation.points = (projectedAnnotation.points || []).map(point => ({
+        x: Number(point.x),
+        y: Number(point.y),
+        layerName: targetLayerName
+    }));
+
+    if (Array.isArray(projectedAnnotation.segments) && projectedAnnotation.segments.length) {
+        projectedAnnotation.segments = projectedAnnotation.segments.map(segment => (
+            Array.isArray(segment)
+                ? segment.map(point => ({
+                    x: Number(point.x),
+                    y: Number(point.y),
+                    layerName: targetLayerName
+                }))
+                : []
+        ));
+    }
+
+    if (annotation.layerName !== targetLayerName) {
+        delete projectedAnnotation.lineKeys;
+        projectedAnnotation.virtualSuggestionRoot = true;
+        projectedAnnotation.id = `virtual-root:${targetLayerName}:${getConnectAnnotationTraversalKey(annotation) || annotation.id || 'unknown'}`;
+    }
+
+    return projectedAnnotation;
+}
+
 function collectConnectedSuggestionRootAnnotations(connectAnnotations, existingAnnotations = []) {
-    const initialConnectAnnotations = (connectAnnotations || []).filter(annotation => annotation?.type === 'connect');
+    const initialConnectAnnotations = collectUniqueConnectAnnotationsForSuggestionTraversal(connectAnnotations);
     if (!initialConnectAnnotations.length) return [];
 
+    const touchTolerance = getConnectSuggestionTraversalTouchToleranceWorld();
+    const traversalConnectAnnotations = collectUniqueConnectAnnotationsForSuggestionTraversal([
+        ...initialConnectAnnotations,
+        ...(existingAnnotations || []).filter(annotation => annotation?.type === 'connect')
+    ]);
+    const traversalIndex = buildConnectSuggestionTraversalIndex(traversalConnectAnnotations, touchTolerance);
+
     const endpointToConnectAnnotations = new Map();
-    [...initialConnectAnnotations, ...(existingAnnotations || []).filter(annotation => annotation?.type === 'connect')]
+    traversalConnectAnnotations
         .forEach(annotation => {
             const traversalKey = getConnectAnnotationTraversalKey(annotation);
             if (!traversalKey) return;
@@ -1328,24 +1529,55 @@ function collectConnectedSuggestionRootAnnotations(connectAnnotations, existingA
         });
 
     const connectedRoots = [];
-    const seenTraversalKeys = new Set();
-    const queuedAnnotations = initialConnectAnnotations.slice();
+    const seenTraversalStates = new Set();
+    const queuedAnnotations = initialConnectAnnotations.map(annotation => ({
+        annotation,
+        sourceLayerName: annotation.layerName
+    }));
 
     while (queuedAnnotations.length) {
-        const annotation = queuedAnnotations.shift();
+        const queuedState = queuedAnnotations.shift();
+        const annotation = queuedState?.annotation;
+        const sourceLayerName = queuedState?.sourceLayerName;
         const traversalKey = getConnectAnnotationTraversalKey(annotation);
-        if (!traversalKey || seenTraversalKeys.has(traversalKey)) continue;
+        const traversalStateKey = traversalKey && sourceLayerName
+            ? `${sourceLayerName}::${traversalKey}`
+            : null;
+        if (!traversalStateKey || seenTraversalStates.has(traversalStateKey)) continue;
 
-        seenTraversalKeys.add(traversalKey);
-        connectedRoots.push(annotation);
+        seenTraversalStates.add(traversalStateKey);
+
+        const projectedRoot = projectConnectAnnotationToLayerForSuggestionTraversal(annotation, sourceLayerName);
+        if (projectedRoot) {
+            connectedRoots.push(projectedRoot);
+        }
 
         getConnectAnnotationEndpointKeys(annotation).forEach(endpointKey => {
             const connectList = endpointToConnectAnnotations.get(endpointKey);
             if (!Array.isArray(connectList)) return;
             connectList.forEach(connectedAnnotation => {
                 const connectedTraversalKey = getConnectAnnotationTraversalKey(connectedAnnotation);
-                if (!connectedTraversalKey || seenTraversalKeys.has(connectedTraversalKey)) return;
-                queuedAnnotations.push(connectedAnnotation);
+                const connectedStateKey = connectedTraversalKey && sourceLayerName
+                    ? `${sourceLayerName}::${connectedTraversalKey}`
+                    : null;
+                if (!connectedStateKey || seenTraversalStates.has(connectedStateKey)) return;
+                queuedAnnotations.push({
+                    annotation: connectedAnnotation,
+                    sourceLayerName
+                });
+            });
+        });
+
+        queryConnectedSuggestionTraversalCandidates(annotation, traversalIndex).forEach(connectedAnnotation => {
+            const connectedTraversalKey = getConnectAnnotationTraversalKey(connectedAnnotation);
+            const connectedStateKey = connectedTraversalKey && sourceLayerName
+                ? `${sourceLayerName}::${connectedTraversalKey}`
+                : null;
+            if (!connectedStateKey || seenTraversalStates.has(connectedStateKey)) return;
+            if (!doConnectAnnotationsTouchForSuggestionTraversal(annotation, connectedAnnotation, touchTolerance)) return;
+            queuedAnnotations.push({
+                annotation: connectedAnnotation,
+                sourceLayerName
             });
         });
     }
@@ -1555,7 +1787,8 @@ function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLin
             const touchesConnectInterior = doesLineCandidateTouchConnectInterior(teeProbe, annotation);
             const touchesLineInterior = doesConnectBoundaryTouchLineCandidateInterior(annotation, teeProbe);
             const crossesConnectInterior = doesLineLikeCrossConnectInterior(teeProbe, annotation);
-            if (!touchesConnectInterior && !touchesLineInterior && !crossesConnectInterior) return;
+            const dashedEndpointNearConnect = doesDashedLineLikeEndpointReachConnect(teeProbe, annotation);
+            if (!touchesConnectInterior && !touchesLineInterior && !crossesConnectInterior && !dashedEndpointNearConnect) return;
 
             if (probeGroupKey) {
                 acceptedProbeGroupKeys.add(probeGroupKey);
@@ -2167,7 +2400,8 @@ function evaluateTeeConnectSuggestionDirection(sourceAnnotation, targetAnnotatio
         const touchesConnectInterior = doesLineCandidateTouchConnectInterior(probeInfo.probe, sourceAnnotation);
         const touchesLineInterior = doesConnectBoundaryTouchLineCandidateInterior(sourceAnnotation, probeInfo.probe);
         const crossesConnectInterior = doesLineLikeCrossConnectInterior(probeInfo.probe, sourceAnnotation);
-        if (touchesConnectInterior || touchesLineInterior || crossesConnectInterior) {
+        const dashedEndpointNearConnect = doesDashedLineLikeEndpointReachConnect(probeInfo.probe, sourceAnnotation);
+        if (touchesConnectInterior || touchesLineInterior || crossesConnectInterior || dashedEndpointNearConnect) {
             pushUniquePairCheckValue(interiorAttachTargetLineIds, lineCandidate.id);
         }
     });
