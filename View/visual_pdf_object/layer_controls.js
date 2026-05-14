@@ -34,7 +34,12 @@ function getShapeLayerNamesForCurrentMode() {
         const isDefaultShapeLayer = layerName === '__default_shape_layer__';
         return layerName.startsWith('shape_')
             || isDefaultShapeLayer
-            || (currentLayerField === 'layer' && !layerName.startsWith('svg_') && !pipelineLayerNames.includes(layerName));
+            || (
+                currentLayerField === 'layer'
+                && !layerName.startsWith('svg_')
+                && !pipelineLayerNames.includes(layerName)
+                && !detectionLayerNames.includes(layerName)
+            );
     });
 }
 
@@ -203,7 +208,7 @@ function createLayerControl(layerName) {
 function updateLayerList() {
     layerList.innerHTML = '';
     const fragment = document.createDocumentFragment();
-    const typeGroups = { shape: [], svg_graphic: [], svg_text: [], pipeline: [] };
+    const typeGroups = { shape: [], svg_graphic: [], svg_text: [], pipeline: [], detection: [] };
     const shapeLayerNames = new Set(getShapeLayerNamesForCurrentMode());
     sortedLayerKeys.forEach(layerName => {
         if (shapeLayerNames.has(layerName)) {
@@ -214,10 +219,12 @@ function updateLayerList() {
             typeGroups.svg_text.push(layerName);
         } else if (pipelineLayerNames.includes(layerName)) {
             typeGroups.pipeline.push(layerName);
+        } else if (detectionLayerNames.includes(layerName)) {
+            typeGroups.detection.push(layerName);
         }
     });
-    const typeLabels = { shape: 'Shape', svg_graphic: 'Image', svg_text: 'Text', pipeline: 'Pipeline' };
-    const typeIcons = { shape: 'shape', svg_graphic: 'shape', svg_text: 'text', pipeline: 'shape' };
+    const typeLabels = { shape: 'Shape', svg_graphic: 'Image', svg_text: 'Text', pipeline: 'Pipeline', detection: 'Detection' };
+    const typeIcons = { shape: 'shape', svg_graphic: 'shape', svg_text: 'text', pipeline: 'shape', detection: 'shape' };
     Object.entries(typeGroups).forEach(([typeName, layers]) => {
         if (!layers.length) return;
         const typeNode = document.createElement('div');
@@ -258,7 +265,7 @@ function updateLayerList() {
         colorSubtree.style.marginLeft = '20px';
 
         // For pipeline layers or "layer" mode shapes: show directly as flat list by name
-        if (typeName === 'pipeline' || (typeName === 'shape' && currentLayerField === 'layer')) {
+        if (typeName === 'pipeline' || typeName === 'detection' || (typeName === 'shape' && currentLayerField === 'layer')) {
             layers.sort((a, b) => (totalCommands[b] || 0) - (totalCommands[a] || 0));
             layers.forEach((layerName, index) => {
                 const layerItem = createLayerControl(layerName);

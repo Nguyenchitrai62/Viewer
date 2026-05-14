@@ -78,6 +78,7 @@ function resolveSavedPatternSearchLayers(patternData) {
         (key.startsWith('shape_') || key === '__default_shape_layer__' || currentLayerField === 'layer') &&
         !key.startsWith('svg_') &&
         !pipelineLayerNames.includes(key) &&
+        !detectionLayerNames.includes(key) &&
         layerVisibility[key]
     );
 }

@@ -27,6 +27,9 @@ function setupVisualization() {
     } else {
         updateLayerList();
     }
+    if (typeof updateDetectionExtractUI === 'function') {
+        updateDetectionExtractUI();
+    }
     resetView();
 }
 
@@ -154,6 +157,12 @@ function clearVisualization() {
     precomputedLengths = {}; // Clear stale length cache to avoid wrong matches on new page
     pipelineRawResults = null;
     pipelineLayerNames = [];
+    detectionRawResults = null;
+    detectionAdjustedResults = null;
+    detectionLayerNames = [];
+    if (typeof invalidateDetectionExtractImageCache === 'function') {
+        invalidateDetectionExtractImageCache();
+    }
 
     cachedPageImage = null;
     cachedPageImageLoading = false;
@@ -263,6 +272,9 @@ function clearVisualization() {
     }
     if (typeof updateManualLabelUI === 'function') {
         updateManualLabelUI();
+    }
+    if (typeof updateDetectionExtractUI === 'function') {
+        updateDetectionExtractUI();
     }
     if (typeof resetSymbolAnnotationState === 'function') {
         resetSymbolAnnotationState({ clearCache: false });

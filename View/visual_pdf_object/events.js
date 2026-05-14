@@ -282,6 +282,9 @@ function collapseAnnotationPanelsForVLM() {
     if (typeof applySymbolAnnotationPanelState === 'function') {
         applySymbolAnnotationPanelState(true);
     }
+    if (typeof applyDetectionExtractPanelState === 'function') {
+        applyDetectionExtractPanelState(true);
+    }
 }
 
 try {
@@ -395,6 +398,9 @@ canvasContainer.addEventListener('contextmenu', e => {
 btnToggleLayerMode.addEventListener('click', () => {
     if (manualAnnotations.length || pendingConnectPoint) {
         resetManualLabelState({ message: 'Đã xóa nhãn do đổi chế độ layer.', tone: 'info' });
+    }
+    if (typeof clearDetectionVisualization === 'function') {
+        clearDetectionVisualization({ refresh: false });
     }
     currentLayerField = (currentLayerField === 'layer_1') ? 'layer' : 'layer_1';
     btnToggleLayerMode.textContent = `Mode: ${currentLayerField === 'layer_1' ? 'Layer 1' : 'Layer'}`;

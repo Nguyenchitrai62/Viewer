@@ -1,5 +1,8 @@
 function isExportableAnnotationLayer(layerName) {
-    return Boolean(layerName) && !layerName.startsWith('svg_') && !pipelineLayerNames.includes(layerName);
+    return Boolean(layerName)
+        && !layerName.startsWith('svg_')
+        && !pipelineLayerNames.includes(layerName)
+        && !detectionLayerNames.includes(layerName);
 }
 
 function getShapeLayerNameForField(shape, field = currentLayerField) {

@@ -245,6 +245,7 @@ function getVisibleRenderableLayers() {
         && layerIndex[layerName].length > 0
         && !layerName.startsWith('svg_')
         && !pipelineLayerNames.includes(layerName)
+        && !detectionLayerNames.includes(layerName)
     );
 }
 
