@@ -399,28 +399,38 @@ function findRedundantConnectIds(connectAnnotations) {
     connectOnlyAnnotations.forEach(parentAnnotation => {
         if (!parentAnnotation || redundantConnectIds.has(parentAnnotation.id)) return;
         const parentLineKeys = getConnectAnnotationLineKeys(parentAnnotation);
-        if (parentLineKeys.length < 2) return;
-        const parentLineKeySet = new Set(parentLineKeys);
-        const childAnnotations = connectOnlyAnnotations.filter(childAnnotation => {
-            if (!childAnnotation || childAnnotation.id === parentAnnotation.id || redundantConnectIds.has(childAnnotation.id)) return false;
-            const childLineKeys = getConnectAnnotationLineKeys(childAnnotation);
-            return childLineKeys.length > 0
-                && childLineKeys.length < parentLineKeys.length
-                && childLineKeys.every(lineKey => parentLineKeySet.has(lineKey));
-        });
-        if (childAnnotations.length < 2) return;
+        if (parentLineKeys.length >= 2) {
+            const parentLineKeySet = new Set(parentLineKeys);
+            const childAnnotations = connectOnlyAnnotations.filter(childAnnotation => {
+                if (!childAnnotation || childAnnotation.id === parentAnnotation.id || redundantConnectIds.has(childAnnotation.id)) return false;
+                const childLineKeys = getConnectAnnotationLineKeys(childAnnotation);
+                return childLineKeys.length > 0
+                    && childLineKeys.length < parentLineKeys.length
+                    && childLineKeys.every(lineKey => parentLineKeySet.has(lineKey));
+            });
 
-        const coveredLineKeys = new Set();
-        childAnnotations.forEach(childAnnotation => {
-            getConnectAnnotationLineKeys(childAnnotation).forEach(lineKey => coveredLineKeys.add(lineKey));
-        });
-        if (parentLineKeys.every(lineKey => coveredLineKeys.has(lineKey))) {
-            if (shouldPreferMergedStraightConnect(parentAnnotation, childAnnotations)) {
-                childAnnotations.forEach(childAnnotation => redundantConnectIds.add(childAnnotation.id));
-                return;
+            if (childAnnotations.length >= 2) {
+                const coveredLineKeys = new Set();
+                childAnnotations.forEach(childAnnotation => {
+                    getConnectAnnotationLineKeys(childAnnotation).forEach(lineKey => coveredLineKeys.add(lineKey));
+                });
+                if (parentLineKeys.every(lineKey => coveredLineKeys.has(lineKey))) {
+                    if (shouldPreferMergedStraightConnect(parentAnnotation, childAnnotations)) {
+                        childAnnotations.forEach(childAnnotation => redundantConnectIds.add(childAnnotation.id));
+                        return;
+                    }
+                    redundantConnectIds.add(parentAnnotation.id);
+                    return;
+                }
             }
-            redundantConnectIds.add(parentAnnotation.id);
         }
+
+        connectOnlyAnnotations.forEach(childAnnotation => {
+            if (!childAnnotation || childAnnotation.id === parentAnnotation.id || redundantConnectIds.has(childAnnotation.id)) return;
+            if (doesConnectAnnotationGeometricallyCover(parentAnnotation, childAnnotation)) {
+                redundantConnectIds.add(childAnnotation.id);
+            }
+        });
     });
 
     return redundantConnectIds;
@@ -428,13 +438,8 @@ function findRedundantConnectIds(connectAnnotations) {
 
 function doesConnectReachPoint(annotation, point) {
     if (!annotation || annotation.type !== 'connect' || !point) return false;
-    const targetKey = getSnapPointKey(annotation.layerName, point.x, point.y);
-    return getConnectAnnotationEndpointKeys(annotation).includes(targetKey)
-        || getConnectAnnotationSegments(annotation).some(segment =>
-            Array.isArray(segment)
-                && segment.length >= 2
-                && (areSameSnapPoint(segment[0], point) || areSameSnapPoint(segment[1], point))
-        );
+    return Array.isArray(annotation.points)
+        && annotation.points.some(connectPoint => areSameSnapPoint(connectPoint, point));
 }
 
 function finalizeAddedAnnotations(addedAnnotations, options = {}) {
@@ -976,6 +981,102 @@ function refreshAnnotationModeLabel() {
     }
 }
 
+function shouldPreferSuggestedConnectAnnotation(candidateSuggestion, existingSuggestion) {
+    if (!candidateSuggestion) return false;
+    if (!existingSuggestion) return true;
+
+    const candidateEffectiveLength = getConnectAnnotationEffectiveLength(candidateSuggestion);
+    const existingEffectiveLength = getConnectAnnotationEffectiveLength(existingSuggestion);
+    if (Math.abs(candidateEffectiveLength - existingEffectiveLength) > 1e-6) {
+        return candidateEffectiveLength > existingEffectiveLength;
+    }
+
+    const candidateSegmentLength = getConnectAnnotationLength(candidateSuggestion);
+    const existingSegmentLength = getConnectAnnotationLength(existingSuggestion);
+    if (Math.abs(candidateSegmentLength - existingSegmentLength) > 1e-6) {
+        return candidateSegmentLength > existingSegmentLength;
+    }
+
+    return getConnectAnnotationSegments(candidateSuggestion).length > getConnectAnnotationSegments(existingSuggestion).length;
+}
+
+function isPointNearSuggestedConnectSegments(point, segments, tolerance = getManualEndpointTouchToleranceWorld()) {
+    if (!point || !Array.isArray(segments) || !segments.length) return false;
+    return segments.some(segment =>
+        Array.isArray(segment)
+        && segment.length >= 2
+        && distancePointToSegment(
+            Number(point.x),
+            Number(point.y),
+            Number(segment[0].x),
+            Number(segment[0].y),
+            Number(segment[1].x),
+            Number(segment[1].y)
+        ) <= tolerance
+    );
+}
+
+function doesSuggestedConnectCoverSuggestion(parentSuggestion, childSuggestion, tolerance = getManualEndpointTouchToleranceWorld()) {
+    if (!parentSuggestion || !childSuggestion || parentSuggestion.type !== 'connect' || childSuggestion.type !== 'connect') return false;
+    if (parentSuggestion === childSuggestion || parentSuggestion.id === childSuggestion.id) return false;
+    if (parentSuggestion.layerName !== childSuggestion.layerName) return false;
+
+    const parentReferenceLineCandidate = getReferenceLineCandidateForAnnotation(parentSuggestion);
+    const childReferenceLineCandidate = getReferenceLineCandidateForAnnotation(childSuggestion);
+    if (!parentReferenceLineCandidate || !childReferenceLineCandidate) return false;
+    if (!areParallelLineCandidates(parentReferenceLineCandidate, childReferenceLineCandidate)) return false;
+
+    const parentSegmentLength = getConnectAnnotationLength(parentSuggestion);
+    const childSegmentLength = getConnectAnnotationLength(childSuggestion);
+    const minimumLengthGain = Math.max(tolerance, 1e-4);
+    if (!(parentSegmentLength > childSegmentLength + minimumLengthGain)) return false;
+
+    const parentSegments = getConnectAnnotationSegments(parentSuggestion);
+    const childSegments = getConnectAnnotationSegments(childSuggestion);
+    if (!parentSegments.length || !childSegments.length) return false;
+
+    return childSegments.every(segment => {
+        if (!Array.isArray(segment) || segment.length < 2) return false;
+        const midpoint = {
+            x: (Number(segment[0].x) + Number(segment[1].x)) / 2,
+            y: (Number(segment[0].y) + Number(segment[1].y)) / 2,
+            layerName: childSuggestion.layerName
+        };
+        return [segment[0], midpoint, segment[1]].every(point =>
+            isPointNearSuggestedConnectSegments(point, parentSegments, tolerance)
+        );
+    });
+}
+
+function filterCoveredSuggestedConnectAnnotations(suggestions) {
+    return (suggestions || []).filter((candidateSuggestion, candidateIndex, allSuggestions) =>
+        !allSuggestions.some((otherSuggestion, otherIndex) => {
+            if (candidateIndex === otherIndex) return false;
+            if (!shouldPreferSuggestedConnectAnnotation(otherSuggestion, candidateSuggestion)) return false;
+            return doesSuggestedConnectCoverSuggestion(otherSuggestion, candidateSuggestion);
+        })
+    );
+}
+
+function mergeUniqueSuggestedConnectAnnotations(suggestions) {
+    const suggestionsByKey = new Map();
+
+    (suggestions || []).forEach(suggestion => {
+        if (!suggestion || suggestion.type !== 'connect') return;
+        const suggestionKey = getConnectAnnotationGroupKey(suggestion)
+            || getConnectAnnotationTraversalKey(suggestion)
+            || suggestion.id;
+        if (!suggestionKey) return;
+
+        const existingSuggestion = suggestionsByKey.get(suggestionKey);
+        if (shouldPreferSuggestedConnectAnnotation(suggestion, existingSuggestion)) {
+            suggestionsByKey.set(suggestionKey, suggestion);
+        }
+    });
+
+    return filterCoveredSuggestedConnectAnnotations(Array.from(suggestionsByKey.values()));
+}
+
 function collectSuggestedConnectAnnotationsForConnects(connectAnnotations) {
     if (!Array.isArray(connectAnnotations) || !connectAnnotations.length || !hasManualLineCandidateSource()) {
         return [];
@@ -995,10 +1096,14 @@ function collectSuggestedConnectAnnotationsForConnects(connectAnnotations) {
         mergedSeedLineCandidates.set(lineCandidate.id, lineCandidate);
     });
 
-    return buildConnectSuggestionsFromSeedLines(
+    const seedSuggestions = buildConnectSuggestionsFromSeedLines(
         Array.from(mergedSeedLineCandidates.values()),
         existingConnectLineKeys
     );
+    const overlaySuggestions = typeof buildExpandedStraightConnectSuggestionsFromAnnotations === 'function'
+        ? buildExpandedStraightConnectSuggestionsFromAnnotations(connectAnnotations, existingConnectLineKeys)
+        : [];
+    return mergeUniqueSuggestedConnectAnnotations([...seedSuggestions, ...overlaySuggestions]);
 }
 
 async function collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotations, options = {}) {
@@ -1036,9 +1141,17 @@ async function collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotat
     });
 
     const seedLineCandidates = Array.from(mergedSeedLineCandidates.values());
-    return typeof buildConnectSuggestionsFromSeedLinesAsync === 'function'
+    const seedSuggestions = typeof buildConnectSuggestionsFromSeedLinesAsync === 'function'
         ? buildConnectSuggestionsFromSeedLinesAsync(seedLineCandidates, existingConnectLineKeys, options)
         : buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnectLineKeys);
+    const resolvedSeedSuggestions = await Promise.resolve(seedSuggestions);
+    if (!shouldContinueManualSuggestionWork(options)) return [];
+
+    const overlaySuggestions = typeof buildExpandedStraightConnectSuggestionsFromAnnotations === 'function'
+        ? buildExpandedStraightConnectSuggestionsFromAnnotations(connectAnnotations, existingConnectLineKeys)
+        : [];
+
+    return mergeUniqueSuggestedConnectAnnotations([...resolvedSeedSuggestions, ...overlaySuggestions]);
 }
 
 function formatConnectSuggestionSuffix(suggestedConnectCount) {
