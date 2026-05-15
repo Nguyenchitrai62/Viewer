@@ -564,6 +564,18 @@ function doLineCandidatesShareDashGroup(lineCandidateA, lineCandidateB) {
     return dashGroupIdsB.some(groupId => dashGroupIdSetA.has(groupId));
 }
 
+function isDashContinuationLineCandidate(lineCandidate, referenceLineCandidate = null, adjacentLineCandidate = null) {
+    if (!lineCandidate) return false;
+    if (isShortDashedLineCandidate(lineCandidate)) return true;
+    if (referenceLineCandidate && doLineCandidatesShareDashGroup(referenceLineCandidate, lineCandidate)) {
+        return true;
+    }
+    if (adjacentLineCandidate && doLineCandidatesShareDashGroup(adjacentLineCandidate, lineCandidate)) {
+        return true;
+    }
+    return false;
+}
+
 function getLineCandidateProjectionRange(lineCandidate, originPoint, direction) {
     if (!lineCandidate?.points || lineCandidate.points.length < 2 || !originPoint || !direction) {
         return [0, 0];
@@ -603,7 +615,10 @@ function getDashedLineCandidateCompatibility(referenceLineCandidate, lineCandida
     if (lineCandidateA.layerName !== lineCandidateB.layerName || lineCandidateA.layerName !== referenceLineCandidate.layerName) {
         return null;
     }
-    if (!isShortDashedLineCandidate(lineCandidateA) || !isShortDashedLineCandidate(lineCandidateB)) return null;
+    if (!isDashContinuationLineCandidate(lineCandidateA, referenceLineCandidate, lineCandidateB)
+        || !isDashContinuationLineCandidate(lineCandidateB, referenceLineCandidate, lineCandidateA)) {
+        return null;
+    }
     if (!areParallelLineCandidates(referenceLineCandidate, lineCandidateA) || !areParallelLineCandidates(referenceLineCandidate, lineCandidateB)) {
         return null;
     }
@@ -660,10 +675,10 @@ function areDashedLineCandidatesContinuations(referenceLineCandidate, lineCandid
 
 function getDashedAlignedNeighborLineCandidates(currentLineCandidate, referenceLineCandidate, existingConnectLineKeys) {
     if (!currentLineCandidate || !referenceLineCandidate) return [];
-    if (!isShortDashedLineCandidate(currentLineCandidate)) return [];
+    if (!isDashContinuationLineCandidate(currentLineCandidate, referenceLineCandidate)) return [];
 
-    const bestSharedNeighborBySide = new Map();
-    const bestFallbackNeighborBySide = new Map();
+    const sharedNeighborsBySide = new Map();
+    const fallbackNeighborsBySide = new Map();
     const queryRange = expandBounds(
         getLineCandidateBounds(currentLineCandidate),
         getManualSuggestionSearchPadding()
@@ -674,17 +689,38 @@ function getDashedAlignedNeighborLineCandidates(currentLineCandidate, referenceL
         const compatibility = getDashedLineCandidateCompatibility(referenceLineCandidate, currentLineCandidate, lineCandidate);
         if (!compatibility) return;
 
-        const targetMap = compatibility.sharedDashGroup ? bestSharedNeighborBySide : bestFallbackNeighborBySide;
-        const previousBest = targetMap.get(compatibility.side);
-        if (!previousBest || compatibility.score < previousBest.compatibility.score) {
-            targetMap.set(compatibility.side, { lineCandidate, compatibility });
-        }
+        const targetMap = compatibility.sharedDashGroup ? sharedNeighborsBySide : fallbackNeighborsBySide;
+        const sideEntries = targetMap.get(compatibility.side) || [];
+        sideEntries.push({ lineCandidate, compatibility });
+        targetMap.set(compatibility.side, sideEntries);
     });
 
+    function getOrderedNeighborsForSide(targetMap, side) {
+        return (targetMap.get(side) || [])
+            .slice()
+            .sort((left, right) => {
+                const scoreDelta = left.compatibility.score - right.compatibility.score;
+                if (Math.abs(scoreDelta) > 1e-6) return scoreDelta;
+
+                const gapDelta = left.compatibility.gap - right.compatibility.gap;
+                if (Math.abs(gapDelta) > 1e-6) return gapDelta;
+
+                const lengthDelta = getLineCandidateLength(left.lineCandidate) - getLineCandidateLength(right.lineCandidate);
+                if (Math.abs(lengthDelta) > 1e-6) return lengthDelta;
+
+                return String(left.lineCandidate.id).localeCompare(String(right.lineCandidate.id));
+            })
+            .map(entry => entry.lineCandidate);
+    }
+
     return ['backward', 'forward']
-        .map(side => bestSharedNeighborBySide.get(side) || bestFallbackNeighborBySide.get(side))
-        .filter(Boolean)
-        .map(entry => entry.lineCandidate);
+        .flatMap(side => {
+            const sharedNeighbors = getOrderedNeighborsForSide(sharedNeighborsBySide, side);
+            if (sharedNeighbors.length) {
+                return sharedNeighbors;
+            }
+            return getOrderedNeighborsForSide(fallbackNeighborsBySide, side);
+        });
 }
 
 function getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options = {}) {
@@ -1750,13 +1786,72 @@ function isSuggestableConnectSeedLineLongEnough(seedLineCandidate, existingConne
     return isLongEnough;
 }
 
-function buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnectLineKeys) {
+function compareConnectSuggestionPriority(leftEntry, rightEntry) {
+    const leftSuggestion = leftEntry?.suggestion || null;
+    const rightSuggestion = rightEntry?.suggestion || null;
+
+    const effectiveLengthDelta = getSuggestConnectLineLikeEffectiveLength(rightSuggestion)
+        - getSuggestConnectLineLikeEffectiveLength(leftSuggestion);
+    if (Math.abs(effectiveLengthDelta) > 1e-6) {
+        return effectiveLengthDelta;
+    }
+
+    const rightLineKeyCount = getConnectAnnotationLineKeys(rightSuggestion).length;
+    const leftLineKeyCount = getConnectAnnotationLineKeys(leftSuggestion).length;
+    if (rightLineKeyCount !== leftLineKeyCount) {
+        return rightLineKeyCount - leftLineKeyCount;
+    }
+
+    const rightSegmentCount = getConnectAnnotationSegments(rightSuggestion).length;
+    const leftSegmentCount = getConnectAnnotationSegments(leftSuggestion).length;
+    if (rightSegmentCount !== leftSegmentCount) {
+        return rightSegmentCount - leftSegmentCount;
+    }
+
+    return String(leftEntry?.seedId || '').localeCompare(String(rightEntry?.seedId || ''));
+}
+
+function selectConnectSuggestionsFromCandidateEntries(candidateEntries, existingConnectLineKeys) {
     const consumedLineKeys = new Set();
     const suggestionGroupKeys = new Set();
     const suggestions = [];
 
+    (candidateEntries || [])
+        .slice()
+        .sort(compareConnectSuggestionPriority)
+        .forEach(candidateEntry => {
+            const suggestion = candidateEntry?.suggestion || null;
+            if (!suggestion) return;
+
+            const seedId = candidateEntry.seedId;
+            if (seedId && consumedLineKeys.has(seedId)) {
+                return;
+            }
+
+            const lineKeys = getConnectAnnotationLineKeys(suggestion);
+            if (!lineKeys.length) return;
+            if (lineKeys.some(lineKey => existingConnectLineKeys.has(lineKey) || consumedLineKeys.has(lineKey))) {
+                return;
+            }
+
+            const groupKey = getConnectAnnotationGroupKey(suggestion);
+            if (groupKey && suggestionGroupKeys.has(groupKey)) return;
+            if (groupKey) suggestionGroupKeys.add(groupKey);
+
+            lineKeys.forEach(groupedLineKey => {
+                consumedLineKeys.add(groupedLineKey);
+            });
+            suggestions.push(suggestion);
+        });
+
+    return suggestions;
+}
+
+function buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnectLineKeys) {
+    const candidateEntries = [];
+
     seedLineCandidates.forEach(seedLineCandidate => {
-        if (!seedLineCandidate || consumedLineKeys.has(seedLineCandidate.id) || existingConnectLineKeys.has(seedLineCandidate.id)) {
+        if (!seedLineCandidate || existingConnectLineKeys.has(seedLineCandidate.id)) {
             return;
         }
 
@@ -1766,19 +1861,16 @@ function buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnec
         });
         if (!groupedSuggestion) return;
 
-        const { annotation: suggestion, groupedLineCandidates } = groupedSuggestion;
+        const { annotation: suggestion } = groupedSuggestion;
         if (!isSuggestConnectLineLikeLongEnough(suggestion)) return;
 
-        const groupKey = getConnectAnnotationGroupKey(suggestion);
-        if (groupKey && suggestionGroupKeys.has(groupKey)) return;
-        if (groupKey) suggestionGroupKeys.add(groupKey);
-        getConnectAnnotationLineKeys(suggestion).forEach(groupedLineKey => {
-            consumedLineKeys.add(groupedLineKey);
+        candidateEntries.push({
+            seedId: seedLineCandidate.id,
+            suggestion
         });
-        suggestions.push(suggestion);
     });
 
-    return suggestions;
+    return selectConnectSuggestionsFromCandidateEntries(candidateEntries, existingConnectLineKeys);
 }
 
 function buildExpandedStraightConnectSuggestionFromAnnotation(connectAnnotation, existingConnectLineKeys, options = {}) {
@@ -2067,9 +2159,7 @@ async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existin
 }
 
 async function buildConnectSuggestionsFromSeedLinesAsync(seedLineCandidates, existingConnectLineKeys, options = {}) {
-    const consumedLineKeys = new Set();
-    const suggestionGroupKeys = new Set();
-    const suggestions = [];
+    const candidateEntries = [];
     const yieldState = { lastYieldTime: performance.now() };
     let processedCount = 0;
 
@@ -2077,7 +2167,7 @@ async function buildConnectSuggestionsFromSeedLinesAsync(seedLineCandidates, exi
         processedCount += 1;
         await yieldManualSuggestionWorkIfNeeded(yieldState, processedCount, 40);
         if (!shouldContinueManualSuggestionWork(options)) return [];
-        if (!seedLineCandidate || consumedLineKeys.has(seedLineCandidate.id) || existingConnectLineKeys.has(seedLineCandidate.id)) {
+        if (!seedLineCandidate || existingConnectLineKeys.has(seedLineCandidate.id)) {
             continue;
         }
 
@@ -2090,16 +2180,13 @@ async function buildConnectSuggestionsFromSeedLinesAsync(seedLineCandidates, exi
         const { annotation: suggestion } = groupedSuggestion;
         if (!isSuggestConnectLineLikeLongEnough(suggestion)) continue;
 
-        const groupKey = getConnectAnnotationGroupKey(suggestion);
-        if (groupKey && suggestionGroupKeys.has(groupKey)) continue;
-        if (groupKey) suggestionGroupKeys.add(groupKey);
-        getConnectAnnotationLineKeys(suggestion).forEach(groupedLineKey => {
-            consumedLineKeys.add(groupedLineKey);
+        candidateEntries.push({
+            seedId: seedLineCandidate.id,
+            suggestion
         });
-        suggestions.push(suggestion);
     }
 
-    return suggestions;
+    return selectConnectSuggestionsFromCandidateEntries(candidateEntries, existingConnectLineKeys);
 }
 
 function getConnectAnnotationResolvedLineCandidates(annotation) {
