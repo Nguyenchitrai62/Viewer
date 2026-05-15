@@ -1093,10 +1093,8 @@ async function exportLayerImages() {
         anchor.click();
         anchor.remove();
         URL.revokeObjectURL(zipUrl);
-        hideLoadingPopup();
     } catch (error) {
         console.error('Layer image export failed:', error);
-        hideLoadingPopup();
         alert(`Không thể export ảnh layer: ${error.message}`);
     } finally {
         hideLoadingPopup();

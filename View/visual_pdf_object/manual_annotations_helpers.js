@@ -1796,10 +1796,10 @@ function compareConnectSuggestionPriority(leftEntry, rightEntry) {
         return effectiveLengthDelta;
     }
 
-    const rightLineKeyCount = getConnectAnnotationLineKeys(rightSuggestion).length;
-    const leftLineKeyCount = getConnectAnnotationLineKeys(leftSuggestion).length;
-    if (rightLineKeyCount !== leftLineKeyCount) {
-        return rightLineKeyCount - leftLineKeyCount;
+    const segmentLengthDelta = getConnectAnnotationLength(rightSuggestion)
+        - getConnectAnnotationLength(leftSuggestion);
+    if (Math.abs(segmentLengthDelta) > 1e-6) {
+        return segmentLengthDelta;
     }
 
     const rightSegmentCount = getConnectAnnotationSegments(rightSuggestion).length;
@@ -1822,11 +1822,6 @@ function selectConnectSuggestionsFromCandidateEntries(candidateEntries, existing
         .forEach(candidateEntry => {
             const suggestion = candidateEntry?.suggestion || null;
             if (!suggestion) return;
-
-            const seedId = candidateEntry.seedId;
-            if (seedId && consumedLineKeys.has(seedId)) {
-                return;
-            }
 
             const lineKeys = getConnectAnnotationLineKeys(suggestion);
             if (!lineKeys.length) return;
