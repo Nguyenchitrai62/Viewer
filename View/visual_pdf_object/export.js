@@ -138,34 +138,7 @@ async function exportCurrentViewImage() {
 }
 
 async function getPdfPageBounds() {
-    if (!currentPdfFile || !currentPageNum) return null;
-
-    let pdf = null;
-    let page = null;
-    try {
-        const arrayBuffer = await currentPdfFile.arrayBuffer();
-        pdf = await loadPdfDocument(arrayBuffer).promise;
-        page = await pdf.getPage(currentPageNum);
-        const viewport = page.getViewport({ scale: 1 });
-        return {
-            minX: 0,
-            minY: 0,
-            maxX: viewport.width,
-            maxY: viewport.height,
-            width: viewport.width,
-            height: viewport.height
-        };
-    } catch (error) {
-        console.warn('Failed to read PDF page bounds for export:', error);
-        return null;
-    } finally {
-        if (page) {
-            try { page.cleanup(); } catch (error) {}
-        }
-        if (pdf) {
-            try { await pdf.destroy(); } catch (error) {}
-        }
-    }
+    return getPdfPageBoundsForPage(currentPageNum);
 }
 
 async function getExportBounds(scale = CONFIG.MANUAL_LABEL_SCALE) {
@@ -707,43 +680,426 @@ function buildCropSplitArray(numCrops, trainRatio) {
     return shuffleArray(splitArray);
 }
 
+function formatPageSelectionRange(pageNumbers) {
+    const sortedPageNumbers = Array.from(new Set(
+        (pageNumbers || [])
+            .map(pageNum => Number(pageNum))
+            .filter(pageNum => Number.isInteger(pageNum) && pageNum > 0)
+    )).sort((left, right) => left - right);
+    if (!sortedPageNumbers.length) return '';
+
+    const ranges = [];
+    let rangeStart = sortedPageNumbers[0];
+    let previousPageNum = sortedPageNumbers[0];
+
+    for (let index = 1; index <= sortedPageNumbers.length; index += 1) {
+        const pageNum = sortedPageNumbers[index];
+        if (pageNum === previousPageNum + 1) {
+            previousPageNum = pageNum;
+            continue;
+        }
+
+        ranges.push(rangeStart === previousPageNum
+            ? String(rangeStart)
+            : `${rangeStart}-${previousPageNum}`);
+        rangeStart = pageNum;
+        previousPageNum = pageNum;
+    }
+
+    return ranges.join(', ');
+}
+
+async function getLayerImageExportPageNumbers() {
+    if (typeof getSymbolAnnotationDocumentPageNumbers === 'function') {
+        const pageNumbers = await getSymbolAnnotationDocumentPageNumbers();
+        if (pageNumbers.length) {
+            return pageNumbers;
+        }
+    }
+
+    const pageNumbers = new Set();
+    getPageGzipCacheKeys(cachedPages).forEach(pageNum => pageNumbers.add(Number(pageNum)));
+    getPageGzipCacheKeys(stagedCachedPages).forEach(pageNum => pageNumbers.add(Number(pageNum)));
+    if (Number.isInteger(Number(currentPageNum)) && Number(currentPageNum) > 0) {
+        pageNumbers.add(Number(currentPageNum));
+    }
+    if (!pageNumbers.size && currentJsonSourceFile) {
+        pageNumbers.add(1);
+    }
+
+    return Array.from(pageNumbers)
+        .filter(pageNum => Number.isInteger(pageNum) && pageNum > 0)
+        .sort((left, right) => left - right);
+}
+
+function parseLayerImageExportPageSelection(rawValue, availablePageNumbers) {
+    const normalizedAvailablePages = Array.from(new Set(
+        (availablePageNumbers || [])
+            .map(pageNum => Number(pageNum))
+            .filter(pageNum => Number.isInteger(pageNum) && pageNum > 0)
+    )).sort((left, right) => left - right);
+    const availablePageSet = new Set(normalizedAvailablePages);
+    const normalizedValue = String(rawValue || '').trim();
+    if (!normalizedValue) {
+        return [];
+    }
+    if (/^all$/i.test(normalizedValue)) {
+        return normalizedAvailablePages.slice();
+    }
+
+    const selectedPages = new Set();
+    const invalidTokens = [];
+    const unavailablePages = [];
+
+    normalizedValue.split(',').forEach(token => {
+        const normalizedToken = token.trim();
+        if (!normalizedToken) return;
+
+        const rangeMatch = normalizedToken.match(/^(\d+)\s*-\s*(\d+)$/);
+        if (rangeMatch) {
+            let startPageNum = Number(rangeMatch[1]);
+            let endPageNum = Number(rangeMatch[2]);
+            if (endPageNum < startPageNum) {
+                [startPageNum, endPageNum] = [endPageNum, startPageNum];
+            }
+            for (let pageNum = startPageNum; pageNum <= endPageNum; pageNum += 1) {
+                if (availablePageSet.size && !availablePageSet.has(pageNum)) {
+                    unavailablePages.push(pageNum);
+                    continue;
+                }
+                selectedPages.add(pageNum);
+            }
+            return;
+        }
+
+        if (/^\d+$/.test(normalizedToken)) {
+            const pageNum = Number(normalizedToken);
+            if (availablePageSet.size && !availablePageSet.has(pageNum)) {
+                unavailablePages.push(pageNum);
+                return;
+            }
+            selectedPages.add(pageNum);
+            return;
+        }
+
+        invalidTokens.push(normalizedToken);
+    });
+
+    if (invalidTokens.length) {
+        throw new Error(`Danh sách trang không hợp lệ: ${invalidTokens.join(', ')}`);
+    }
+
+    if (unavailablePages.length) {
+        throw new Error(`Các trang không khả dụng: ${formatPageSelectionRange(unavailablePages)}`);
+    }
+
+    return Array.from(selectedPages).sort((left, right) => left - right);
+}
+
+async function promptLayerImageExportOptions(defaultScale = CONFIG.MANUAL_LABEL_SCALE) {
+    const scale = promptCurrentViewImageScale(defaultScale);
+    if (scale === null) {
+        return null;
+    }
+
+    const availablePageNumbers = await getLayerImageExportPageNumbers();
+    if (!availablePageNumbers.length) {
+        alert('Không tìm thấy trang nào để export.');
+        return null;
+    }
+
+    const defaultSelection = Number.isInteger(Number(currentPageNum)) && availablePageNumbers.includes(Number(currentPageNum))
+        ? String(Number(currentPageNum))
+        : formatPageSelectionRange(availablePageNumbers);
+    const rawPageSelection = window.prompt(
+        `Nhập danh sách trang cần export (ví dụ: 1, 3, 5, 6-10 hoặc all)\nTrang khả dụng: ${formatPageSelectionRange(availablePageNumbers)}`,
+        defaultSelection
+    );
+    if (rawPageSelection === null) {
+        return null;
+    }
+
+    let pageNumbers;
+    try {
+        pageNumbers = parseLayerImageExportPageSelection(rawPageSelection, availablePageNumbers);
+    } catch (error) {
+        alert(error.message);
+        return null;
+    }
+
+    if (!pageNumbers.length) {
+        alert('Cần chọn ít nhất 1 trang để export.');
+        return null;
+    }
+
+    return { scale, pageNumbers };
+}
+
+async function getPdfPageBoundsForPage(pageNum = currentPageNum) {
+    if (!currentPdfFile || !pageNum) return null;
+
+    let pdf = null;
+    let page = null;
+    try {
+        pdf = await ensureCurrentPdfDocument();
+        if (!pdf) return null;
+        page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1 });
+        return {
+            minX: 0,
+            minY: 0,
+            maxX: viewport.width,
+            maxY: viewport.height,
+            width: viewport.width,
+            height: viewport.height
+        };
+    } catch (error) {
+        console.warn(`Failed to read PDF page bounds for page ${pageNum}:`, error);
+        return null;
+    } finally {
+        if (page) {
+            try { page.cleanup(); } catch (error) {}
+        }
+    }
+}
+
 async function exportLayerImages() {
-    if (!jsonShapes || !sortedLayerKeys.length) {
+    if (!hasRenderableDocument()) {
         alert('Khong co du lieu de xuat.');
         return;
     }
 
-    const scale = CONFIG.MANUAL_LABEL_SCALE;
-    const bounds = await getExportBounds(scale);
-    if (!bounds) {
-        alert('Khong tinh duoc vung ve.');
+    const exportOptions = await promptLayerImageExportOptions(CONFIG.MANUAL_LABEL_SCALE);
+    if (!exportOptions) {
         return;
     }
 
-    const { canvas, ctx } = createCanvas(bounds.width * scale, bounds.height * scale);
-    const popup = document.getElementById('loading-popup');
-    if (popup) popup.style.display = 'flex';
+    const { scale, pageNumbers } = exportOptions;
+
+    function buildLocalRenderableLayerState(shapes) {
+        const localLayerIndex = {};
+        const localTotalCommands = {};
+
+        (shapes || []).forEach(shape => {
+            const layerName = typeof getShapeLayerNameForField === 'function'
+                ? getShapeLayerNameForField(shape, currentLayerField)
+                : (shape?.layer || null);
+            if (!layerName || !Array.isArray(shape?.items) || !shape.items.length) return;
+
+            localLayerIndex[layerName] ??= [];
+            localLayerIndex[layerName].push(shape);
+            localTotalCommands[layerName] = (localTotalCommands[layerName] || 0) + shape.items.length;
+        });
+
+        return {
+            layerIndex: localLayerIndex,
+            sortedLayerKeys: Object.keys(localLayerIndex).sort((left, right) => {
+                const commandDelta = (localTotalCommands[right] || 0) - (localTotalCommands[left] || 0);
+                return commandDelta !== 0 ? commandDelta : left.localeCompare(right);
+            })
+        };
+    }
+
+    function getVisibleRenderableLayersForDocument(layerState) {
+        return (layerState?.sortedLayerKeys || []).filter(layerName =>
+            (layerVisibility?.[layerName] !== false)
+            && layerState.layerIndex[layerName]
+            && layerState.layerIndex[layerName].length > 0
+            && !layerName.startsWith('svg_')
+            && !pipelineLayerNames.includes(layerName)
+            && !detectionLayerNames.includes(layerName)
+        );
+    }
+
+    function getRenderableLayerBoundsForLayerState(layerState) {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        (layerState?.sortedLayerKeys || []).forEach(layerName => {
+            const layerShapes = layerState.layerIndex[layerName] || [];
+            layerShapes.forEach(shape => {
+                if (!shape?.bbox) return;
+                minX = Math.min(minX, shape.bbox.minX);
+                minY = Math.min(minY, shape.bbox.minY);
+                maxX = Math.max(maxX, shape.bbox.maxX);
+                maxY = Math.max(maxY, shape.bbox.maxY);
+            });
+        });
+
+        if (minX === Infinity) return null;
+        return {
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+
+    async function getExportBoundsForDocumentData(documentData, pageNum, layerState) {
+        const pdfBounds = await getPdfPageBoundsForPage(pageNum);
+        if (pdfBounds) return pdfBounds;
+
+        const metadataBounds = typeof getRasterPreviewBoundsFromMetadata === 'function'
+            ? getRasterPreviewBoundsFromMetadata(documentData?.metadata)
+            : null;
+        if (metadataBounds) return metadataBounds;
+
+        const tightBounds = getRenderableLayerBoundsForLayerState(layerState);
+        if (!tightBounds) return null;
+        const padding = 2;
+        return {
+            minX: tightBounds.minX - padding,
+            minY: tightBounds.minY - padding,
+            maxX: tightBounds.maxX + padding,
+            maxY: tightBounds.maxY + padding,
+            width: (tightBounds.maxX - tightBounds.minX) + (padding * 2),
+            height: (tightBounds.maxY - tightBounds.minY) + (padding * 2)
+        };
+    }
+
+    function renderLayerShapesOnExportCanvas(targetCtx, targetCanvas, shapes, bounds, renderScale) {
+        targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+        targetCtx.fillStyle = '#ffffff';
+        targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+
+        (shapes || []).forEach(shape => {
+            if (!shape || shape.type === 'text') return;
+            drawExportItemsOnCanvas(
+                targetCtx,
+                shape.items || [],
+                getCanvasColor(shape.color),
+                getExportLineWidth(shape.width, renderScale),
+                shape.fill ? getCanvasColor(shape.fill) : null,
+                renderScale,
+                bounds
+            );
+        });
+    }
+
+    async function getDocumentDataForExportPage(pageNum) {
+        if (Number(pageNum) === Number(currentPageNum) && Array.isArray(jsonShapes) && jsonShapes.length) {
+            return {
+                shapes: jsonShapes,
+                metadata: documentMetadata,
+                svg: svgData,
+                topLevelValues: {}
+            };
+        }
+
+        const cachedGzip = getPageGzipCacheValue(cachedPages, pageNum, { touch: false })
+            || getPageGzipCacheValue(stagedCachedPages, pageNum, { touch: false });
+        if (cachedGzip) {
+            return parseGzipBase64ToDocumentStreaming(cachedGzip, {
+                sourceLabel: `layer export page ${pageNum}`,
+                onProgress(progress) {
+                    updateLoadingPopup(
+                        `Exporting layer images...`,
+                        `Page ${pageNum} · ${progress.subtitle || 'loading cached page data'}`
+                    );
+                }
+            });
+        }
+
+        if (!currentPdfFile) {
+            if (currentJsonSourceFile && pageNum === 1 && Array.isArray(jsonShapes) && jsonShapes.length) {
+                return {
+                    shapes: jsonShapes,
+                    metadata: documentMetadata,
+                    svg: svgData,
+                    topLevelValues: {}
+                };
+            }
+            throw new Error(`Không có dữ liệu cho page ${pageNum}.`);
+        }
+
+        const formData = await buildPdfRequestFormData(currentPdfFile, pageNum);
+        const response = await fetch(`${ENV.API_BASE_URL}/process_page`, {
+            method: 'POST',
+            body: formData
+        });
+        if (!response.ok) {
+            throw new Error(await parseHttpErrorResponse(response));
+        }
+        return loadJsonResponseStreaming(response, {
+            sourceLabel: `layer export page ${pageNum}`,
+            pageNum,
+            autoLoad: false,
+            onProgress(progress) {
+                updateLoadingPopup(
+                    `Exporting layer images...`,
+                    `Page ${pageNum} · ${progress.subtitle || 'loading page data'}`
+                );
+            }
+        });
+    }
+
+    showLoadingPopup('Preparing layer images...', `${pageNumbers.length} page${pageNumbers.length === 1 ? '' : 's'} · scale ${scale}`);
 
     try {
         const JSZipCtor = await ensureJsZip();
         const zip = new JSZipCtor();
-        const visibleLayers = getVisibleRenderableLayers();
-        visibleLayers.forEach(layerName => {
-            renderLayerOnExportCanvas(ctx, canvas, layerName, bounds, scale);
-            zip.file(`layers/${getSafeLayerFileName(layerName)}.png`, canvasToBase64(canvas, 'image/png'), { base64: true });
-        });
+        const exportBaseName = getCurrentExportBaseName();
+        let exportedImageCount = 0;
+
+        for (let pageIndex = 0; pageIndex < pageNumbers.length; pageIndex += 1) {
+            const pageNum = pageNumbers[pageIndex];
+            updateLoadingPopup(
+                `Exporting layer images... (${pageIndex + 1}/${pageNumbers.length})`,
+                `Page ${pageNum}`
+            );
+
+            const documentData = await getDocumentDataForExportPage(pageNum);
+            if (documentData?.topLevelValues?.error) {
+                throw new Error(documentData.topLevelValues.error);
+            }
+
+            const layerState = buildLocalRenderableLayerState(documentData?.shapes || []);
+            const visibleLayers = getVisibleRenderableLayersForDocument(layerState);
+            if (!visibleLayers.length) {
+                continue;
+            }
+
+            const bounds = await getExportBoundsForDocumentData(documentData, pageNum, layerState);
+            if (!bounds) {
+                throw new Error(`Không tính được vùng vẽ cho page ${pageNum}.`);
+            }
+
+            const { canvas, ctx } = createCanvas(bounds.width * scale, bounds.height * scale);
+
+            visibleLayers.forEach(layerName => {
+                const layerShapes = layerState.layerIndex[layerName] || [];
+                if (!layerShapes.length) return;
+                renderLayerShapesOnExportCanvas(ctx, canvas, layerShapes, bounds, scale);
+                const fileName = `${exportBaseName}_p${pageNum}_${getSafeLayerFileName(layerName)}.png`;
+                zip.file(fileName, canvasToBase64(canvas, 'image/png'), { base64: true });
+                exportedImageCount += 1;
+            });
+        }
+
+        if (!exportedImageCount) {
+            throw new Error('Không có layer nào phù hợp để export với lựa chọn hiện tại.');
+        }
 
         const zipBlob = await zip.generateAsync({ type: 'blob' });
         const zipUrl = URL.createObjectURL(zipBlob);
         const anchor = document.createElement('a');
         anchor.href = zipUrl;
-        anchor.download = 'layers_export.zip';
+        anchor.download = `${exportBaseName}_layers_${formatImageScaleSuffix(scale)}.zip`;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
         URL.revokeObjectURL(zipUrl);
+        hideLoadingPopup();
+    } catch (error) {
+        console.error('Layer image export failed:', error);
+        hideLoadingPopup();
+        alert(`Không thể export ảnh layer: ${error.message}`);
     } finally {
-        if (popup) popup.style.display = 'none';
+        hideLoadingPopup();
     }
 }
 
