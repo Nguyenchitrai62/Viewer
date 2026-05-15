@@ -3,17 +3,22 @@
     const btnToggleDetectExtractPanel = document.getElementById('btn-toggle-detect-extract-panel');
     const detectExtractCountBadge = document.getElementById('detect-extract-count-badge');
     const detectExtractStatus = document.getElementById('detect-extract-status');
+    const detectExtractSummary = document.getElementById('detect-extract-summary');
+    const btnDetectViewProcessed = document.getElementById('btn-detect-view-processed');
+    const btnDetectViewRaw = document.getElementById('btn-detect-view-raw');
     const btnRunDetectExtract = document.getElementById('btn-run-detect-extract');
     const btnClearDetectExtract = document.getElementById('btn-clear-detect-extract');
 
     const DETECTION_PANEL_STORAGE_KEY = 'visual_pdf_object.detect_extract_collapsed';
+    const DETECTION_VIEW_MODE_RAW = 'raw';
+    const DETECTION_VIEW_MODE_PROCESSED = 'processed';
     const DETECTION_LAYER_PREFIX = 'Detect: ';
     const DETECTION_RENDER_PRIORITY = 2;
     const DETECTION_DEFAULT_SEARCH_PADDING = 5;
-    const DETECTION_MIN_LINE_COVERAGE_RATIO = 0.6;
-    const DETECTION_JUNCTION_GUIDED_MIN_COVERAGE_RATIO = 0.6;
-    const DETECTION_JUNCTION_CONNECT_PADDING = 3;
-    const DETECTION_JUNCTION_MAX_POINTS_PER_LINE = 12;
+    const DETECTION_CONNECT_VERIFY_MIN_COVERAGE_RATIO = Number.isFinite(Number(CONFIG.DETECTION_CONNECT_VERIFY_MIN_COVERAGE_RATIO))
+        ? Number(CONFIG.DETECTION_CONNECT_VERIFY_MIN_COVERAGE_RATIO)
+        : 0.6;
+    const DETECTION_MIN_LINE_COVERAGE_RATIO = DETECTION_CONNECT_VERIFY_MIN_COVERAGE_RATIO;
     const DETECTION_PARALLEL_MAX_ANGLE_DEGREES = 5;
     const DETECTION_MERGE_AXIS_OFFSET = 1;
     const DETECTION_MERGE_ENDPOINT_GAP = 4;
@@ -30,6 +35,8 @@
     let isDetectionExtractPanelCollapsed = true;
     let isDetectionExtractRunning = false;
     let detectionExtractImageCache = null;
+    let detectionOverlayContext = null;
+    let detectionResultViewMode = DETECTION_VIEW_MODE_PROCESSED;
 
     function detectionClone(value) {
         if (typeof structuredClone === 'function') {
@@ -115,22 +122,94 @@
         detectExtractStatus.textContent = message;
     }
 
-    function updateDetectionExtractUI() {
-        const detectionCount = Array.isArray(detectionAdjustedResults?.detections)
+    function detectionGetRawResultCount() {
+        return Array.isArray(detectionRawResults?.detections)
+            ? detectionRawResults.detections.length
+            : 0;
+    }
+
+    function detectionGetProcessedResultCount() {
+        return Array.isArray(detectionAdjustedResults?.detections)
             ? detectionAdjustedResults.detections.length
             : 0;
+    }
+
+    function detectionGetResultForViewMode(viewMode = detectionResultViewMode) {
+        if (viewMode === DETECTION_VIEW_MODE_RAW) {
+            return detectionRawResults;
+        }
+        return detectionAdjustedResults;
+    }
+
+    function detectionEnsureAvailableViewMode() {
+        const rawCount = detectionGetRawResultCount();
+        const processedCount = detectionGetProcessedResultCount();
+        if (detectionResultViewMode === DETECTION_VIEW_MODE_RAW && !rawCount && processedCount) {
+            detectionResultViewMode = DETECTION_VIEW_MODE_PROCESSED;
+        } else if (detectionResultViewMode === DETECTION_VIEW_MODE_PROCESSED && !processedCount && rawCount) {
+            detectionResultViewMode = DETECTION_VIEW_MODE_RAW;
+        }
+    }
+
+    function detectionFormatCoverageThreshold() {
+        return `${Math.round(DETECTION_CONNECT_VERIFY_MIN_COVERAGE_RATIO * 100)}%`;
+    }
+
+    function updateDetectionExtractSummary() {
+        if (!detectExtractSummary) return;
+        detectExtractSummary.textContent = `Raw ${detectionGetRawResultCount()} | Processed ${detectionGetProcessedResultCount()} | Verify >= ${detectionFormatCoverageThreshold()}`;
+    }
+
+    function refreshDetectionVisualizationForCurrentView() {
+        const activeResult = detectionGetResultForViewMode();
+        if (!activeResult || !detectionOverlayContext) return false;
+        applyDetectionResultsToLayers(activeResult, detectionOverlayContext);
+        return true;
+    }
+
+    function setDetectionResultViewMode(nextMode, options = {}) {
+        if (nextMode !== DETECTION_VIEW_MODE_RAW && nextMode !== DETECTION_VIEW_MODE_PROCESSED) {
+            return;
+        }
+        detectionResultViewMode = nextMode;
+        detectionEnsureAvailableViewMode();
+        if (options.refreshVisualization !== false && !isDetectionExtractRunning) {
+            refreshDetectionVisualizationForCurrentView();
+        }
+        updateDetectionExtractUI();
+    }
+
+    function updateDetectionExtractUI() {
+        detectionEnsureAvailableViewMode();
+        const activeResult = detectionGetResultForViewMode();
+        const detectionCount = Array.isArray(activeResult?.detections) ? activeResult.detections.length : 0;
+        const rawCount = detectionGetRawResultCount();
+        const processedCount = detectionGetProcessedResultCount();
         if (detectExtractCountBadge) {
             detectExtractCountBadge.textContent = String(detectionCount);
+        }
+        updateDetectionExtractSummary();
+        if (btnDetectViewProcessed) {
+            const isActive = detectionResultViewMode === DETECTION_VIEW_MODE_PROCESSED;
+            btnDetectViewProcessed.classList.toggle('is-active', isActive);
+            btnDetectViewProcessed.setAttribute('aria-pressed', String(isActive));
+            btnDetectViewProcessed.disabled = isDetectionExtractRunning || processedCount === 0;
+        }
+        if (btnDetectViewRaw) {
+            const isActive = detectionResultViewMode === DETECTION_VIEW_MODE_RAW;
+            btnDetectViewRaw.classList.toggle('is-active', isActive);
+            btnDetectViewRaw.setAttribute('aria-pressed', String(isActive));
+            btnDetectViewRaw.disabled = isDetectionExtractRunning || rawCount === 0;
         }
         if (btnRunDetectExtract) {
             btnRunDetectExtract.disabled = isDetectionExtractRunning || !hasRenderableDocument();
             btnRunDetectExtract.textContent = isDetectionExtractRunning ? 'Running...' : 'Detect';
         }
         if (btnClearDetectExtract) {
-            btnClearDetectExtract.disabled = isDetectionExtractRunning || detectionCount === 0;
+            btnClearDetectExtract.disabled = isDetectionExtractRunning || (!rawCount && !processedCount);
         }
-        if (!detectionCount && detectExtractStatus && !isDetectionExtractRunning && !detectionRawResults) {
-            setDetectionExtractStatus('Chua co ket qua detect.');
+        if (!rawCount && !processedCount && detectExtractStatus && !isDetectionExtractRunning) {
+            setDetectionExtractStatus('No detection results yet.');
         }
     }
 
@@ -141,7 +220,7 @@
         }
         if (btnToggleDetectExtractPanel) {
             btnToggleDetectExtractPanel.setAttribute('aria-expanded', String(!collapsed));
-            btnToggleDetectExtractPanel.title = collapsed ? 'Mo rong' : 'Thu gon';
+            btnToggleDetectExtractPanel.title = collapsed ? 'Expand' : 'Collapse';
         }
         try {
             localStorage.setItem(DETECTION_PANEL_STORAGE_KEY, collapsed ? '1' : '0');
@@ -186,6 +265,7 @@
         if (!options.preserveResults) {
             detectionRawResults = null;
             detectionAdjustedResults = null;
+            detectionOverlayContext = null;
         }
 
         if (options.refresh !== false) {
@@ -681,6 +761,82 @@
         };
     }
 
+    function detectionGetManualLineCandidateForKey(lineKey) {
+        if (!lineKey || typeof snapPointLineItems === 'undefined' || !(snapPointLineItems instanceof Map)) {
+            return null;
+        }
+        return snapPointLineItems.get(lineKey) || null;
+    }
+
+    function detectionBuildManualStyleGroupedLineCandidate(seedLineCandidate, nearbyLines) {
+        const manualSeedLineCandidate = detectionGetManualLineCandidateForKey(seedLineCandidate?.key);
+        if (manualSeedLineCandidate && typeof collectStraightGroupedLineCandidates === 'function') {
+            const groupedManualLineCandidates = collectStraightGroupedLineCandidates(manualSeedLineCandidate, new Set());
+            const groupedLineCandidates = groupedManualLineCandidates
+                .map(detectionConvertManualLineCandidate)
+                .filter(Boolean);
+            const normalizedSeedLineCandidate = detectionConvertManualLineCandidate(manualSeedLineCandidate);
+            if (normalizedSeedLineCandidate && groupedLineCandidates.length) {
+                const groupCandidate = detectionBuildGroupCandidate(normalizedSeedLineCandidate, groupedLineCandidates);
+                const groupedLineCandidate = detectionCreateGroupedLineCandidate(groupCandidate, normalizedSeedLineCandidate);
+                if (groupedLineCandidate) {
+                    return groupedLineCandidate;
+                }
+            }
+        }
+
+        const localGroupCandidate = detectionBuildGroupCandidate(seedLineCandidate, nearbyLines);
+        return detectionCreateGroupedLineCandidate(localGroupCandidate, seedLineCandidate);
+    }
+
+    function detectionCreateGroupedLineCandidate(groupCandidate, fallbackLineCandidate) {
+        const lineCandidates = Array.isArray(groupCandidate?.lineCandidates) && groupCandidate.lineCandidates.length
+            ? groupCandidate.lineCandidates
+            : [fallbackLineCandidate].filter(Boolean);
+        const layerName = lineCandidates[0]?.layerName || fallbackLineCandidate?.layerName || null;
+        const pointA = groupCandidate?.pointA || fallbackLineCandidate?.pointA || null;
+        const pointB = groupCandidate?.pointB || fallbackLineCandidate?.pointB || null;
+        if (!layerName || !pointA || !pointB) return null;
+
+        const normalizedPointA = {
+            x: Number(pointA.x),
+            y: Number(pointA.y),
+            layerName
+        };
+        const normalizedPointB = {
+            x: Number(pointB.x),
+            y: Number(pointB.y),
+            layerName
+        };
+        if (![normalizedPointA.x, normalizedPointA.y, normalizedPointB.x, normalizedPointB.y].every(Number.isFinite)) {
+            return null;
+        }
+
+        const bbox = detectionBoundsFromPointPairs([
+            [normalizedPointA.x, normalizedPointA.y],
+            [normalizedPointB.x, normalizedPointB.y]
+        ]);
+        if (!bbox) return null;
+
+        const matchedLineKeys = Array.from(new Set(
+            lineCandidates
+                .map(lineCandidate => lineCandidate?.key)
+                .filter(Boolean)
+        )).sort();
+        const key = matchedLineKeys.join('||') || fallbackLineCandidate?.key || createNormalizedLineKey(layerName, normalizedPointA, normalizedPointB);
+
+        return {
+            key,
+            layerName,
+            pointA: normalizedPointA,
+            pointB: normalizedPointB,
+            bbox,
+            length: detectionDistance(normalizedPointA, normalizedPointB),
+            lineCandidates,
+            matchedLineKeys: matchedLineKeys.length ? matchedLineKeys : [key]
+        };
+    }
+
     function detectionScoreCandidatePolygon(query, pointAWorld, pointBWorld, pointAPx, pointBPx, polygonPx) {
         const polygonPxBounds = detectionBoundsFromPointPairs(polygonPx);
         if (!polygonPxBounds) {
@@ -711,17 +867,25 @@
     }
 
     function detectionBuildMatchResult(query, context, pointAWorld, pointBWorld, lineCandidates) {
+        const clippedSegment = detectionClipSegmentToBounds(pointAWorld, pointBWorld, query.bboxWorld);
+        if (!clippedSegment) return null;
+        const layerName = pointAWorld.layerName || pointBWorld.layerName || lineCandidates[0]?.layerName || null;
+        const seedPointA = { x: clippedSegment[0].x, y: clippedSegment[0].y, layerName };
+        const seedPointB = { x: clippedSegment[1].x, y: clippedSegment[1].y, layerName };
+        const bboxCoverageRatio = detectionClippedSegmentBboxCoverageRatio([seedPointA, seedPointB], query, context);
+        if (bboxCoverageRatio <= 1e-6) return null;
+
         const manualBboxPts = Number(CONFIG.MANUAL_LABEL_BBOX_PTS) || 5;
-        const worldPolygon = detectionBuildManualConnectWorldPolygon(pointAWorld, pointBWorld, manualBboxPts / 2);
+        const worldPolygon = detectionBuildManualConnectWorldPolygon(seedPointA, seedPointB, manualBboxPts / 2);
         const pixelPolygon = worldPolygon.map(point => detectionWorldPointToPixel(point, context));
         const clippedPolygon = typeof clipObbToRect === 'function'
             ? clipObbToRect(pixelPolygon, context.imageWidth, context.imageHeight)
             : pixelPolygon;
         if (!clippedPolygon) return null;
 
-        const pointAPx = detectionWorldPointToPixel(pointAWorld, context);
-        const pointBPx = detectionWorldPointToPixel(pointBWorld, context);
-        const score = detectionScoreCandidatePolygon(query, pointAWorld, pointBWorld, pointAPx, pointBPx, clippedPolygon);
+        const pointAPx = detectionWorldPointToPixel(seedPointA, context);
+        const pointBPx = detectionWorldPointToPixel(seedPointB, context);
+        const score = detectionScoreCandidatePolygon(query, seedPointA, seedPointB, pointAPx, pointBPx, clippedPolygon);
         const pixelBounds = detectionBoundsFromPointPairs(clippedPolygon);
         if (!pixelBounds) return null;
         const coverage = detectionComputeLineCoverage(lineCandidates, query.bboxWorld);
@@ -731,7 +895,9 @@
             pixelBounds,
             worldPointA: pointAWorld,
             worldPointB: pointBWorld,
-            layerName: pointAWorld.layerName || pointBWorld.layerName || lineCandidates[0]?.layerName || null,
+            seedPointA,
+            seedPointB,
+            layerName,
             lineKeys: Array.from(new Set(lineCandidates.map(lineCandidate => lineCandidate.key))).sort(),
             manualSegments: lineCandidates.map(lineCandidate => [
                 { x: lineCandidate.pointA.x, y: lineCandidate.pointA.y, layerName: lineCandidate.layerName },
@@ -742,6 +908,7 @@
             centerlineGapPx: score.centerlineGapPx,
             angleGapDegrees: score.angleGapDegrees,
             lineCoverageRatio: coverage.ratio,
+            bboxCoverageRatio,
             coveredLineLength: coverage.coveredLineLength,
             matchedLineLength: coverage.totalLineLength
         };
@@ -765,9 +932,9 @@
             const seedMatch = detectionBuildMatchResult(query, context, lineCandidate.pointA, lineCandidate.pointB, [lineCandidate]);
             if (!seedMatch) return;
             const seedRank = [
-                seedMatch.lineCoverageRatio >= DETECTION_MIN_LINE_COVERAGE_RATIO ? 0 : 1,
+                seedMatch.bboxCoverageRatio >= DETECTION_MIN_LINE_COVERAGE_RATIO ? 0 : 1,
                 seedMatch.score,
-                -seedMatch.lineCoverageRatio,
+                -seedMatch.bboxCoverageRatio,
                 seedMatch.centerlineGapPx
             ];
             if (!bestSeedRank || detectionCompareRank(seedRank, bestSeedRank) < 0) {
@@ -778,25 +945,31 @@
         });
         if (!bestSeedMatch || !bestSeedLine) return null;
 
-        const groupCandidate = detectionBuildGroupCandidate(bestSeedLine, nearbyLines);
+        const groupedLineCandidate = detectionBuildManualStyleGroupedLineCandidate(bestSeedLine, nearbyLines);
         const mergedMatch = detectionBuildMatchResult(
             query,
             context,
-            groupCandidate.pointA,
-            groupCandidate.pointB,
-            groupCandidate.lineCandidates
+            groupedLineCandidate.pointA,
+            groupedLineCandidate.pointB,
+            Array.isArray(groupedLineCandidate.lineCandidates) && groupedLineCandidate.lineCandidates.length
+                ? groupedLineCandidate.lineCandidates
+                : [groupedLineCandidate]
         );
         const candidateMatches = [bestSeedMatch, mergedMatch]
-            .filter(matchResult => matchResult && matchResult.lineCoverageRatio >= DETECTION_MIN_LINE_COVERAGE_RATIO);
+            .filter(matchResult => matchResult && matchResult.bboxCoverageRatio >= DETECTION_MIN_LINE_COVERAGE_RATIO);
         if (!candidateMatches.length) return null;
 
         const resolvedMatch = candidateMatches.slice().sort((left, right) => detectionCompareRank([
+            left.lineKeys.length > bestSeedMatch.lineKeys.length ? 0 : 1,
             left.score,
-            -left.lineCoverageRatio,
+            -left.bboxCoverageRatio,
+            -left.lineKeys.length,
             left.centerlineGapPx
         ], [
+            right.lineKeys.length > bestSeedMatch.lineKeys.length ? 0 : 1,
             right.score,
-            -right.lineCoverageRatio,
+            -right.bboxCoverageRatio,
+            -right.lineKeys.length,
             right.centerlineGapPx
         ]))[0];
         const manualBboxPts = Number(CONFIG.MANUAL_LABEL_BBOX_PTS) || 5;
@@ -804,6 +977,102 @@
         if (resolvedMatch.iou < 0.03 && resolvedMatch.centerlineGapPx > Math.max(shortEdgePx, 12)) return null;
         if (resolvedMatch.angleGapDegrees > 20 && resolvedMatch.centerlineGapPx > Math.max(shortEdgePx, 12)) return null;
         return resolvedMatch;
+    }
+
+    function detectionCollectEndpointJunctionMatches(detectionEntries, candidate, context) {
+        if (!Array.isArray(detectionEntries) || !candidate?.points?.length) return [];
+        const endpointMatchesByKey = new Map();
+        detectionEntries.forEach((detection, detectionIndex) => {
+            if (!detectionIsJunctionClass(detection?.class_name)) return;
+            const query = detectionResolveQuery(detection, context);
+            if (!query) return;
+            const junctionPadding = Math.max(
+                detectionGetLineAttachToleranceWorld(),
+                Math.abs(query.bboxWorld.width) / 2,
+                Math.abs(query.bboxWorld.height) / 2,
+                0.75
+            );
+            candidate.points.forEach(endpoint => {
+                if (!endpoint || endpoint.layerName !== candidate.layerName) return;
+                const endpointInsideJunction = detectionIsPointInsideBounds(endpoint, query.bboxWorld, junctionPadding);
+                const endpointDistance = detectionDistance(endpoint, query.centerWorld);
+                if (!endpointInsideJunction && endpointDistance > junctionPadding * 2) return;
+                const endpointKey = getSnapPointKey(candidate.layerName, endpoint.x, endpoint.y);
+                const match = {
+                    point: {
+                        x: Number(endpoint.x),
+                        y: Number(endpoint.y),
+                        layerName: candidate.layerName
+                    },
+                    detectionIndex,
+                    confidence: detection.confidence,
+                    distance: endpointDistance,
+                    score: endpointInsideJunction ? endpointDistance : endpointDistance + junctionPadding
+                };
+                const existingMatch = endpointMatchesByKey.get(endpointKey);
+                if (!existingMatch || match.score < existingMatch.score) {
+                    endpointMatchesByKey.set(endpointKey, match);
+                }
+            });
+        });
+        return Array.from(endpointMatchesByKey.values())
+            .sort((left, right) => detectionCompareRank([
+                left.score,
+                -Number(left.confidence || 0),
+                left.detectionIndex
+            ], [
+                right.score,
+                -Number(right.confidence || 0),
+                right.detectionIndex
+            ]));
+    }
+
+    function detectionCreateApproximateConnectCandidate(detection, detectionIndex, matchResult, detectionEntries, context) {
+        if (!matchResult?.layerName || !matchResult.worldPointA || !matchResult.worldPointB) return null;
+        const lineKeySeed = matchResult.lineKeys.length ? matchResult.lineKeys.join('||') : matchResult.layerName;
+        const candidate = {
+            id: `bbox-line-seed:${detectionIndex}:${lineKeySeed}`,
+            layerName: matchResult.layerName,
+            points: [matchResult.worldPointA, matchResult.worldPointB],
+            junctionPoints: [],
+            lineKeys: matchResult.lineKeys,
+            sourceLineKeys: matchResult.lineKeys,
+            segments: matchResult.manualSegments,
+            confidence: detection.confidence,
+            coverageRatio: matchResult.bboxCoverageRatio,
+            segmentCoverageRatio: matchResult.lineCoverageRatio,
+            bboxLengthCoverageRatio: matchResult.bboxCoverageRatio,
+            score: matchResult.score,
+            sourceConnectDetectionIndex: detectionIndex,
+            sourceJunctionDetectionIndexes: [],
+            validationMethod: 'bbox-line-seed',
+            iou: matchResult.iou,
+            centerlineGapPx: matchResult.centerlineGapPx,
+            angleGapDegrees: matchResult.angleGapDegrees
+        };
+        const endpointJunctionMatches = detectionCollectEndpointJunctionMatches(detectionEntries, candidate, context);
+        candidate.junctionPoints = endpointJunctionMatches.map(match => match.point);
+        candidate.sourceJunctionDetectionIndexes = endpointJunctionMatches.map(match => match.detectionIndex);
+        return candidate;
+    }
+
+    function detectionBuildApproximateConnectSeeds(detectionEntries, spatialIndex, context) {
+        return detectionEntries
+            .map((detection, detectionIndex) => {
+                if (!detectionIsConnectClass(detection?.class_name)) return null;
+                const matchResult = detectionMatchConnectToManualObb(detection, spatialIndex, context);
+                return detectionCreateApproximateConnectCandidate(detection, detectionIndex, matchResult, detectionEntries, context);
+            })
+            .filter(Boolean)
+            .sort((left, right) => detectionCompareRank([
+                left.sourceConnectDetectionIndex,
+                left.score,
+                -left.coverageRatio
+            ], [
+                right.sourceConnectDetectionIndex,
+                right.score,
+                -right.coverageRatio
+            ]));
     }
 
     function detectionCompareRank(rankA, rankB) {
@@ -829,171 +1098,13 @@
             && Number(point.y) <= bounds.maxY + padding;
     }
 
-    function detectionProjectPointToLineCandidate(point, lineCandidate) {
-        if (!point || !lineCandidate) return null;
-        const dx = Number(lineCandidate.pointB.x) - Number(lineCandidate.pointA.x);
-        const dy = Number(lineCandidate.pointB.y) - Number(lineCandidate.pointA.y);
-        const lengthSquared = (dx * dx) + (dy * dy);
-        if (lengthSquared <= 1e-12) return null;
-        const parameter = (((Number(point.x) - Number(lineCandidate.pointA.x)) * dx) + ((Number(point.y) - Number(lineCandidate.pointA.y)) * dy)) / lengthSquared;
-        const clampedParameter = Math.max(0, Math.min(1, parameter));
-        const projectedPoint = {
-            x: Number(lineCandidate.pointA.x) + (clampedParameter * dx),
-            y: Number(lineCandidate.pointA.y) + (clampedParameter * dy),
-            layerName: lineCandidate.layerName
-        };
-        return {
-            parameter,
-            clampedParameter,
-            point: projectedPoint,
-            distance: detectionDistance(point, projectedPoint)
-        };
-    }
-
-    function detectionClosestPointBetweenLineCandidates(lineCandidateA, lineCandidateB) {
-        if (typeof getClosestPointsBetweenSegments !== 'function') return null;
-        return getClosestPointsBetweenSegments(
-            lineCandidateA.pointA,
-            lineCandidateA.pointB,
-            lineCandidateB.pointA,
-            lineCandidateB.pointB
-        );
-    }
-
-    function detectionBuildResolvedJunctionCandidate(point, layerName, query, options = {}) {
-        if (!point || !layerName) return null;
-        const resolvedPoint = {
-            x: Number(point.x),
-            y: Number(point.y),
-            layerName
-        };
-        if (!Number.isFinite(resolvedPoint.x) || !Number.isFinite(resolvedPoint.y)) return null;
-        const centerDistance = detectionDistance(resolvedPoint, query.centerWorld);
-        const incidentLineKeys = Array.isArray(options.incidentLineKeys)
-            ? Array.from(new Set(options.incidentLineKeys.filter(Boolean))).sort()
-            : [];
-        return {
-            ...resolvedPoint,
-            source: options.source || 'junction',
-            detectionIndex: options.detectionIndex,
-            confidence: options.confidence,
-            incidentLineKeys,
-            score: centerDistance + ((Number(options.closestDistance) || 0) * 4) - (incidentLineKeys.length * 0.25)
-        };
-    }
-
-    function detectionResolveJunctionPointFromDetection(detection, detectionIndex, spatialIndex, context) {
-        const query = detectionResolveQuery(detection, context);
-        if (!query) return null;
-
-        const attachTolerance = detectionGetLineAttachToleranceWorld();
-        const junctionTolerance = Math.max(
-            attachTolerance,
-            Math.min(Math.abs(query.bboxWorld.width), Math.abs(query.bboxWorld.height)) / 2,
-            0.75
-        );
-        const searchPadding = Math.max(DETECTION_DEFAULT_SEARCH_PADDING, junctionTolerance * 2);
-        const nearbyLines = spatialIndex.query(detectionExpandBounds(query.bboxWorld, searchPadding));
-        if (!nearbyLines.length) return null;
-
-        const rankedLines = nearbyLines
-            .map(lineCandidate => ({
-                lineCandidate,
-                centerDistance: detectionPointDistanceToSegment(query.centerWorld, lineCandidate.pointA, lineCandidate.pointB)
-            }))
-            .sort((left, right) => left.centerDistance - right.centerDistance)
-            .slice(0, 120)
-            .map(item => item.lineCandidate);
-
-        const candidates = [];
-        for (let leftIndex = 0; leftIndex < rankedLines.length; leftIndex += 1) {
-            for (let rightIndex = leftIndex + 1; rightIndex < rankedLines.length; rightIndex += 1) {
-                const lineA = rankedLines[leftIndex];
-                const lineB = rankedLines[rightIndex];
-                if (lineA.layerName !== lineB.layerName) continue;
-                const closest = detectionClosestPointBetweenLineCandidates(lineA, lineB);
-                if (!closest || closest.distance > junctionTolerance) continue;
-                const point = detectionMidpoint(closest.pointA, closest.pointB);
-                if (!detectionIsPointInsideBounds(point, query.bboxWorld, searchPadding)) continue;
-                const candidate = detectionBuildResolvedJunctionCandidate(point, lineA.layerName, query, {
-                    source: 'line-intersection',
-                    detectionIndex,
-                    confidence: detection.confidence,
-                    closestDistance: closest.distance,
-                    incidentLineKeys: [lineA.key, lineB.key]
-                });
-                if (candidate) candidates.push(candidate);
-            }
-        }
-
-        rankedLines.forEach(lineCandidate => {
-            [lineCandidate.pointA, lineCandidate.pointB].forEach(endpoint => {
-                if (!detectionIsPointInsideBounds(endpoint, query.bboxWorld, junctionTolerance)) return;
-                const incidentLines = rankedLines
-                    .filter(candidateLine => candidateLine.layerName === lineCandidate.layerName)
-                    .filter(candidateLine =>
-                        detectionDistance(endpoint, candidateLine.pointA) <= junctionTolerance
-                        || detectionDistance(endpoint, candidateLine.pointB) <= junctionTolerance
-                        || detectionPointDistanceToSegment(endpoint, candidateLine.pointA, candidateLine.pointB) <= junctionTolerance
-                    )
-                    .map(candidateLine => candidateLine.key);
-                const candidate = detectionBuildResolvedJunctionCandidate(endpoint, lineCandidate.layerName, query, {
-                    source: 'line-endpoint',
-                    detectionIndex,
-                    confidence: detection.confidence,
-                    incidentLineKeys: incidentLines
-                });
-                if (candidate) candidates.push(candidate);
-            });
-        });
-
-        if (!candidates.length) {
-            rankedLines.forEach(lineCandidate => {
-                const projected = detectionProjectPointToLineCandidate(query.centerWorld, lineCandidate);
-                if (!projected || projected.distance > Math.max(junctionTolerance, searchPadding)) return;
-                if (!detectionIsPointInsideBounds(projected.point, query.bboxWorld, searchPadding)) return;
-                const candidate = detectionBuildResolvedJunctionCandidate(projected.point, lineCandidate.layerName, query, {
-                    source: 'line-projection',
-                    detectionIndex,
-                    confidence: detection.confidence,
-                    closestDistance: projected.distance,
-                    incidentLineKeys: [lineCandidate.key]
-                });
-                if (candidate) candidates.push(candidate);
-            });
-        }
-
-        return candidates.sort((left, right) => left.score - right.score)[0] || null;
-    }
-
-    function detectionCollectResolvedJunctionPoints(detectionEntries, spatialIndex, context) {
-        const pointsByKey = new Map();
-        detectionEntries.forEach((detection, detectionIndex) => {
-            if (!detectionIsJunctionClass(detection?.class_name)) return;
-            const junctionPoint = detectionResolveJunctionPointFromDetection(detection, detectionIndex, spatialIndex, context);
-            if (!junctionPoint) return;
-            const key = `${junctionPoint.layerName}|${detectionRound(junctionPoint.x, 3)}|${detectionRound(junctionPoint.y, 3)}`;
-            const existingPoint = pointsByKey.get(key);
-            if (!existingPoint || junctionPoint.score < existingPoint.score) {
-                pointsByKey.set(key, junctionPoint);
-            }
-        });
-        return Array.from(pointsByKey.values());
-    }
-
-    function detectionSegmentCoverageRatioInBounds(pointA, pointB, bounds) {
-        const segmentLength = detectionDistance(pointA, pointB);
-        if (segmentLength <= 1e-6) return 0;
-        const clippedSegment = detectionClipSegmentToBounds(pointA, pointB, bounds);
-        if (!clippedSegment) return 0;
-        return detectionDistance(clippedSegment[0], clippedSegment[1]) / segmentLength;
-    }
-
-    function detectionCreateJunctionGuidedLineKey(layerName, pointA, pointB, sourceLineKey) {
-        const pointKeyA = getSnapPointKey(layerName, pointA.x, pointA.y);
-        const pointKeyB = getSnapPointKey(layerName, pointB.x, pointB.y);
-        const orderedPoints = pointKeyA < pointKeyB ? `${pointKeyA}|${pointKeyB}` : `${pointKeyB}|${pointKeyA}`;
-        return `junction-guided:${sourceLineKey || layerName}|${orderedPoints}`;
+    function detectionClippedSegmentBboxCoverageRatio(clippedSegment, query, context) {
+        const bboxMajorLength = Number(query?.majorLengthPx) || 0;
+        if (!Array.isArray(clippedSegment) || clippedSegment.length < 2 || bboxMajorLength <= 1e-6) return 0;
+        const pointAPx = detectionWorldPointToPixel(clippedSegment[0], context);
+        const pointBPx = detectionWorldPointToPixel(clippedSegment[1], context);
+        const clippedLengthPx = Math.hypot(pointBPx[0] - pointAPx[0], pointBPx[1] - pointAPx[1]);
+        return Math.min(clippedLengthPx / bboxMajorLength, 1);
     }
 
     function detectionBuildJunctionGuidedDetection(candidate, candidateIndex, context) {
@@ -1014,7 +1125,7 @@
             aabb: detectionBoundsToAabb(pixelBounds).map(value => detectionRound(value, 3)),
             postprocess: {
                 validated: true,
-                method: 'junction-guided',
+                method: candidate.validationMethod || 'junction-guided',
                 layer_name: candidate.layerName,
                 manual_points: candidate.points.map(point => ({
                     x: detectionRound(point.x, 6),
@@ -1030,123 +1141,22 @@
                 source_line_keys: candidate.sourceLineKeys,
                 source_connect_detection_index: candidate.sourceConnectDetectionIndex,
                 source_junction_detection_indexes: candidate.sourceJunctionDetectionIndexes,
+                source_junction_points: Array.isArray(candidate.junctionPoints)
+                    ? candidate.junctionPoints.map(point => ({
+                        x: detectionRound(point.x, 6),
+                        y: detectionRound(point.y, 6),
+                        layerName: candidate.layerName
+                    }))
+                    : [],
                 bbox_coverage_ratio: detectionRound(candidate.coverageRatio, 6),
+                segment_inside_bbox_ratio: detectionRound(candidate.segmentCoverageRatio ?? candidate.coverageRatio, 6),
+                bbox_length_coverage_ratio: detectionRound(candidate.bboxLengthCoverageRatio ?? candidate.coverageRatio, 6),
+                iou: detectionRound(candidate.iou ?? 0, 6),
+                centerline_gap_px: detectionRound(candidate.centerlineGapPx ?? 0, 6),
+                angle_gap_degrees: detectionRound(candidate.angleGapDegrees ?? 0, 6),
                 score: detectionRound(candidate.score, 6),
                 synthetic_index: candidateIndex
             }
-        };
-    }
-
-    function detectionBuildJunctionGuidedConnects(detectionEntries, spatialIndex, context) {
-        const resolvedJunctionPoints = detectionCollectResolvedJunctionPoints(detectionEntries, spatialIndex, context);
-        if (resolvedJunctionPoints.length < 2) {
-            return { junctionPoints: resolvedJunctionPoints, connectCandidates: [] };
-        }
-
-        const connectCandidatesByKey = new Map();
-        const attachTolerance = Math.max(detectionGetLineAttachToleranceWorld(), 0.75);
-        detectionEntries.forEach((detection, detectionIndex) => {
-            if (!detectionIsConnectClass(detection?.class_name)) return;
-            const query = detectionResolveQuery(detection, context);
-            if (!query) return;
-
-            const searchPadding = Math.max(DETECTION_DEFAULT_SEARCH_PADDING, attachTolerance + DETECTION_JUNCTION_CONNECT_PADDING);
-            const nearbyLines = spatialIndex.query(detectionExpandBounds(query.bboxWorld, searchPadding));
-            nearbyLines.forEach(lineCandidate => {
-                const pointsOnLine = resolvedJunctionPoints
-                    .filter(junctionPoint => junctionPoint.layerName === lineCandidate.layerName)
-                    .map(junctionPoint => {
-                        const projection = detectionProjectPointToLineCandidate(junctionPoint, lineCandidate);
-                        if (!projection) return null;
-                        if (projection.distance > attachTolerance) return null;
-                        if (projection.parameter < -0.02 || projection.parameter > 1.02) return null;
-                        if (!detectionIsPointInsideBounds(projection.point, query.bboxWorld, searchPadding)) return null;
-                        return {
-                            junctionPoint,
-                            point: projection.point,
-                            parameter: projection.clampedParameter
-                        };
-                    })
-                    .filter(Boolean)
-                    .sort((left, right) => left.parameter - right.parameter);
-
-                const uniquePointsOnLine = [];
-                pointsOnLine.forEach(pointInfo => {
-                    if (uniquePointsOnLine.some(existingInfo => detectionDistance(existingInfo.point, pointInfo.point) <= attachTolerance)) return;
-                    uniquePointsOnLine.push(pointInfo);
-                });
-                if (uniquePointsOnLine.length < 2) return;
-
-                const rankedPoints = uniquePointsOnLine.length > DETECTION_JUNCTION_MAX_POINTS_PER_LINE
-                    ? uniquePointsOnLine
-                        .map(pointInfo => ({
-                            ...pointInfo,
-                            centerDistance: detectionDistance(pointInfo.point, query.centerWorld)
-                        }))
-                        .sort((left, right) => left.centerDistance - right.centerDistance)
-                        .slice(0, DETECTION_JUNCTION_MAX_POINTS_PER_LINE)
-                        .sort((left, right) => left.parameter - right.parameter)
-                    : uniquePointsOnLine;
-
-                for (let leftIndex = 0; leftIndex < rankedPoints.length; leftIndex += 1) {
-                    for (let rightIndex = leftIndex + 1; rightIndex < rankedPoints.length; rightIndex += 1) {
-                        const pointA = rankedPoints[leftIndex].point;
-                        const pointB = rankedPoints[rightIndex].point;
-                        const segmentLength = detectionDistance(pointA, pointB);
-                        if (segmentLength <= 1e-6) continue;
-
-                        const coverageRatio = detectionSegmentCoverageRatioInBounds(pointA, pointB, query.bboxWorld);
-                        if (coverageRatio <= DETECTION_JUNCTION_GUIDED_MIN_COVERAGE_RATIO) continue;
-
-                        const lineKey = detectionCreateJunctionGuidedLineKey(lineCandidate.layerName, pointA, pointB, lineCandidate.key);
-                        const centerlineGap = detectionPointDistanceToSegment(query.centerWorld, pointA, pointB);
-                        const lengthGap = Math.abs((segmentLength * Math.max(context.scaleX, context.scaleY)) - query.majorLengthPx);
-                        const score = ((1 - coverageRatio) * 100) + (centerlineGap * Math.max(context.scaleX, context.scaleY)) + (lengthGap * 0.1);
-                        const candidate = {
-                            id: lineKey,
-                            layerName: lineCandidate.layerName,
-                            points: [pointA, pointB],
-                            lineKeys: [lineKey],
-                            sourceLineKeys: [lineCandidate.key],
-                            segments: [[pointA, pointB]],
-                            confidence: detection.confidence,
-                            coverageRatio,
-                            score,
-                            sourceConnectDetectionIndex: detectionIndex,
-                            sourceJunctionDetectionIndexes: [
-                                rankedPoints[leftIndex].junctionPoint.detectionIndex,
-                                rankedPoints[rightIndex].junctionPoint.detectionIndex
-                            ].filter(index => Number.isFinite(Number(index)))
-                        };
-                        const existingCandidate = connectCandidatesByKey.get(candidate.id);
-                        if (!existingCandidate || detectionCompareRank([
-                            -candidate.coverageRatio,
-                            candidate.score,
-                            -segmentLength
-                        ], [
-                            -existingCandidate.coverageRatio,
-                            existingCandidate.score,
-                            -detectionDistance(existingCandidate.points[0], existingCandidate.points[1])
-                        ]) < 0) {
-                            connectCandidatesByKey.set(candidate.id, candidate);
-                        }
-                    }
-                }
-            });
-        });
-
-        return {
-            junctionPoints: resolvedJunctionPoints,
-            connectCandidates: Array.from(connectCandidatesByKey.values())
-                .sort((left, right) => detectionCompareRank([
-                    left.sourceConnectDetectionIndex,
-                    left.score,
-                    -left.coverageRatio
-                ], [
-                    right.sourceConnectDetectionIndex,
-                    right.score,
-                    -right.coverageRatio
-                ]))
         };
     }
 
@@ -1171,10 +1181,9 @@
         const detectionEntries = Array.isArray(adjustedDetectionJson.detections) ? adjustedDetectionJson.detections : [];
         const outputDetectionEntries = [];
         const rejectedDetectionEntries = [];
-        const junctionGuidedResult = detectionBuildJunctionGuidedConnects(detectionEntries, spatialIndex, context);
-        const junctionGuidedConnects = junctionGuidedResult.connectCandidates || [];
+        const approximateConnectSeeds = detectionBuildApproximateConnectSeeds(detectionEntries, spatialIndex, context);
         const connectDetectionIndexesWithCandidate = new Set(
-            junctionGuidedConnects.map(candidate => candidate.sourceConnectDetectionIndex)
+            approximateConnectSeeds.map(candidate => candidate.sourceConnectDetectionIndex)
         );
         let totalConnectDetections = 0;
         let validatedConnectDetections = 0;
@@ -1194,7 +1203,7 @@
             }
         });
 
-        junctionGuidedConnects.forEach((candidate, candidateIndex) => {
+        approximateConnectSeeds.forEach((candidate, candidateIndex) => {
             const validatedDetection = detectionBuildJunctionGuidedDetection(candidate, candidateIndex, context);
             if (!validatedDetection) return;
             outputDetectionEntries.push(validatedDetection);
@@ -1208,19 +1217,13 @@
             validated_connect_detections: validatedConnectDetections,
             rejected_connect_detections: rejectedConnectDetections,
             total_connect_detections: totalConnectDetections,
-            connect_validation_method: 'junction-guided',
-            min_bbox_coverage_ratio: DETECTION_JUNCTION_GUIDED_MIN_COVERAGE_RATIO,
+            connect_validation_method: 'bbox-line-seed',
+            min_bbox_coverage_ratio: DETECTION_MIN_LINE_COVERAGE_RATIO,
             manual_bbox_pts: Number(CONFIG.MANUAL_LABEL_BBOX_PTS) || 5,
             search_padding_pts: DETECTION_DEFAULT_SEARCH_PADDING,
             num_line_candidates: lineCandidates.length,
-            resolved_junction_points: junctionGuidedResult.junctionPoints.map(point => ({
-                x: detectionRound(point.x, 6),
-                y: detectionRound(point.y, 6),
-                layerName: point.layerName,
-                source: point.source,
-                detection_index: point.detectionIndex
-            })),
-            junction_guided_connects: junctionGuidedConnects.map(candidate => ({
+            resolved_junction_points: [],
+            bbox_line_seed_connects: approximateConnectSeeds.map(candidate => ({
                 layerName: candidate.layerName,
                 points: candidate.points.map(point => ({
                     x: detectionRound(point.x, 6),
@@ -1237,6 +1240,11 @@
                 sourceConnectDetectionIndex: candidate.sourceConnectDetectionIndex,
                 sourceJunctionDetectionIndexes: candidate.sourceJunctionDetectionIndexes,
                 bboxCoverageRatio: detectionRound(candidate.coverageRatio, 6),
+                segmentInsideBboxRatio: detectionRound(candidate.segmentCoverageRatio ?? candidate.coverageRatio, 6),
+                bboxLengthCoverageRatio: detectionRound(candidate.bboxLengthCoverageRatio ?? candidate.coverageRatio, 6),
+                iou: detectionRound(candidate.iou ?? 0, 6),
+                centerlineGapPx: detectionRound(candidate.centerlineGapPx ?? 0, 6),
+                angleGapDegrees: detectionRound(candidate.angleGapDegrees ?? 0, 6),
                 score: detectionRound(candidate.score, 6)
             }))
         };
@@ -1468,7 +1476,9 @@
         return addDetectedConnectAnnotationsToManualPanel(connectSpecs, {
             source: 'detection',
             autoAcceptSuggestions: true,
-            maxSuggestionRounds: 3,
+            maxSuggestionRounds: 2,
+            fullRecheckExistingConnects: true,
+            requestNextSuggestions: false,
             openPanel: true
         });
     }
@@ -1533,6 +1543,7 @@
             const rawResult = await response.json();
             const apiTimeSeconds = (performance.now() - startTime) / 1000;
             detectionRawResults = rawResult;
+            detectionOverlayContext = imagePayload;
 
             updateLoadingPopup('Detecting line-fire objects...', 'Dang xu ly logic va goi y auto accept...');
             setDetectionExtractStatus('Dang xu ly logic detect va goi y auto accept...');
@@ -1540,7 +1551,7 @@
             await snapPointWarmupPromise;
             const adjustedResult = adjustDetectionConnectsForVisibleLines(rawResult, imagePayload);
             detectionAdjustedResults = adjustedResult;
-            applyDetectionResultsToLayers(adjustedResult, imagePayload);
+            refreshDetectionVisualizationForCurrentView();
 
             const manualPromotionResult = await detectionPromoteConnectsToManualPanel(adjustedResult);
             adjustedResult.manual_promotion = manualPromotionResult;
@@ -1585,6 +1596,18 @@
     if (btnRunDetectExtract) {
         btnRunDetectExtract.addEventListener('click', () => {
             void runDetectionExtract();
+        });
+    }
+
+    if (btnDetectViewProcessed) {
+        btnDetectViewProcessed.addEventListener('click', () => {
+            setDetectionResultViewMode(DETECTION_VIEW_MODE_PROCESSED);
+        });
+    }
+
+    if (btnDetectViewRaw) {
+        btnDetectViewRaw.addEventListener('click', () => {
+            setDetectionResultViewMode(DETECTION_VIEW_MODE_RAW);
         });
     }
 

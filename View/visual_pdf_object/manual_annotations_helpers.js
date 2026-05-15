@@ -1890,6 +1890,7 @@ function collectStraightConnectSuggestionSeeds(connectAnnotations, existingConne
 function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLineKeys) {
     const seedLineCandidates = new Map();
     const acceptedProbeGroupKeys = new Set();
+    const suggestableSeedLengthCache = new Map();
 
     connectAnnotations.forEach(annotation => {
         if (!annotation || annotation.type !== 'connect') return;
@@ -1913,6 +1914,7 @@ function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLin
                     if (!lineCandidate || existingConnectLineKeys.has(lineCandidate.id)) return;
                     if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, annotation, getManualElbowEndpointTouchToleranceWorld())) return;
                     if (!isElbowLineCandidate(referenceLineCandidate, lineCandidate)) return;
+                    if (!isSuggestableConnectSeedLineLongEnough(lineCandidate, existingConnectLineKeys, suggestableSeedLengthCache)) return;
                     seedLineCandidates.set(lineCandidate.id, lineCandidate);
                 });
             });
@@ -1995,6 +1997,7 @@ async function collectStraightConnectSuggestionSeedsAsync(connectAnnotations, ex
 async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existingConnectLineKeys, options = {}) {
     const seedLineCandidates = new Map();
     const acceptedProbeGroupKeys = new Set();
+    const suggestableSeedLengthCache = new Map();
     const yieldState = { lastYieldTime: performance.now() };
     let processedCount = 0;
 
@@ -2024,6 +2027,7 @@ async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existin
                 if (!lineCandidate || existingConnectLineKeys.has(lineCandidate.id)) continue;
                 if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, annotation, getManualElbowEndpointTouchToleranceWorld())) continue;
                 if (!isElbowLineCandidate(referenceLineCandidate, lineCandidate)) continue;
+                if (!isSuggestableConnectSeedLineLongEnough(lineCandidate, existingConnectLineKeys, suggestableSeedLengthCache)) continue;
                 seedLineCandidates.set(lineCandidate.id, lineCandidate);
             }
         }
@@ -2049,7 +2053,8 @@ async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existin
             const touchesConnectInterior = doesLineCandidateTouchConnectInterior(teeProbe, annotation);
             const touchesLineInterior = doesConnectBoundaryTouchLineCandidateInterior(annotation, teeProbe);
             const crossesConnectInterior = doesLineLikeCrossConnectInterior(teeProbe, annotation);
-            if (!touchesConnectInterior && !touchesLineInterior && !crossesConnectInterior) continue;
+            const dashedEndpointNearConnect = doesDashedLineLikeEndpointReachConnect(teeProbe, annotation);
+            if (!touchesConnectInterior && !touchesLineInterior && !crossesConnectInterior && !dashedEndpointNearConnect) continue;
 
             if (probeGroupKey) {
                 acceptedProbeGroupKeys.add(probeGroupKey);

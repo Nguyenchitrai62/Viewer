@@ -856,6 +856,66 @@ body {
     color: #166534;
 }
 
+.detect-extract-summary {
+    margin-top: 8px;
+    padding: 7px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(248, 250, 252, 0.88);
+    color: #475569;
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+.detect-extract-view-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.detect-extract-view-label {
+    color: #475569;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.detect-extract-view-switch {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.detect-extract-view-btn {
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 700;
+    transition: all 0.2s ease;
+}
+
+.detect-extract-view-btn:hover:not(:disabled) {
+    background: #f8fafc;
+}
+
+.detect-extract-view-btn.is-active {
+    background: #0f172a;
+    border-color: #0f172a;
+    color: #fff;
+}
+
+.detect-extract-view-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .detect-extract-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

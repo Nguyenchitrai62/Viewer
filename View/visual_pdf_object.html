@@ -9,7 +9,7 @@
     <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
     <link rel="icon" type="image/png" href="./Image/LOGO.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./Image/LOGO.png">
-    <link rel="stylesheet" href="./visual_pdf_object/styles.css?v=20260508-main-layer-1">
+    <link rel="stylesheet" href="./visual_pdf_object/styles.css?v=20260515-detect-debug-1">
 </head>
 
 <body>
@@ -104,13 +104,21 @@
             <div id="detect-extract-panel" class="detect-extract-panel is-collapsed">
                 <div class="detect-extract-header">
                     <div class="detect-extract-header-main">
-                        <span class="detect-extract-title">Trich xuat</span>
+                        <span class="detect-extract-title">Extract</span>
                         <span id="detect-extract-count-badge" class="detect-extract-count-badge">0</span>
                     </div>
-                    <button id="btn-toggle-detect-extract-panel" class="detect-extract-toggle" type="button" title="Mo rong" aria-controls="detect-extract-panel-body" aria-expanded="false">▾</button>
+                    <button id="btn-toggle-detect-extract-panel" class="detect-extract-toggle" type="button" title="Expand" aria-controls="detect-extract-panel-body" aria-expanded="false">▾</button>
                 </div>
                 <div id="detect-extract-panel-body" class="detect-extract-panel-body">
-                    <div id="detect-extract-status" class="detect-extract-status">Chua co ket qua detect.</div>
+                    <div id="detect-extract-status" class="detect-extract-status">No detection results yet.</div>
+                    <div id="detect-extract-summary" class="detect-extract-summary">Raw 0 | Processed 0 | Verify &gt;= 40%</div>
+                    <div class="detect-extract-view-row">
+                        <span class="detect-extract-view-label">View</span>
+                        <div class="detect-extract-view-switch" role="tablist" aria-label="Detection view mode">
+                            <button id="btn-detect-view-processed" class="detect-extract-view-btn is-active" type="button" aria-pressed="true">Processed</button>
+                            <button id="btn-detect-view-raw" class="detect-extract-view-btn" type="button" aria-pressed="false">Raw</button>
+                        </div>
+                    </div>
                     <div class="detect-extract-actions">
                         <button id="btn-run-detect-extract" class="detect-extract-btn detect-extract-btn-primary" type="button">Detect</button>
                         <button id="btn-clear-detect-extract" class="detect-extract-btn" type="button">Clear</button>
@@ -339,14 +347,14 @@
         }
     </script>
     <script src="./env.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/config.js?v=20260507-hardening-1"></script>
+    <script src="./visual_pdf_object/config.js?v=20260515-detect-config-1"></script>
     <script src="./visual_pdf_object/quadtree.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/state.js?v=20260511-manual-label-speed-1"></script>
     <script src="./visual_pdf_object/utils.js?v=20260511-manual-label-speed-1"></script>
     <script src="./visual_pdf_object/streaming_parser.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/quadtree_rebuild.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/manual_annotations_helpers.js?v=20260513-manual-suggestion-cleanup-5"></script>
-    <script src="./visual_pdf_object/manual_annotations_controller.js?v=20260514-detect-manual-1"></script>
+    <script src="./visual_pdf_object/manual_annotations_helpers.js?v=20260515-extract-manual-parity-1"></script>
+    <script src="./visual_pdf_object/manual_annotations_controller.js?v=20260515-extract-manual-parity-3"></script>
     <script src="./visual_pdf_object/symbol_annotations_core.js?v=20260508-script-split-1"></script>
     <script src="./visual_pdf_object/symbol_annotations_panel.js?v=20260508-script-split-1"></script>
     <script src="./visual_pdf_object/symbol_annotations_persistence.js?v=20260508-script-split-1"></script>
@@ -358,7 +366,7 @@
     <script src="./visual_pdf_object/export.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/pdf_handling.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/pipeline.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/detection_extract.js?v=20260514-line-fire-detect-3"></script>
+    <script src="./visual_pdf_object/detection_extract.js?v=20260515-extract-manual-parity-3"></script>
     <script src="./visual_pdf_object/vlm.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/events.js?v=20260511-manual-label-speed-2"></script>
     <script src="./visual_pdf_object/patterns.js?v=20260507-hardening-1"></script>

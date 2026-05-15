@@ -50,4 +50,5 @@ const CONFIG = {
     MANUAL_LABEL_TRAIN_RATIO: 0.9,
     MANUAL_LABEL_CROP_AREA_THRESHOLD_JUNCTION: 0.5,
     MANUAL_LABEL_MIN_BBOX_SIZE: 4,
+    DETECTION_CONNECT_VERIFY_MIN_COVERAGE_RATIO: 0.4, // Ty le toi thieu cua doan connect ung vien nam trong bbox detect de duoc verify
 };

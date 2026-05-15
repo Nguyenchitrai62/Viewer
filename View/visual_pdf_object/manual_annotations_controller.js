@@ -1160,33 +1160,40 @@ function formatConnectSuggestionSuffix(suggestedConnectCount) {
         : '';
 }
 
-function startSuggestedConnectAnnotationsRequest(requestId, connectAnnotations, baseMessage) {
-    if (requestId !== manualSuggestionRequestId || annotationMode !== 'connect') return;
+function startSuggestedConnectAnnotationsRequest(requestId, connectAnnotations, baseMessage, options = {}) {
+    const shouldKeepRequest = () => requestId === manualSuggestionRequestId
+        && (options.requireConnectMode === false || annotationMode === 'connect');
+    if (!shouldKeepRequest()) return Promise.resolve([]);
 
     setAnnotationFeedback(`${baseMessage} Đang tìm gợi ý...`, 'info');
     updateManualLabelUI();
     if (typeof scheduleDraw === 'function') scheduleDraw();
 
-    collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotations, {
-        shouldContinue: () => requestId === manualSuggestionRequestId && annotationMode === 'connect'
+    return collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotations, {
+        shouldContinue: shouldKeepRequest
     })
         .then(suggestedConnects => {
-            if (requestId !== manualSuggestionRequestId || annotationMode !== 'connect') return;
+            if (!shouldKeepRequest()) return [];
             setSuggestedConnectAnnotations(suggestedConnects, { redraw: false });
             setAnnotationFeedback(`${baseMessage}${formatConnectSuggestionSuffix(suggestedConnects.length)}`, 'info');
             updateManualLabelUI();
             if (typeof scheduleDraw === 'function') scheduleDraw();
+            return suggestedConnects;
         })
         .catch(error => {
-            if (requestId !== manualSuggestionRequestId) return;
+            if (!shouldKeepRequest()) return [];
             console.error('Failed to collect manual connect suggestions:', error);
             setAnnotationFeedback(`${baseMessage} Không tính được gợi ý connect: ${error.message}`, 'error');
             updateManualLabelUI();
+            return [];
         });
 }
 
-function requestSuggestedConnectAnnotations(connectAnnotations, baseMessage) {
+function requestSuggestedConnectAnnotations(connectAnnotations, baseMessage, options = {}) {
     const requestId = ++manualSuggestionRequestId;
+    if (typeof options.onRequestId === 'function') {
+        options.onRequestId(requestId);
+    }
     const suggestionRootAnnotations = collectConnectedSuggestionRootAnnotations(connectAnnotations, manualAnnotations);
     suggestedConnectAnnotations = [];
     updateManualLabelUI();
@@ -1197,21 +1204,21 @@ function requestSuggestedConnectAnnotations(connectAnnotations, baseMessage) {
         updateManualLabelUI();
         if (typeof scheduleDraw === 'function') scheduleDraw();
         scheduleSnapPointIndexWarmup();
-        ensureSnapPointIndexAsync()
+        return ensureSnapPointIndexAsync()
             .then(indexReady => {
-                if (!indexReady) return;
-                startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage);
+                if (!indexReady) return [];
+                return startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage, options);
             })
             .catch(error => {
-                if (requestId !== manualSuggestionRequestId) return;
+                if (requestId !== manualSuggestionRequestId) return [];
                 console.error('Failed to prepare manual snap point index:', error);
                 setAnnotationFeedback(`${baseMessage} Không chuẩn bị được chỉ mục gợi ý: ${error.message}`, 'error');
                 updateManualLabelUI();
+                return [];
             });
-        return;
     }
 
-    startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage);
+    return startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage, options);
 }
 
 function acceptSuggestedConnectAnnotations(options = {}) {
@@ -1243,6 +1250,7 @@ function acceptSuggestedConnectAnnotations(options = {}) {
     const acceptedJunctions = [];
 
     suggestedConnectAnnotations.forEach(suggestion => {
+        if (!isSuggestConnectLineLikeLongEnough(suggestion)) return;
         const suggestionLineKeys = getConnectAnnotationLineKeys(suggestion);
         if (!suggestionLineKeys.length || suggestionLineKeys.every(lineKey => existingConnectLineKeys.has(lineKey))) return;
 
@@ -1330,22 +1338,49 @@ function normalizeDetectedConnectSpec(connectSpec) {
     const lineKeys = Array.isArray(connectSpec.lineKeys)
         ? connectSpec.lineKeys
         : (Array.isArray(connectSpec.line_keys) ? connectSpec.line_keys : []);
+    const normalizedLineKeys = lineKeys.map(lineKey => String(lineKey)).filter(Boolean);
     const segments = Array.isArray(connectSpec.segments)
         ? connectSpec.segments
         : (Array.isArray(connectSpec.manual_segments) ? connectSpec.manual_segments : []);
+    const normalizedSegments = segments
+        .filter(segment => Array.isArray(segment) && segment.length >= 2)
+        .map(segment => segment.slice(0, 2).map(point => ({
+            x: Number(point?.x ?? point?.[0]),
+            y: Number(point?.y ?? point?.[1]),
+            layerName
+        })))
+        .filter(segment => segment.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)));
+
+    const resolvedLineCandidates = [];
+    if (typeof snapPointLineItems !== 'undefined' && snapPointLineItems instanceof Map && normalizedLineKeys.length) {
+        normalizedLineKeys.forEach(lineKey => {
+            const lineCandidate = snapPointLineItems.get(lineKey);
+            if (!lineCandidate || resolvedLineCandidates.some(candidate => candidate.id === lineCandidate.id)) return;
+            resolvedLineCandidates.push(lineCandidate);
+        });
+    }
+    if (!resolvedLineCandidates.length && normalizedSegments.length) {
+        normalizedSegments.forEach((segment, segmentIndex) => {
+            const pointA = segment[0];
+            const pointB = segment[1];
+            resolvedLineCandidates.push({
+                id: createNormalizedLineKey(layerName, pointA, pointB) || `detection-segment:${segmentIndex}`,
+                layerName,
+                points: [pointA, pointB],
+                endpointKeys: [
+                    getSnapPointKey(layerName, pointA.x, pointA.y),
+                    getSnapPointKey(layerName, pointB.x, pointB.y)
+                ]
+            });
+        });
+    }
 
     return {
         layerName,
         points: normalizedPoints,
-        lineKeys: lineKeys.map(lineKey => String(lineKey)).filter(Boolean),
-        segments: segments
-            .filter(segment => Array.isArray(segment) && segment.length >= 2)
-            .map(segment => segment.slice(0, 2).map(point => ({
-                x: Number(point?.x ?? point?.[0]),
-                y: Number(point?.y ?? point?.[1]),
-                layerName
-            })))
-            .filter(segment => segment.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)))
+        lineKeys: normalizedLineKeys,
+        segments: normalizedSegments,
+        lineCandidates: resolvedLineCandidates
     };
 }
 
@@ -1360,55 +1395,56 @@ async function autoAcceptSuggestedConnectAnnotationsFromSeeds(seedConnectAnnotat
         return { rounds: 0, acceptedConnectCount: 0, acceptedJunctionCount: 0 };
     }
 
-    const requestId = ++manualSuggestionRequestId;
-    let currentSeeds = seedConnectAnnotations.slice();
     let acceptedConnectCount = 0;
     let acceptedJunctionCount = 0;
     let completedRounds = 0;
+    let activeRequestId = null;
+    let ownsCurrentRequest = false;
 
-    if (!snapPointIndexReady) {
-        setAnnotationFeedback(`${baseMessage} Đang chuẩn bị chỉ mục line để tự mở rộng connect...`, 'info');
-        updateManualLabelUI();
-        if (typeof scheduleDraw === 'function') scheduleDraw();
-        scheduleSnapPointIndexWarmup();
-        const indexReady = await ensureSnapPointIndexAsync();
-        if (!indexReady || requestId !== manualSuggestionRequestId) {
-            return { rounds: completedRounds, acceptedConnectCount, acceptedJunctionCount };
+    const getRoundSeeds = roundIndex => {
+        if (roundIndex <= 0 || options.fullRecheckExistingConnects === false) {
+            return seedConnectAnnotations;
         }
-    }
+        return manualAnnotations.filter(annotation => annotation?.type === 'connect');
+    };
 
-    for (let roundIndex = 0; roundIndex < maxRounds && currentSeeds.length; roundIndex += 1) {
-        if (requestId !== manualSuggestionRequestId) break;
-        const suggestionRootAnnotations = collectConnectedSuggestionRootAnnotations(currentSeeds, manualAnnotations);
-        setAnnotationFeedback(`${baseMessage} Đang tự mở rộng connect (${roundIndex + 1}/${maxRounds})...`, 'info');
-        updateManualLabelUI();
-        if (typeof scheduleDraw === 'function') scheduleDraw();
-
-        const suggestedConnects = await collectSuggestedConnectAnnotationsForConnectsAsync(suggestionRootAnnotations, {
-            shouldContinue: () => requestId === manualSuggestionRequestId
+    for (let roundIndex = 0; roundIndex < maxRounds; roundIndex += 1) {
+        const currentSeeds = getRoundSeeds(roundIndex);
+        if (!currentSeeds.length) break;
+        const roundMessage = maxRounds > 1
+            ? `${baseMessage} Đang tự mở rộng connect (${roundIndex + 1}/${maxRounds})...`
+            : baseMessage;
+        const suggestedConnects = await requestSuggestedConnectAnnotations(currentSeeds, roundMessage, {
+            requireConnectMode: false,
+            onRequestId: requestId => {
+                activeRequestId = requestId;
+                ownsCurrentRequest = true;
+            }
         });
-        if (requestId !== manualSuggestionRequestId || !suggestedConnects.length) break;
+        if (activeRequestId !== manualSuggestionRequestId || !suggestedConnects.length) break;
 
-        setSuggestedConnectAnnotations(suggestedConnects, { redraw: false });
+        const shouldRequestNextSuggestions = roundIndex === maxRounds - 1 && options.requestNextSuggestions !== false;
         const acceptResult = acceptSuggestedConnectAnnotations({
-            requestNextSuggestions: false,
+            requestNextSuggestions: shouldRequestNextSuggestions,
             returnResult: true,
             silent: true,
-            preserveRequestId: true
+            preserveRequestId: !shouldRequestNextSuggestions
         });
+        if (shouldRequestNextSuggestions) {
+            ownsCurrentRequest = false;
+        }
         if (!acceptResult?.accepted || !acceptResult.addedConnectAnnotations.length) break;
 
         completedRounds += 1;
         acceptedConnectCount += acceptResult.addedConnectAnnotations.length;
         acceptedJunctionCount += acceptResult.addedJunctionAnnotations.length;
-        currentSeeds = acceptResult.addedConnectAnnotations;
 
         if (typeof yieldToBrowser === 'function') {
             await yieldToBrowser();
         }
     }
 
-    if (requestId === manualSuggestionRequestId) {
+    if (ownsCurrentRequest && activeRequestId === manualSuggestionRequestId) {
         setSuggestedConnectAnnotations([], { redraw: false });
         manualSuggestionRequestId += 1;
         const suffix = acceptedConnectCount
@@ -1436,12 +1472,20 @@ async function addDetectedConnectAnnotationsToManualPanel(connectSpecs, options 
     }
 
     const connectAnnotations = normalizedSpecs
-        .map(spec => createAnnotation('connect', spec.layerName, spec.points, {
-            source: options.source || 'detection',
-            autoManaged: false,
-            lineKeys: spec.lineKeys,
-            segments: spec.segments
-        }))
+        .map(spec => {
+            const annotationOptions = {
+                source: options.source || 'detection',
+                autoManaged: false
+            };
+            if (Array.isArray(spec.lineCandidates) && spec.lineCandidates.length && typeof createConnectAnnotationFromLineCandidates === 'function') {
+                return createConnectAnnotationFromLineCandidates(spec.lineCandidates, annotationOptions);
+            }
+            return createAnnotation('connect', spec.layerName, spec.points, {
+                ...annotationOptions,
+                lineKeys: spec.lineKeys,
+                segments: spec.segments
+            });
+        })
         .filter(Boolean);
     const autoJunctions = [];
     connectAnnotations.forEach(connectAnnotation => {
@@ -1471,7 +1515,9 @@ async function addDetectedConnectAnnotationsToManualPanel(connectSpecs, options 
             requestSuggestedConnectAnnotations(addedConnectAnnotations, baseMessage);
         } else {
             autoAcceptResult = await autoAcceptSuggestedConnectAnnotationsFromSeeds(addedConnectAnnotations, baseMessage, {
-                maxRounds: options.maxSuggestionRounds ?? 3
+                maxRounds: options.maxSuggestionRounds ?? 2,
+                fullRecheckExistingConnects: options.fullRecheckExistingConnects,
+                requestNextSuggestions: options.requestNextSuggestions
             });
         }
     } else {
