@@ -563,6 +563,80 @@ async function buildPdfRequestFormData(file, pageNum = null) {
     }
 }
 
+function buildCacheOnlyPdfRequestFormData(file, pageNum = null) {
+    const formData = new FormData();
+    if (pageNum !== null && pageNum !== undefined) {
+        formData.append('page_num', String(pageNum));
+    }
+    formData.append('pdf_name', file?.name || '');
+    formData.append('cache_only', 'true');
+    return formData;
+}
+
+async function openCachedProcessAllPagesResponse(file, signal = null) {
+    if (!file?.name) {
+        return null;
+    }
+
+    try {
+        const response = await fetch(`${ENV.API_BASE_URL}/process_all_pages`, {
+            method: 'POST',
+            body: buildCacheOnlyPdfRequestFormData(file),
+            signal,
+        });
+
+        if (response.ok) {
+            console.info(`Using split-countfire DB cache for ${file.name}; skipping PDF upload.`);
+            return response;
+        }
+
+        const message = await parseHttpErrorResponse(
+            response,
+            `No complete cached page gzip found for ${file.name}.`
+        );
+        console.info(`Split-countfire cache probe miss for ${file.name}: ${message}`);
+        return null;
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            throw error;
+        }
+        console.warn(`Split-countfire cache probe failed for ${file.name}; falling back to upload.`, error);
+        return null;
+    }
+}
+
+async function openCachedProcessPageResponse(file, pageNum, signal = null) {
+    if (!file?.name || !pageNum) {
+        return null;
+    }
+
+    try {
+        const response = await fetch(`${ENV.API_BASE_URL}/process_page`, {
+            method: 'POST',
+            body: buildCacheOnlyPdfRequestFormData(file, pageNum),
+            signal,
+        });
+
+        if (response.ok) {
+            console.info(`Using split-countfire DB cache for ${file.name} page ${pageNum}; skipping PDF upload.`);
+            return response;
+        }
+
+        const message = await parseHttpErrorResponse(
+            response,
+            `No cached page gzip found for ${file.name} page ${pageNum}.`
+        );
+        console.info(`Split-countfire page cache miss for ${file.name} page ${pageNum}: ${message}`);
+        return null;
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            throw error;
+        }
+        console.warn(`Split-countfire page cache probe failed for ${file.name} page ${pageNum}; falling back to upload.`, error);
+        return null;
+    }
+}
+
 function cancelCurrentBatchProcessing() {
     currentBatchTaskId += 1;
     pageLoadRequestId += 1;
@@ -984,11 +1058,14 @@ async function processSelectedPage(pageNum) {
     console.time('API Call');
     showCanvasStatusOverlay(`Loading page ${pageNum}...`, 'Fetching page JSON from backend...', 'info');
     try {
-        const formData = await buildPdfRequestFormData(file, pageNum);
-        const response = await fetch(`${ENV.API_BASE_URL}/process_page`, {
-            method: 'POST',
-            body: formData
-        });
+        let response = await openCachedProcessPageResponse(file, pageNum);
+        if (!response) {
+            const formData = await buildPdfRequestFormData(file, pageNum);
+            response = await fetch(`${ENV.API_BASE_URL}/process_page`, {
+                method: 'POST',
+                body: formData
+            });
+        }
         console.timeEnd('API Call');
         if (!response.ok) {
             invalidatePdfUploadSessionForResponse(response, file);
@@ -1049,16 +1126,22 @@ async function processAllPagesBatch(file) {
     currentBatchAbortController = controller;
 
     if (!hasRenderableDocument()) {
-        showCanvasStatusOverlay('Uploading PDF...', 'Pages will appear one by one as soon as they are ready.', 'info');
+        showCanvasStatusOverlay('Checking PDF cache...', 'Looking for precomputed page gzip before uploading.', 'info');
     }
 
     try {
-        const formData = await buildPdfRequestFormData(file);
-        const response = await fetch(`${ENV.API_BASE_URL}/process_all_pages`, {
-            method: 'POST',
-            body: formData,
-            signal: controller.signal
-        });
+        let response = await openCachedProcessAllPagesResponse(file, controller.signal);
+        if (!response) {
+            if (!hasRenderableDocument()) {
+                showCanvasStatusOverlay('Uploading PDF...', 'No complete DB cache found; pages will appear as soon as they are ready.', 'info');
+            }
+            const formData = await buildPdfRequestFormData(file);
+            response = await fetch(`${ENV.API_BASE_URL}/process_all_pages`, {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+            });
+        }
 
         if (!response.ok) {
             invalidatePdfUploadSessionForResponse(response, file);
@@ -1104,14 +1187,20 @@ async function processAllPagesBatch(file) {
                     }
                     updatePageProcessingSummary();
                 } else if (eventType === 'page_data') {
-                    const { page_num, completed, gzip_size, gzip_data, time: dt } = JSON.parse(eventData);
+                    const { page_num, gzip_size, gzip_data, time: dt, cache_hit } = JSON.parse(eventData);
                     setPageGzipCacheValue(stagedCachedPages, page_num, gzip_data);
                     totalGzipSize += gzip_size;
+                    const pageSource = cache_hit ? 'DB cache' : `${dt}s`;
 
                     setPageProcessingState(page_num, 'ready', {
                         detail: `Page ${page_num} ready · ${(gzip_size / 1024 / 1024).toFixed(1)} MB · ${dt}s`
                     });
-                    console.log(`Page ${page_num}: ${dt}s, gzip ${(gzip_size / 1024 / 1024).toFixed(2)}MB`);
+                    if (cache_hit) {
+                        setPageProcessingState(page_num, 'ready', {
+                            detail: `Page ${page_num} ready - ${(gzip_size / 1024 / 1024).toFixed(1)} MB - ${pageSource}`
+                        });
+                    }
+                    console.log(`Page ${page_num}: ${pageSource}, gzip ${(gzip_size / 1024 / 1024).toFixed(2)}MB`);
 
                     if (waitingPageNum === page_num && selectedThumbnailPageNum === page_num) {
                         processSelectedPage(page_num).catch(error => {
@@ -1124,7 +1213,7 @@ async function processAllPagesBatch(file) {
                         });
                     }
                 } else if (eventType === 'error') {
-                    const { page_num, error, completed } = JSON.parse(eventData);
+                    const { page_num, error } = JSON.parse(eventData);
                     console.error(`Page ${page_num} error: ${error}`);
                     setPageProcessingState(page_num, 'error', { detail: error });
                     if (waitingPageNum === page_num && selectedThumbnailPageNum === page_num) {
