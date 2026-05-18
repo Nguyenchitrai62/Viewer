@@ -30,6 +30,9 @@ function setupVisualization() {
     if (typeof updateDetectionExtractUI === 'function') {
         updateDetectionExtractUI();
     }
+    if (typeof handleMainLayerPageLoaded === 'function') {
+        handleMainLayerPageLoaded();
+    }
     resetView();
 }
 

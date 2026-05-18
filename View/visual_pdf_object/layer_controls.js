@@ -153,14 +153,447 @@ function getMainShapeColorGroup() {
         })[0] || null;
 }
 
+function getMainLayerMinElementCount() {
+    const value = Number(CONFIG.MAIN_LAYER_MIN_ELEMENTS);
+    return Number.isFinite(value) && value >= 0 ? value : 100;
+}
+
+function getMainLayerBlackChannelMax() {
+    const value = Number(CONFIG.MAIN_LAYER_BLACK_CHANNEL_MAX);
+    return Number.isFinite(value) && value >= 0 ? value : 70;
+}
+
+function getMainLayerBlackBrightnessMax() {
+    const value = Number(CONFIG.MAIN_LAYER_BLACK_BRIGHTNESS_MAX);
+    return Number.isFinite(value) && value >= 0 ? value : 0.18;
+}
+
+function isMainLayerBlackCandidate(layerName) {
+    const channels = parseColorChannels(getLayerVisualMeta(layerName).color);
+    if (!channels) return false;
+    const clamped = channels.slice(0, 3).map(channel => Math.max(0, Math.min(255, Number(channel) || 0)));
+    const maxChannel = Math.max(...clamped);
+    return maxChannel <= getMainLayerBlackChannelMax()
+        && getPerceivedLayerBrightness(layerName) <= getMainLayerBlackBrightnessMax();
+}
+
+function getMainLayerCandidateLayerNames() {
+    const minElements = getMainLayerMinElementCount();
+    return getShapeLayerNamesForCurrentMode()
+        .filter(layerName => {
+            const elementCount = Number(totalCommands[layerName] || 0);
+            return elementCount > minElements
+                && isMainLayerBlackCandidate(layerName)
+                && Array.isArray(layerIndex[layerName])
+                && layerIndex[layerName].length > 0;
+        });
+}
+
+function getCurrentMainLayerDocumentName() {
+    return (currentPdfFile && currentPdfFile.name)
+        || (currentJsonSourceFile && (currentJsonSourceFile.name || String(currentJsonSourceFile)))
+        || 'visual_layers';
+}
+
+function getCurrentMainLayerDocumentKey() {
+    if (currentPdfFile) {
+        const sourceKey = typeof getPdfSourceKey === 'function'
+            ? getPdfSourceKey(currentPdfFile)
+            : `${currentPdfFile.name}:${currentPdfFile.size}:${currentPdfFile.lastModified}`;
+        return `pdf:${sourceKey}`;
+    }
+    if (currentJsonSourceFile) {
+        return `json:${currentJsonSourceFile.name || String(currentJsonSourceFile)}:${currentJsonSourceFile.size || 0}:${currentJsonSourceFile.lastModified || 0}`;
+    }
+    return `memory:${getCurrentMainLayerDocumentName()}`;
+}
+
+function resetMainLayerClassificationCache(documentKey = getCurrentMainLayerDocumentKey()) {
+    mainLayerClassificationDocumentKey = documentKey;
+    mainLayerClassificationCache = new Map();
+    mainLayerClassificationRequestToken += 1;
+    mainLayers = null;
+}
+
+function syncMainLayerClassificationDocumentCache() {
+    const documentKey = getCurrentMainLayerDocumentKey();
+    if (mainLayerClassificationDocumentKey !== documentKey) {
+        resetMainLayerClassificationCache(documentKey);
+    }
+    return documentKey;
+}
+
+function getMainLayerPageCacheKey(pageNum = currentPageNum) {
+    const documentKey = syncMainLayerClassificationDocumentCache();
+    const safePageNum = Number.isInteger(Number(pageNum)) && Number(pageNum) >= 1 ? Number(pageNum) : 1;
+    return `${documentKey}|p:${safePageNum}|mode:${currentLayerField}`;
+}
+
+function buildMainLayerCandidateSignature(layerNames) {
+    return (layerNames || [])
+        .map(layerName => `${layerName}:${Number(totalCommands[layerName] || 0)}`)
+        .join('|');
+}
+
+function getMainLayerEntryForCurrentPage() {
+    if (!hasRenderableDocument()) return null;
+    return mainLayerClassificationCache.get(getMainLayerPageCacheKey()) || null;
+}
+
+function isMainLayerClassificationStillCurrent(pageKey) {
+    return Boolean(hasRenderableDocument() && getMainLayerPageCacheKey() === pageKey);
+}
+
+function createMainLayerAbortError(message = 'Main layer classification was superseded by a newer page.') {
+    const error = new Error(message);
+    error.name = 'AbortError';
+    return error;
+}
+
+function getMainLayerTop1(result) {
+    const rawTop1 = result?.top1 ?? result?.probs?.top1 ?? result?.result?.probs?.top1;
+    const top1 = Number(rawTop1);
+    return Number.isInteger(top1) ? top1 : null;
+}
+
+function getMainLayerConfidence(result) {
+    const confidence = Number(result?.top1conf ?? result?.probs?.top1conf ?? result?.result?.probs?.top1conf);
+    return Number.isFinite(confidence) ? confidence : null;
+}
+
+function formatMainLayerConfidence(result) {
+    const confidence = getMainLayerConfidence(result);
+    if (confidence === null) return '';
+    return `${(confidence * 100).toFixed(confidence >= 0.995 ? 2 : 1)}%`;
+}
+
+function getMainLayerDebugResult(layerName) {
+    const entry = getMainLayerEntryForCurrentPage();
+    if (!entry || entry.status !== 'ready' || !entry.resultByLayer) return null;
+    return entry.resultByLayer.get(layerName) || null;
+}
+
+function createMainLayerConfidenceBadge(layerName) {
+    const result = getMainLayerDebugResult(layerName);
+    if (!result) return null;
+
+    const badge = document.createElement('span');
+    const isMain = Boolean(result.is_main_layer || getMainLayerTop1(result) === 0);
+    const confidenceText = formatMainLayerConfidence(result);
+    badge.className = `main-layer-confidence-badge ${isMain ? 'is-main' : 'is-normal'}`;
+    badge.textContent = confidenceText || '--%';
+    badge.title = `${layerName}: top1=${getMainLayerTop1(result)} ${confidenceText || ''}${result.cache_hit ? ' (DB cache)' : ''}`.trim();
+    return badge;
+}
+
+function blobToBase64Payload(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = String(reader.result || '');
+            resolve(dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : dataUrl);
+        };
+        reader.onerror = () => reject(reader.error || new Error('Cannot read image blob.'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function canvasToMainLayerBase64(canvasElement) {
+    if (typeof canvasToBlobAsync === 'function') {
+        const blob = await canvasToBlobAsync(canvasElement, 'image/png');
+        return blobToBase64Payload(blob);
+    }
+    if (typeof canvasToBase64 === 'function') {
+        return canvasToBase64(canvasElement, 'image/png');
+    }
+    return canvasElement.toDataURL('image/png').split(',', 2)[1];
+}
+
+async function renderMainLayerCandidateImages(layerNames, pageKey = null) {
+    const scale = Number(CONFIG.MAIN_LAYER_RENDER_SCALE) || 1;
+    if (typeof getExportBounds !== 'function' || typeof renderLayerOnExportCanvas !== 'function' || typeof createCanvas !== 'function') {
+        throw new Error('Layer image renderer is not ready.');
+    }
+
+    if (pageKey && !isMainLayerClassificationStillCurrent(pageKey)) {
+        throw createMainLayerAbortError();
+    }
+
+    const bounds = await getExportBounds(scale);
+    if (pageKey && !isMainLayerClassificationStillCurrent(pageKey)) {
+        throw createMainLayerAbortError();
+    }
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+        throw new Error('Cannot determine page bounds for main-layer classification.');
+    }
+
+    const imageWidth = Math.max(1, Math.round(bounds.width * scale));
+    const imageHeight = Math.max(1, Math.round(bounds.height * scale));
+    const { canvas: exportCanvas, ctx: exportCtx } = createCanvas(imageWidth, imageHeight);
+    const layers = [];
+
+    for (const layerName of layerNames) {
+        if (pageKey && !isMainLayerClassificationStillCurrent(pageKey)) {
+            throw createMainLayerAbortError();
+        }
+        renderLayerOnExportCanvas(exportCtx, exportCanvas, layerName, bounds, scale);
+        layers.push({
+            layer_name: layerName,
+            element_count: Number(totalCommands[layerName] || 0),
+            color: getLayerVisualMeta(layerName).color,
+            image_mime: 'image/png',
+            image_width: imageWidth,
+            image_height: imageHeight,
+            image_b64: await canvasToMainLayerBase64(exportCanvas)
+        });
+        await yieldToBrowser();
+    }
+
+    return layers;
+}
+
+function normalizeMainLayerClassificationResponse(data, candidateLayerNames, candidateSignature, pageKey, documentKey, pageNum) {
+    const results = Array.isArray(data?.results) ? data.results : [];
+    const resultByLayer = new Map();
+    results.forEach(result => {
+        if (result?.layer_name) {
+            resultByLayer.set(result.layer_name, result);
+        }
+    });
+
+    const fireLayers = results
+        .filter(result => result?.layer_name && (result.is_main_layer || getMainLayerTop1(result) === 0))
+        .map(result => result.layer_name);
+
+    return {
+        status: 'ready',
+        pageKey,
+        documentKey,
+        pageNum,
+        layerMode: currentLayerField,
+        candidateLayerNames: [...candidateLayerNames],
+        candidateSignature,
+        fireLayers,
+        results,
+        resultByLayer,
+        cacheHitCount: Number(data?.cache_hit_count || 0),
+        errorCount: Number(data?.error_count || 0),
+        processingTime: Number(data?.processing_time || 0),
+        updatedAt: Date.now()
+    };
+}
+
+async function classifyMainLayersForCurrentPage(options = {}) {
+    if (!hasRenderableDocument()) {
+        throw new Error('No page data loaded.');
+    }
+
+    const documentKey = syncMainLayerClassificationDocumentCache();
+    const pageNum = Number.isInteger(Number(currentPageNum)) && Number(currentPageNum) >= 1 ? Number(currentPageNum) : 1;
+    const pageKey = getMainLayerPageCacheKey(pageNum);
+    const candidateLayerNames = getMainLayerCandidateLayerNames();
+    const candidateSignature = buildMainLayerCandidateSignature(candidateLayerNames);
+    const existingEntry = mainLayerClassificationCache.get(pageKey);
+
+    if (!candidateLayerNames.length) {
+        const emptyEntry = {
+            status: 'ready',
+            pageKey,
+            documentKey,
+            pageNum,
+            layerMode: currentLayerField,
+            candidateLayerNames: [],
+            candidateSignature,
+            fireLayers: [],
+            results: [],
+            resultByLayer: new Map(),
+            cacheHitCount: 0,
+            errorCount: 0,
+            processingTime: 0,
+            updatedAt: Date.now()
+        };
+        mainLayerClassificationCache.set(pageKey, emptyEntry);
+        updateMainLayerButtonState();
+        return emptyEntry;
+    }
+
+    if (!options.force && existingEntry?.status === 'ready' && existingEntry.candidateSignature === candidateSignature) {
+        return existingEntry;
+    }
+    if (!options.force && existingEntry?.status === 'pending' && existingEntry.promise) {
+        return existingEntry.promise;
+    }
+
+    const requestToken = ++mainLayerClassificationRequestToken;
+    const pendingEntry = {
+        status: 'pending',
+        pageKey,
+        documentKey,
+        pageNum,
+        layerMode: currentLayerField,
+        candidateLayerNames: [...candidateLayerNames],
+        candidateSignature,
+        fireLayers: [],
+        results: [],
+        resultByLayer: new Map(),
+        startedAt: Date.now(),
+        promise: null
+    };
+
+    mainLayerClassificationCache.set(pageKey, pendingEntry);
+    updateMainLayerButtonState();
+
+    pendingEntry.promise = (async () => {
+        if (!isMainLayerClassificationStillCurrent(pageKey)) {
+            throw createMainLayerAbortError();
+        }
+        const layers = await renderMainLayerCandidateImages(candidateLayerNames, pageKey);
+        if (!isMainLayerClassificationStillCurrent(pageKey)) {
+            throw createMainLayerAbortError();
+        }
+        const response = await fetch(`${ENV.API_BASE_URL}/classify_main_layers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                pdf_name: getCurrentMainLayerDocumentName(),
+                document_key: documentKey,
+                page_num: pageNum,
+                layers,
+                force_refresh: Boolean(options.force)
+            })
+        });
+        if (!response.ok) {
+            throw new Error(await parseHttpErrorResponse(response));
+        }
+
+        const data = await response.json();
+        if (!isMainLayerClassificationStillCurrent(pageKey)) {
+            throw createMainLayerAbortError();
+        }
+        const readyEntry = normalizeMainLayerClassificationResponse(
+            data,
+            candidateLayerNames,
+            candidateSignature,
+            pageKey,
+            documentKey,
+            pageNum
+        );
+        mainLayerClassificationCache.set(pageKey, readyEntry);
+
+        if (mainLayerClassificationRequestToken === requestToken || getMainLayerPageCacheKey() === pageKey) {
+            updateLayerList();
+        }
+        return readyEntry;
+    })().catch(error => {
+        if (error?.name === 'AbortError') {
+            if (mainLayerClassificationCache.get(pageKey) === pendingEntry) {
+                mainLayerClassificationCache.delete(pageKey);
+            }
+            return {
+                ...pendingEntry,
+                status: 'aborted',
+                error: error.message || String(error),
+                promise: null,
+                updatedAt: Date.now()
+            };
+        }
+        const errorEntry = {
+            ...pendingEntry,
+            status: 'error',
+            error: error.message || String(error),
+            promise: null,
+            updatedAt: Date.now()
+        };
+        mainLayerClassificationCache.set(pageKey, errorEntry);
+        if (!options.silent && getMainLayerPageCacheKey() === pageKey) {
+            alert(`Main layer classification failed: ${errorEntry.error}`);
+        }
+        if (getMainLayerPageCacheKey() === pageKey) {
+            updateLayerList();
+        }
+        throw error;
+    });
+
+    return pendingEntry.promise;
+}
+
 function updateMainLayerButtonState() {
     if (!btnShowMainLayer) return;
 
-    const mainColorGroup = getMainShapeColorGroup();
-    btnShowMainLayer.disabled = !mainColorGroup;
-    btnShowMainLayer.title = mainColorGroup
-        ? `Chỉ hiện ${mainColorGroup.layerNames.length} layer màu ${mainColorGroup.displayColor}`
-        : 'Không có shape layer để lọc';
+    btnShowMainLayer.classList.remove('is-loading', 'has-result', 'has-error');
+
+    if (!hasRenderableDocument()) {
+        btnShowMainLayer.disabled = true;
+        btnShowMainLayer.textContent = 'Main Layer';
+        btnShowMainLayer.title = 'Không có dữ liệu page để lọc main layer';
+        return;
+    }
+
+    const candidateLayerNames = getMainLayerCandidateLayerNames();
+    const entry = getMainLayerEntryForCurrentPage();
+    const signature = buildMainLayerCandidateSignature(candidateLayerNames);
+
+    if (entry?.status === 'pending') {
+        btnShowMainLayer.disabled = true;
+        btnShowMainLayer.classList.add('is-loading');
+        btnShowMainLayer.textContent = `Processing ${entry.candidateLayerNames?.length || candidateLayerNames.length}`;
+        btnShowMainLayer.title = 'Đang gọi worker phân loại main layer...';
+        return;
+    }
+
+    if (entry?.status === 'ready' && entry.candidateSignature === signature) {
+        const fireCount = entry.fireLayers?.length || 0;
+        btnShowMainLayer.disabled = fireCount === 0;
+        btnShowMainLayer.classList.add('has-result');
+        btnShowMainLayer.textContent = `Main Layer (${fireCount})`;
+        btnShowMainLayer.title = fireCount > 0
+            ? `Chỉ hiện ${fireCount} layer fire. DB cache hit: ${entry.cacheHitCount || 0}/${entry.results?.length || 0}`
+            : `Không có layer fire trong ${entry.candidateLayerNames?.length || 0} layer ứng viên`;
+        return;
+    }
+
+    if (entry?.status === 'error') {
+        btnShowMainLayer.disabled = !candidateLayerNames.length;
+        btnShowMainLayer.classList.add('has-error');
+        btnShowMainLayer.textContent = 'Retry Main Layer';
+        btnShowMainLayer.title = entry.error || 'Main layer classification failed';
+        return;
+    }
+
+    btnShowMainLayer.disabled = !candidateLayerNames.length;
+    btnShowMainLayer.textContent = 'Main Layer';
+    btnShowMainLayer.title = candidateLayerNames.length
+        ? `Phân loại ${candidateLayerNames.length} layer màu đen có hơn ${getMainLayerMinElementCount()} ele`
+        : `Không có layer màu đen nào có hơn ${getMainLayerMinElementCount()} ele`;
+}
+
+function applyMainLayerClassificationFilter(entry) {
+    if (entry?.status !== 'ready') {
+        return;
+    }
+    const fireLayers = Array.isArray(entry?.fireLayers) ? entry.fireLayers : [];
+    if (!fireLayers.length) {
+        alert('Không có layer fire để hiển thị.');
+        return;
+    }
+
+    const visibleLayerNames = new Set(fireLayers);
+    Object.keys(layerVisibility).forEach(layerName => {
+        layerVisibility[layerName] = visibleLayerNames.has(layerName);
+    });
+    mainLayers = [...fireLayers];
+    applyLayerVisibilityUpdate({ refreshList: true });
+}
+
+function handleMainLayerPageLoaded() {
+    syncMainLayerClassificationDocumentCache();
+    updateMainLayerButtonState();
+    if (CONFIG.MAIN_LAYER_CLASSIFICATION_AUTORUN === false) return;
+    const candidateLayerNames = getMainLayerCandidateLayerNames();
+    if (!candidateLayerNames.length) return;
+    classifyMainLayersForCurrentPage({ silent: true }).catch(error => {
+        console.warn('Main layer auto classification failed:', error);
+    });
 }
 
 function scheduleLayerListRender() {
@@ -202,6 +635,10 @@ function createLayerControl(layerName) {
     label.textContent = displayName;
     label.title = displayName;
     itemDiv.append(checkbox, swatch, icon, label);
+    const confidenceBadge = createMainLayerConfidenceBadge(layerName);
+    if (confidenceBadge) {
+        itemDiv.appendChild(confidenceBadge);
+    }
     return itemDiv;
 }
 
@@ -271,7 +708,7 @@ function updateLayerList() {
                 const layerItem = createLayerControl(layerName);
                 layerItem.style.marginBottom = '2px';
                 const label = layerItem.querySelector('label');
-                label.textContent = `${layerName} (${totalCommands[layerName] || 0})`;
+                label.textContent = `${layerName} (${totalCommands[layerName] || 0} ele)`;
                 label.style.fontWeight = '500';
                 label.title = layerName;
                 colorSubtree.appendChild(layerItem);
@@ -327,7 +764,7 @@ function updateLayerList() {
                     const layerItem = createLayerControl(layerName);
                     layerItem.style.marginBottom = '1px';
                     const label = layerItem.querySelector('label');
-                    label.textContent = totalCommands[layerName] + ' elements';
+                    label.textContent = `${totalCommands[layerName]} ele`;
                     label.title = layerName;
                     colorSubLayers.appendChild(layerItem);
                 });
@@ -363,15 +800,12 @@ function updateLayerList() {
 }
 
 if (btnShowMainLayer) {
-    btnShowMainLayer.addEventListener('click', () => {
-        const mainColorGroup = getMainShapeColorGroup();
-        if (!mainColorGroup) return;
-        const visibleLayerNames = new Set(mainColorGroup.layerNames);
-
-        Object.keys(layerVisibility).forEach(layerName => {
-            layerVisibility[layerName] = visibleLayerNames.has(layerName);
-        });
-
-        applyLayerVisibilityUpdate({ refreshList: true });
+    btnShowMainLayer.addEventListener('click', async () => {
+        try {
+            const entry = await classifyMainLayersForCurrentPage({ silent: false });
+            applyMainLayerClassificationFilter(entry);
+        } catch (error) {
+            console.error('Main layer classification failed:', error);
+        }
     });
 }
