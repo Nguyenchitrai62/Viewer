@@ -94,6 +94,14 @@ async function ensureCurrentPdfDocument() {
     return currentPdfDocumentPromise;
 }
 
+function beginPriorityPageLoad() {
+    activePageLoadCount += 1;
+}
+
+function endPriorityPageLoad() {
+    activePageLoadCount = Math.max(0, activePageLoadCount - 1);
+}
+
 function hasCachedPageImage(pageNum = currentPageNum) {
     return Boolean(
         cachedPageImage &&
@@ -300,6 +308,7 @@ function getPdfUploadSessionKey(file) {
 function clearCurrentUploadController(controller = currentUploadController) {
     if (currentUploadController === controller) {
         currentUploadController = null;
+        currentUploadControllerSourceKey = null;
     }
 }
 
@@ -535,7 +544,19 @@ async function ensurePdfUploadSession(file, { signal = null, force = false } = {
         return currentPdfUploadSession;
     }
 
-    return ensurePdfUploadSessionViaWebSocket(file, signal);
+    if (!force && currentPdfUploadPromise && currentPdfUploadPromiseSourceKey === sessionKey) {
+        return currentPdfUploadPromise;
+    }
+
+    currentPdfUploadPromiseSourceKey = sessionKey;
+    currentPdfUploadPromise = ensurePdfUploadSessionViaWebSocket(file, signal)
+        .finally(() => {
+            if (currentPdfUploadPromiseSourceKey === sessionKey) {
+                currentPdfUploadPromise = null;
+                currentPdfUploadPromiseSourceKey = null;
+            }
+        });
+    return currentPdfUploadPromise;
 }
 
 async function buildPdfRequestFormData(file, pageNum = null) {
@@ -548,12 +569,14 @@ async function buildPdfRequestFormData(file, pageNum = null) {
         return formData;
     }
 
-    if (currentUploadController) {
+    const sessionKey = getPdfUploadSessionKey(file);
+    if (currentUploadController && currentUploadControllerSourceKey !== sessionKey) {
         currentUploadController.abort();
     }
 
-    const controller = new AbortController();
+    const controller = currentUploadController || new AbortController();
     currentUploadController = controller;
+    currentUploadControllerSourceKey = sessionKey;
     try {
         const session = await ensurePdfUploadSession(file, { signal: controller.signal });
         formData.append('upload_session_id', session.sessionId);
@@ -637,11 +660,135 @@ async function openCachedProcessPageResponse(file, pageNum, signal = null) {
     }
 }
 
+function parseSseEventBlock(block) {
+    let eventType = '';
+    let dataStart = -1;
+    let dataEnd = -1;
+    let dataText = '';
+    let dataLineCount = 0;
+    let lineStart = 0;
+
+    while (lineStart <= block.length) {
+        let lineEnd = block.indexOf('\n', lineStart);
+        if (lineEnd < 0) lineEnd = block.length;
+        let valueEnd = lineEnd;
+        if (valueEnd > lineStart && block.charCodeAt(valueEnd - 1) === 13) {
+            valueEnd -= 1;
+        }
+
+        if (block.startsWith('event: ', lineStart)) {
+            eventType = block.slice(lineStart + 7, valueEnd);
+        } else if (block.startsWith('data: ', lineStart)) {
+            const valueStart = lineStart + 6;
+            dataLineCount += 1;
+            if (dataLineCount === 1) {
+                dataStart = valueStart;
+                dataEnd = valueEnd;
+            } else {
+                if (dataLineCount === 2 && dataText === '' && dataStart >= 0) {
+                    dataText = block.slice(dataStart, dataEnd);
+                }
+                dataText += `\n${block.slice(valueStart, valueEnd)}`;
+            }
+        }
+
+        if (lineEnd >= block.length) break;
+        lineStart = lineEnd + 1;
+    }
+
+    return { block, eventType, dataStart, dataEnd, dataText, dataLineCount };
+}
+
+function getSseEventDataText(event) {
+    if (!event || event.dataStart < 0) return '';
+    if (event.dataLineCount <= 1) {
+        return event.block.slice(event.dataStart, event.dataEnd);
+    }
+    return event.dataText;
+}
+
+function findJsonFieldValueStart(text, start, end, fieldName) {
+    const marker = `"${fieldName}":`;
+    const markerIndex = text.indexOf(marker, start);
+    if (markerIndex < 0 || markerIndex >= end) return -1;
+    let valueStart = markerIndex + marker.length;
+    while (valueStart < end) {
+        const charCode = text.charCodeAt(valueStart);
+        if (charCode !== 32 && charCode !== 9 && charCode !== 10 && charCode !== 13) break;
+        valueStart += 1;
+    }
+    return valueStart < end ? valueStart : -1;
+}
+
+function readJsonNumberField(text, start, end, fieldName, fallback = 0) {
+    const valueStart = findJsonFieldValueStart(text, start, end, fieldName);
+    if (valueStart < 0) return fallback;
+    let valueEnd = valueStart;
+    while (valueEnd < end) {
+        const char = text[valueEnd];
+        if ((char >= '0' && char <= '9') || char === '-' || char === '+' || char === '.' || char === 'e' || char === 'E') {
+            valueEnd += 1;
+            continue;
+        }
+        break;
+    }
+    const value = Number(text.slice(valueStart, valueEnd));
+    return Number.isFinite(value) ? value : fallback;
+}
+
+function readJsonBooleanField(text, start, end, fieldName, fallback = false) {
+    const valueStart = findJsonFieldValueStart(text, start, end, fieldName);
+    if (valueStart < 0) return fallback;
+    if (valueStart + 4 <= end && text.startsWith('true', valueStart)) return true;
+    if (valueStart + 5 <= end && text.startsWith('false', valueStart)) return false;
+    return fallback;
+}
+
+function readJsonRawStringField(text, start, end, fieldName) {
+    const valueStart = findJsonFieldValueStart(text, start, end, fieldName);
+    if (valueStart < 0 || text.charCodeAt(valueStart) !== 34) return null;
+    let valueEnd = valueStart + 1;
+    while (valueEnd < end) {
+        const charCode = text.charCodeAt(valueEnd);
+        if (charCode === 34) {
+            return text.slice(valueStart + 1, valueEnd);
+        }
+        if (charCode === 92) {
+            return null;
+        }
+        valueEnd += 1;
+    }
+    return null;
+}
+
+function parseLargePageDataEvent(event) {
+    const start = event?.dataStart ?? -1;
+    const end = event?.dataEnd ?? -1;
+    if (!event || start < 0 || end <= start || event.dataLineCount !== 1) {
+        return JSON.parse(getSseEventDataText(event));
+    }
+
+    const gzipData = readJsonRawStringField(event.block, start, end, 'gzip_data');
+    if (gzipData === null) {
+        return JSON.parse(getSseEventDataText(event));
+    }
+
+    return {
+        page_num: readJsonNumberField(event.block, start, end, 'page_num', 0),
+        gzip_size: readJsonNumberField(event.block, start, end, 'gzip_size', getBase64DecodedByteLength(gzipData)),
+        gzip_data: gzipData,
+        time: readJsonNumberField(event.block, start, end, 'time', 0),
+        cache_hit: readJsonBooleanField(event.block, start, end, 'cache_hit', false)
+    };
+}
+
 function cancelCurrentBatchProcessing() {
     currentBatchTaskId += 1;
     pageLoadRequestId += 1;
     autoOpenReadyPage = false;
     waitingPageNum = null;
+    currentThumbnailWarmupTaskId = 0;
+    currentThumbnailWarmupSourceKey = null;
     hideCanvasStatusOverlay();
     clearCurrentPdfUploadSession();
 
@@ -653,7 +800,11 @@ function cancelCurrentBatchProcessing() {
     if (currentUploadController) {
         currentUploadController.abort();
         currentUploadController = null;
+        currentUploadControllerSourceKey = null;
     }
+
+    currentPdfUploadPromise = null;
+    currentPdfUploadPromiseSourceKey = null;
 
     if (currentUploadSocket) {
         closeCurrentUploadSocket(currentUploadSocket);
@@ -707,6 +858,8 @@ function resetPdfPageProcessingState() {
 
 function clearPdfPageSidebar() {
     currentThumbnailTaskId += 1;
+    currentThumbnailWarmupTaskId = 0;
+    currentThumbnailWarmupSourceKey = null;
     const thumbnailsContainer = document.getElementById('page-thumbnails');
     if (thumbnailsContainer) {
         thumbnailsContainer.innerHTML = '';
@@ -717,20 +870,6 @@ function clearPdfPageSidebar() {
     stagedPdfFile = null;
     resetStagedPageGzipCache();
     resetPdfPageProcessingState();
-}
-
-function getThumbnailRenderScale(page, previewElement) {
-    const baseViewport = page.getViewport({ scale: 1 });
-    const previewWidth = Math.max(96, Math.min(previewElement?.clientWidth || 120, 128));
-    let scale = previewWidth / Math.max(1, baseViewport.width);
-
-    const maxPixels = 18000;
-    const estimatedPixels = baseViewport.width * baseViewport.height * scale * scale;
-    if (estimatedPixels > maxPixels && estimatedPixels > 0) {
-        scale *= Math.sqrt(maxPixels / estimatedPixels);
-    }
-
-    return Math.max(0.08, Math.min(scale, 0.16));
 }
 
 function getPageSelectionContext() {
@@ -801,7 +940,7 @@ function setPageProcessingState(pageNum, status, { label = null, detail = '' } =
             refs.badge.textContent = pdfPageProcessingState[pageNum].label;
         }
 
-        if (refs.preview && !refs.preview.querySelector('canvas')) {
+        if (refs.preview && !refs.preview.querySelector('canvas, img')) {
             const placeholderMessage = detail || `Page ${pageNum}`;
             refs.preview.innerHTML = `<div class="page-thumbnail-placeholder">${placeholderMessage}</div>`;
         }
@@ -816,121 +955,222 @@ function showPendingPageOverlay(pageNum, subtitle) {
     showCanvasStatusOverlay(`Page ${pageNum} is loading`, subtitle, 'info');
 }
 
+function buildCacheOnlyPdfThumbnailFormData(file) {
+    const formData = new FormData();
+    formData.append('pdf_name', file?.name || '');
+    formData.append('file_size', String(file?.size || 0));
+    formData.append('last_modified', String(file?.lastModified || 0));
+    formData.append('target_width', String(CONFIG.PDF_THUMBNAIL_TARGET_WIDTH || 180));
+    formData.append('cache_only', 'true');
+    return formData;
+}
+
+async function buildPdfThumbnailFormData(file, signal = null) {
+    const formData = new FormData();
+    formData.append('pdf_name', file?.name || '');
+    formData.append('file_size', String(file?.size || 0));
+    formData.append('last_modified', String(file?.lastModified || 0));
+    formData.append('target_width', String(CONFIG.PDF_THUMBNAIL_TARGET_WIDTH || 180));
+    const session = await ensurePdfUploadSession(file, { signal });
+    formData.append('upload_session_id', session.sessionId);
+    return formData;
+}
+
+async function openCachedPdfThumbnailsResponse(file, signal = null) {
+    if (!file?.name) return null;
+    try {
+        const response = await fetch(`${ENV.API_BASE_URL}/pdf_thumbnails`, {
+            method: 'POST',
+            body: buildCacheOnlyPdfThumbnailFormData(file),
+            signal,
+        });
+        if (response.ok) {
+            console.info(`Using PDF thumbnail cache for ${file.name}; skipping thumbnail render.`);
+            return response;
+        }
+        const message = await parseHttpErrorResponse(response, `No cached thumbnails found for ${file.name}.`);
+        console.info(`PDF thumbnail cache miss for ${file.name}: ${message}`);
+        return null;
+    } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        console.warn(`PDF thumbnail cache probe failed for ${file.name}; falling back to backend render.`, error);
+        return null;
+    }
+}
+
+function ensurePageThumbnailPlaceholders(totalPages) {
+    const thumbnailsContainer = document.getElementById('page-thumbnails');
+    if (!thumbnailsContainer || totalPages < 1) return;
+
+    const currentCount = Object.keys(pageThumbnailRefs).length;
+    if (currentCount === totalPages) return;
+
+    thumbnailsContainer.innerHTML = '';
+    pageThumbnailRefs = {};
+
+    for (let pageNum = 1; pageNum <= totalPages; pageNum += 1) {
+        const div = document.createElement('div');
+        div.className = 'page-thumbnail';
+        div.dataset.page = String(pageNum);
+
+        const preview = document.createElement('div');
+        preview.className = 'page-thumbnail-preview';
+        const placeholder = document.createElement('div');
+        placeholder.className = 'page-thumbnail-placeholder';
+        placeholder.textContent = `Preparing page ${pageNum}...`;
+        preview.appendChild(placeholder);
+
+        const meta = document.createElement('div');
+        meta.className = 'page-thumbnail-meta';
+        const pageNumberDiv = document.createElement('div');
+        pageNumberDiv.className = 'page-number';
+        pageNumberDiv.textContent = `Page ${pageNum}`;
+        const statusBadge = document.createElement('span');
+        statusBadge.className = 'page-status-badge';
+        statusBadge.textContent = 'Queued';
+
+        meta.appendChild(pageNumberDiv);
+        meta.appendChild(statusBadge);
+        div.appendChild(preview);
+        div.appendChild(meta);
+        div.addEventListener('click', () => {
+            processSelectedPage(pageNum).catch(error => {
+                console.error(`Open page ${pageNum} failed:`, error);
+            });
+        });
+
+        thumbnailsContainer.appendChild(div);
+        pageThumbnailRefs[pageNum] = { element: div, preview, badge: statusBadge };
+
+        const existingState = pdfPageProcessingState[pageNum];
+        if (existingState) {
+            setPageProcessingState(pageNum, existingState.status, {
+                label: existingState.label,
+                detail: existingState.detail,
+            });
+        } else {
+            setPageProcessingState(pageNum, 'queued', { detail: `Waiting for page ${pageNum}...` });
+        }
+    }
+
+    updatePageProcessingSummary();
+}
+
+function setBackendThumbnailPreview(pageNum, imageData, imageWidth = 0, imageHeight = 0) {
+    const refs = pageThumbnailRefs[pageNum];
+    if (!refs?.preview || !imageData) return;
+    const img = document.createElement('img');
+    img.alt = `Page ${pageNum}`;
+    img.decoding = 'async';
+    img.loading = 'eager';
+    if (imageWidth > 0) img.width = imageWidth;
+    if (imageHeight > 0) img.height = imageHeight;
+    img.src = `data:image/png;base64,${imageData}`;
+    refs.preview.innerHTML = '';
+    refs.preview.appendChild(img);
+}
+
+function setBackendThumbnailError(pageNum, message) {
+    const refs = pageThumbnailRefs[pageNum];
+    if (!refs?.preview) return;
+    refs.preview.innerHTML = '';
+    const placeholder = document.createElement('div');
+    placeholder.className = 'page-thumbnail-placeholder';
+    placeholder.style.color = 'var(--danger-color)';
+    placeholder.textContent = message || `Preview failed for page ${pageNum}`;
+    refs.preview.appendChild(placeholder);
+}
+
 async function createPageThumbnails(file, numPages = null) {
     const thumbnailsContainer = document.getElementById('page-thumbnails');
-    thumbnailsContainer.innerHTML = '';
+    if (thumbnailsContainer) {
+        thumbnailsContainer.innerHTML = '';
+    }
 
     currentThumbnailTaskId++;
     const taskId = currentThumbnailTaskId;
+    const sourceKey = getPdfUploadSessionKey(file);
+    currentThumbnailWarmupTaskId = taskId;
+    currentThumbnailWarmupSourceKey = sourceKey;
     resetPdfPageProcessingState();
     autoOpenReadyPage = false;
+    if (Number.isFinite(numPages) && numPages > 0) {
+        ensurePageThumbnailPlaceholders(numPages);
+    } else if (thumbnailsContainer) {
+        thumbnailsContainer.innerHTML = '<div class="info-panel">Preparing thumbnails...</div>';
+    }
 
-    let pdf = null;
-    let ownsPdfDocument = false;
-    let ownedPdfUrl = null;
+    const controller = new AbortController();
     try {
-        if (currentPdfFile === file) {
-            pdf = await ensureCurrentPdfDocument();
-        } else {
-            ownedPdfUrl = URL.createObjectURL(file);
-            pdf = await pdfjsLib.getDocument({
-                ...window.PDFJS_DOCUMENT_OPTIONS,
-                url: ownedPdfUrl,
-            }).promise;
-            ownsPdfDocument = true;
-        }
-
-        const totalPages = Number.isFinite(numPages) && numPages > 0 ? numPages : pdf.numPages;
-        autoOpenReadyPage = totalPages > 0;
-
-        // Tß║ío tr╞░ß╗¢c list divs ─æß╗â giß╗» ─æ├║ng thß╗⌐ tß╗▒ c├íc trang
-        const thumbnailDivs = [];
-        for (let i = 1; i <= totalPages; i++) {
-            const div = document.createElement('div');
-            div.className = 'page-thumbnail';
-            div.dataset.page = i;
-
-            const preview = document.createElement('div');
-            preview.className = 'page-thumbnail-preview';
-            preview.innerHTML = `<div class="page-thumbnail-placeholder">Preparing page ${i}...</div>`;
-
-            const meta = document.createElement('div');
-            meta.className = 'page-thumbnail-meta';
-
-            const pageNumberDiv = document.createElement('div');
-            pageNumberDiv.className = 'page-number';
-            pageNumberDiv.textContent = `Page ${i}`;
-
-            const statusBadge = document.createElement('span');
-            statusBadge.className = 'page-status-badge';
-            statusBadge.textContent = 'Queued';
-
-            meta.appendChild(pageNumberDiv);
-            meta.appendChild(statusBadge);
-            div.appendChild(preview);
-            div.appendChild(meta);
-
-            div.addEventListener('click', () => {
-                processSelectedPage(i).catch(error => {
-                    console.error(`Open page ${i} failed:`, error);
-                });
+        let response = await openCachedPdfThumbnailsResponse(file, controller.signal);
+        if (!response) {
+            const formData = await buildPdfThumbnailFormData(file, controller.signal);
+            response = await fetch(`${ENV.API_BASE_URL}/pdf_thumbnails`, {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal,
             });
-
-            thumbnailsContainer.appendChild(div);
-            pageThumbnailRefs[i] = { element: div, preview, badge: statusBadge };
-            setPageProcessingState(i, 'queued', { detail: `Preparing page ${i}...` });
-            thumbnailDivs.push({ pageNum: i, element: div, preview, badge: statusBadge });
         }
-        updatePageProcessingSummary();
 
-        for (const { pageNum, preview } of thumbnailDivs) {
-            if (currentThumbnailTaskId !== taskId) {
-                break;
-            }
+        if (!response.ok) {
+            throw new Error(await parseHttpErrorResponse(response, `Failed to render PDF thumbnails (${response.status}).`));
+        }
 
-            let page = null;
-            try {
-                page = await pdf.getPage(pageNum);
-                const scale = getThumbnailRenderScale(page, preview);
-                const viewport = page.getViewport({ scale });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
 
-                const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d', { alpha: false });
-                if (!context) {
-                    throw new Error('Cannot create thumbnail context');
-                }
+            let eventBoundaryIndex = buffer.indexOf('\n\n');
+            while (eventBoundaryIndex >= 0) {
+                const part = buffer.slice(0, eventBoundaryIndex);
+                buffer = buffer.slice(eventBoundaryIndex + 2);
+                eventBoundaryIndex = buffer.indexOf('\n\n');
+                if (!/\S/.test(part)) continue;
+                if (currentThumbnailTaskId !== taskId) return;
 
-                canvas.height = Math.max(1, Math.round(viewport.height));
-                canvas.width = Math.max(1, Math.round(viewport.width));
+                const sseEvent = parseSseEventBlock(part);
+                const eventType = sseEvent.eventType;
+                const payloadText = getSseEventDataText(sseEvent);
 
-                await page.render({ canvasContext: context, viewport }).promise;
-                if (currentThumbnailTaskId !== taskId) {
-                    break;
-                }
-
-                preview.innerHTML = '';
-                preview.appendChild(canvas);
-                await yieldToBrowser();
-            } catch (err) {
-                console.error(`Error rendering thumbnail page ${pageNum}:`, err);
-                preview.innerHTML = `<div class="page-thumbnail-placeholder" style="color: var(--danger-color);">Preview failed for page ${pageNum}</div>`;
-            } finally {
-                if (page) {
-                    try { page.cleanup(); } catch (e) { /* ignore */ }
+                if (eventType === 'init') {
+                    const payload = JSON.parse(payloadText);
+                    ensurePageThumbnailPlaceholders(Number(payload.total_pages) || 0);
+                    autoOpenReadyPage = Number(payload.total_pages) > 0;
+                } else if (eventType === 'thumbnail') {
+                    const payload = JSON.parse(payloadText);
+                    ensurePageThumbnailPlaceholders(Number(payload.total_pages) || 0);
+                    setBackendThumbnailPreview(
+                        Number(payload.page_num) || 0,
+                        payload.image_data || '',
+                        Number(payload.image_width) || 0,
+                        Number(payload.image_height) || 0,
+                    );
+                    await yieldToBrowser();
+                } else if (eventType === 'error') {
+                    const payload = JSON.parse(payloadText);
+                    setBackendThumbnailError(Number(payload.page_num) || 0, payload.error || 'Preview failed');
+                } else if (eventType === 'done') {
+                    return;
                 }
             }
         }
 
     } catch (error) {
-        console.error('Error creating thumbnails:', error);
-        thumbnailsContainer.innerHTML = '<p>Error loading thumbnails</p>';
+        if (error?.name === 'AbortError') return;
+        console.error('Error loading backend thumbnails:', error);
+        if (thumbnailsContainer) {
+            thumbnailsContainer.innerHTML = '<p>Error loading thumbnails</p>';
+        }
     } finally {
-        if (pdf && ownsPdfDocument) {
-            try { await pdf.destroy(); } catch (e) { console.warn('PDF destroy error:', e); }
+        if (currentThumbnailWarmupTaskId === taskId) {
+            currentThumbnailWarmupTaskId = 0;
+            currentThumbnailWarmupSourceKey = null;
         }
-        if (ownedPdfUrl) {
-            URL.revokeObjectURL(ownedPdfUrl);
-        }
+        controller.abort();
     }
 }
 
@@ -958,6 +1198,7 @@ async function loadCachedPage(pageNum, { requestId = pageLoadRequestId, sourceFi
     const compressedBytes = getBase64DecodedByteLength(gzipB64);
     showCanvasStatusOverlay(`Loading page ${pageNum}...`, `Compressed: ${formatBytes(compressedBytes)}`, 'info');
 
+    beginPriorityPageLoad();
     try {
         console.time(`Stream parse page ${pageNum}`);
         const documentData = await parseGzipBase64ToDocumentStreaming(gzipB64, {
@@ -999,9 +1240,7 @@ async function loadCachedPage(pageNum, { requestId = pageLoadRequestId, sourceFi
         showCanvasStatusOverlay(`Error loading page ${pageNum}`, error.message, 'error');
         throw error;
     } finally {
-        if (requestId !== pageLoadRequestId) {
-            return;
-        }
+        endPriorityPageLoad();
     }
 }
 
@@ -1023,10 +1262,33 @@ async function processSelectedPage(pageNum) {
     }
 
     const pageState = pdfPageProcessingState[pageNum];
-    const isBatchPending = stagedPdfFile && currentBatchAbortController && (!pageState || (pageState.status !== 'ready' && pageState.status !== 'error'));
-    if (isBatchPending) {
+    const isBatchActiveForSource = Boolean(stagedPdfFile && sourceContext.file === stagedPdfFile && currentBatchAbortController);
+    if (isBatchActiveForSource) {
+        if (pageState?.status === 'error') {
+            waitingPageNum = null;
+            showCanvasStatusOverlay(`Page ${pageNum} failed to process`, pageState.detail || 'Batch processing reported an error for this page.', 'error');
+            return;
+        }
         waitingPageNum = pageNum;
         showPendingPageOverlay(pageNum, 'This page is still processing in the background. It will open automatically as soon as it is ready.');
+        return;
+    }
+
+    const sourceSessionKey = getPdfUploadSessionKey(sourceContext.file);
+    const isThumbnailWarmupForSource = Boolean(
+        stagedPdfFile &&
+        sourceContext.file === stagedPdfFile &&
+        currentThumbnailWarmupTaskId === currentThumbnailTaskId &&
+        sourceSessionKey &&
+        currentThumbnailWarmupSourceKey === sourceSessionKey &&
+        !currentBatchAbortController
+    );
+    if (isThumbnailWarmupForSource) {
+        waitingPageNum = pageNum;
+        showPendingPageOverlay(
+            pageNum,
+            'Thumbnails are still being prepared. Background page extraction will start right after that and this page will open automatically.'
+        );
         return;
     }
 
@@ -1057,6 +1319,7 @@ async function processSelectedPage(pageNum) {
 
     console.time('API Call');
     showCanvasStatusOverlay(`Loading page ${pageNum}...`, 'Fetching page JSON from backend...', 'info');
+    beginPriorityPageLoad();
     try {
         let response = await openCachedProcessPageResponse(file, pageNum);
         if (!response) {
@@ -1112,12 +1375,18 @@ async function processSelectedPage(pageNum) {
         }
         showCanvasStatusOverlay(`Error loading page ${pageNum}`, error.message, 'error');
         hidePdfPreview();
+    } finally {
+        endPriorityPageLoad();
     }
 }
 
 // Batch process all pages via SSE and cache results
-async function processAllPagesBatch(file) {
-    cancelCurrentBatchProcessing();
+async function processAllPagesBatch(file, { skipCancel = false } = {}) {
+    if (!skipCancel) {
+        cancelCurrentBatchProcessing();
+    }
+    currentThumbnailWarmupTaskId = 0;
+    currentThumbnailWarmupSourceKey = null;
     stagedPdfFile = file;
     resetStagedPageGzipCache();
     autoOpenReadyPage = true;
@@ -1160,25 +1429,22 @@ async function processAllPagesBatch(file) {
 
             buffer += decoder.decode(value, { stream: true });
 
-            // Parse SSE events from buffer
-            const parts = buffer.split('\n\n');
-            buffer = parts.pop(); // keep incomplete event
+            let eventBoundaryIndex = buffer.indexOf('\n\n');
+            while (eventBoundaryIndex >= 0) {
+                const part = buffer.slice(0, eventBoundaryIndex);
+                buffer = buffer.slice(eventBoundaryIndex + 2);
+                eventBoundaryIndex = buffer.indexOf('\n\n');
+                if (!/\S/.test(part)) continue;
 
-            for (const part of parts) {
-                if (!part.trim()) continue;
-
-                let eventType = '', eventData = '';
-                for (const line of part.split('\n')) {
-                    if (line.startsWith('event: ')) eventType = line.slice(7);
-                    if (line.startsWith('data: ')) eventData += line.slice(6);
-                }
+                const sseEvent = parseSseEventBlock(part);
+                const eventType = sseEvent.eventType;
 
                 if (taskId !== currentBatchTaskId) {
                     return;
                 }
 
                 if (eventType === 'init') {
-                    const info = JSON.parse(eventData);
+                    const info = JSON.parse(getSseEventDataText(sseEvent));
                     totalPages = info.total_pages;
                     for (let pageNum = 1; pageNum <= totalPages; pageNum += 1) {
                         if (!pdfPageProcessingState[pageNum]) {
@@ -1187,7 +1453,7 @@ async function processAllPagesBatch(file) {
                     }
                     updatePageProcessingSummary();
                 } else if (eventType === 'page_data') {
-                    const { page_num, gzip_size, gzip_data, time: dt, cache_hit } = JSON.parse(eventData);
+                    const { page_num, gzip_size, gzip_data, time: dt, cache_hit } = parseLargePageDataEvent(sseEvent);
                     setPageGzipCacheValue(stagedCachedPages, page_num, gzip_data);
                     totalGzipSize += gzip_size;
                     const pageSource = cache_hit ? 'DB cache' : `${dt}s`;
@@ -1212,15 +1478,16 @@ async function processAllPagesBatch(file) {
                             console.error(`Auto-open first ready page ${page_num} failed:`, error);
                         });
                     }
+                    await yieldToBrowser();
                 } else if (eventType === 'error') {
-                    const { page_num, error } = JSON.parse(eventData);
+                    const { page_num, error } = JSON.parse(getSseEventDataText(sseEvent));
                     console.error(`Page ${page_num} error: ${error}`);
                     setPageProcessingState(page_num, 'error', { detail: error });
                     if (waitingPageNum === page_num && selectedThumbnailPageNum === page_num) {
                         showCanvasStatusOverlay(`Page ${page_num} failed to process`, error, 'error');
                     }
                 } else if (eventType === 'done') {
-                    const info = JSON.parse(eventData);
+                    const info = JSON.parse(getSseEventDataText(sseEvent));
                     console.log(`All pages processed in ${info.total_time}s`);
                     autoOpenReadyPage = false;
                     updatePageProcessingSummary();

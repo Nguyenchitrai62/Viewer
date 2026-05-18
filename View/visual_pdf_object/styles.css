@@ -83,7 +83,8 @@ body {
     box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
 }
 
-.page-thumbnail canvas {
+.page-thumbnail canvas,
+.page-thumbnail img {
     width: 100%;
     height: auto;
     display: block;

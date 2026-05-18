@@ -947,7 +947,8 @@ function getBase64DecodedByteLength(base64Value) {
 }
 
 function decodeBase64ToUint8Array(base64Value) {
-    const sanitized = (base64Value || '').replace(/\s+/g, '');
+    const rawValue = base64Value || '';
+    const sanitized = /\s/.test(rawValue) ? rawValue.replace(/\s+/g, '') : rawValue;
     const outputLength = getBase64DecodedByteLength(sanitized);
     const bytes = new Uint8Array(outputLength);
     if (!outputLength) {
@@ -973,7 +974,13 @@ async function parseGzipBase64ToDocumentStreaming(gzipB64, { sourceLabel = 'JSON
         throw new Error('Empty gzip payload.');
     }
 
-    const decompressedStream = new Blob([gzipBytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const gzipByteStream = new ReadableStream({
+        start(controller) {
+            controller.enqueue(gzipBytes);
+            controller.close();
+        }
+    });
+    const decompressedStream = gzipByteStream.pipeThrough(new DecompressionStream('gzip'));
 
     if (decompressedStream && typeof decompressedStream.getReader === 'function') {
         return parseJsonByteStreamToDocument(decompressedStream.getReader(), {

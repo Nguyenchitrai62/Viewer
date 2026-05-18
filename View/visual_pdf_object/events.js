@@ -87,11 +87,11 @@ dropZone.addEventListener('drop', async e => {
             cancelCurrentBatchProcessing();
         }
         try {
-            showCanvasStatusOverlay('Reading PDF...', 'Preparing thumbnails and starting background extraction.', 'info');
-            // Create thumbnails for all pages
-            createPageThumbnails(file);
-            // Start batch processing all pages
-            processAllPagesBatch(file);
+            stagedPdfFile = file;
+            resetStagedPageGzipCache();
+            showCanvasStatusOverlay('Reading PDF...', 'Preparing thumbnails before starting background extraction.', 'info');
+            await createPageThumbnails(file);
+            void processAllPagesBatch(file, { skipCancel: true });
         } catch (error) {
             hideCanvasStatusOverlay();
             alert('Error loading PDF: ' + error.message);
