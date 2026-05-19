@@ -239,6 +239,75 @@ function hasDuplicateAnnotation(candidate) {
     });
 }
 
+function getJunctionDuplicateKey(annotation) {
+    const point = annotation?.points?.[0];
+    if (!annotation?.layerName || !point) return null;
+    return getSnapPointKey(annotation.layerName, point.x, point.y);
+}
+
+function getConnectEndpointDuplicateKey(annotation) {
+    if (!annotation?.layerName || !Array.isArray(annotation.points) || annotation.points.length < 2) return null;
+    return annotation.points
+        .slice(0, 2)
+        .map(point => getSnapPointKey(annotation.layerName, point.x, point.y))
+        .sort()
+        .join('||');
+}
+
+function addAnnotationToDuplicateIndex(annotation, duplicateIndex) {
+    if (!annotation || !duplicateIndex) return;
+    if (annotation.type === 'junction') {
+        const junctionKey = getJunctionDuplicateKey(annotation);
+        if (junctionKey) duplicateIndex.junctionKeys.add(junctionKey);
+        return;
+    }
+
+    if (annotation.type !== 'connect') return;
+    const groupKey = getConnectAnnotationGroupKey(annotation);
+    const endpointKey = getConnectEndpointDuplicateKey(annotation);
+    if (groupKey) {
+        duplicateIndex.connectGroupKeys.add(`${annotation.layerName}::${groupKey}`);
+    } else if (endpointKey) {
+        duplicateIndex.connectEndpointKeysWithoutGroup.add(`${annotation.layerName}::${endpointKey}`);
+    }
+    if (endpointKey) {
+        duplicateIndex.connectEndpointKeysAll.add(`${annotation.layerName}::${endpointKey}`);
+    }
+}
+
+function buildAnnotationDuplicateIndex(annotations) {
+    const duplicateIndex = {
+        junctionKeys: new Set(),
+        connectGroupKeys: new Set(),
+        connectEndpointKeysAll: new Set(),
+        connectEndpointKeysWithoutGroup: new Set()
+    };
+    (annotations || []).forEach(annotation => addAnnotationToDuplicateIndex(annotation, duplicateIndex));
+    return duplicateIndex;
+}
+
+function hasDuplicateAnnotationInIndex(candidate, duplicateIndex) {
+    if (!candidate || !duplicateIndex) return false;
+    if (candidate.type === 'junction') {
+        const junctionKey = getJunctionDuplicateKey(candidate);
+        return Boolean(junctionKey && duplicateIndex.junctionKeys.has(junctionKey));
+    }
+    if (candidate.type !== 'connect') return false;
+
+    const groupKey = getConnectAnnotationGroupKey(candidate);
+    const endpointKey = getConnectEndpointDuplicateKey(candidate);
+    if (groupKey && duplicateIndex.connectGroupKeys.has(`${candidate.layerName}::${groupKey}`)) {
+        return true;
+    }
+    if (endpointKey) {
+        const layerEndpointKey = `${candidate.layerName}::${endpointKey}`;
+        return groupKey
+            ? duplicateIndex.connectEndpointKeysWithoutGroup.has(layerEndpointKey)
+            : duplicateIndex.connectEndpointKeysAll.has(layerEndpointKey);
+    }
+    return false;
+}
+
 function findMatchingJunctionAtPoint(point, layerName) {
     return manualAnnotations.find(annotation =>
         annotation.type === 'junction'
@@ -395,24 +464,52 @@ function shouldPreferMergedStraightConnect(parentAnnotation, childAnnotations) {
 function findRedundantConnectIds(connectAnnotations) {
     const connectOnlyAnnotations = (connectAnnotations || []).filter(annotation => annotation?.type === 'connect');
     const redundantConnectIds = new Set();
+    const boundsTolerance = getManualEndpointTouchToleranceWorld();
+    const connectEntries = connectOnlyAnnotations.map(annotation => {
+        const lineKeys = getConnectAnnotationLineKeys(annotation);
+        return {
+            annotation,
+            lineKeys,
+            lineKeySet: new Set(lineKeys),
+            bounds: getConnectAnnotationSearchBounds(annotation, 0)
+        };
+    });
+    const entriesByLayer = new Map();
+    connectEntries.forEach(entry => {
+        const layerEntries = entriesByLayer.get(entry.annotation.layerName);
+        if (layerEntries) {
+            layerEntries.push(entry);
+        } else {
+            entriesByLayer.set(entry.annotation.layerName, [entry]);
+        }
+    });
 
-    connectOnlyAnnotations.forEach(parentAnnotation => {
+    const canParentBoundsCoverChild = (parentEntry, childEntry) => {
+        if (!parentEntry?.bounds || !childEntry?.bounds) return true;
+        return doBoundsIntersect(expandBounds(parentEntry.bounds, boundsTolerance), childEntry.bounds);
+    };
+
+    connectEntries.forEach(parentEntry => {
+        const parentAnnotation = parentEntry.annotation;
         if (!parentAnnotation || redundantConnectIds.has(parentAnnotation.id)) return;
-        const parentLineKeys = getConnectAnnotationLineKeys(parentAnnotation);
+        const layerEntries = entriesByLayer.get(parentAnnotation.layerName) || [];
+        const parentLineKeys = parentEntry.lineKeys;
         if (parentLineKeys.length >= 2) {
-            const parentLineKeySet = new Set(parentLineKeys);
-            const childAnnotations = connectOnlyAnnotations.filter(childAnnotation => {
+            const parentLineKeySet = parentEntry.lineKeySet;
+            const childEntries = layerEntries.filter(childEntry => {
+                const childAnnotation = childEntry.annotation;
                 if (!childAnnotation || childAnnotation.id === parentAnnotation.id || redundantConnectIds.has(childAnnotation.id)) return false;
-                const childLineKeys = getConnectAnnotationLineKeys(childAnnotation);
+                const childLineKeys = childEntry.lineKeys;
                 return childLineKeys.length > 0
                     && childLineKeys.length < parentLineKeys.length
                     && childLineKeys.every(lineKey => parentLineKeySet.has(lineKey));
             });
+            const childAnnotations = childEntries.map(childEntry => childEntry.annotation);
 
             if (childAnnotations.length >= 2) {
                 const coveredLineKeys = new Set();
-                childAnnotations.forEach(childAnnotation => {
-                    getConnectAnnotationLineKeys(childAnnotation).forEach(lineKey => coveredLineKeys.add(lineKey));
+                childEntries.forEach(childEntry => {
+                    childEntry.lineKeys.forEach(lineKey => coveredLineKeys.add(lineKey));
                 });
                 if (parentLineKeys.every(lineKey => coveredLineKeys.has(lineKey))) {
                     if (shouldPreferMergedStraightConnect(parentAnnotation, childAnnotations)) {
@@ -425,8 +522,10 @@ function findRedundantConnectIds(connectAnnotations) {
             }
         }
 
-        connectOnlyAnnotations.forEach(childAnnotation => {
+        layerEntries.forEach(childEntry => {
+            const childAnnotation = childEntry.annotation;
             if (!childAnnotation || childAnnotation.id === parentAnnotation.id || redundantConnectIds.has(childAnnotation.id)) return;
+            if (!canParentBoundsCoverChild(parentEntry, childEntry)) return;
             if (doesConnectAnnotationGeometricallyCover(parentAnnotation, childAnnotation)) {
                 redundantConnectIds.add(childAnnotation.id);
             }
@@ -497,8 +596,10 @@ function finalizeAddedAnnotations(addedAnnotations, options = {}) {
     if (finalAddedAnnotations.length || removedExistingAnnotations.length || removedNewConnectIds.size || orphanAutoJunctionIds.size) {
         invalidateManualAnnotationSpatialIndex();
     }
-    updateManualLabelUI();
-    if (typeof scheduleDraw === 'function') scheduleDraw();
+    if (options.updateUi !== false) {
+        updateManualLabelUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+    }
 
     return {
         finalAddedAnnotations,
@@ -509,10 +610,12 @@ function finalizeAddedAnnotations(addedAnnotations, options = {}) {
 
 function addAnnotations(annotations, options = {}) {
     const added = [];
+    const duplicateIndex = buildAnnotationDuplicateIndex(manualAnnotations);
     annotations.forEach(annotation => {
-        if (hasDuplicateAnnotation(annotation)) return;
+        if (hasDuplicateAnnotationInIndex(annotation, duplicateIndex)) return;
         manualAnnotations.push(cloneAnnotation(annotation));
         added.push(annotation);
+        addAnnotationToDuplicateIndex(annotation, duplicateIndex);
     });
     if (options.record !== false && added.length) {
         addHistoryEntry('add', added);
@@ -520,8 +623,10 @@ function addAnnotations(annotations, options = {}) {
     if (added.length) {
         invalidateManualAnnotationSpatialIndex();
     }
-    updateManualLabelUI();
-    if (typeof scheduleDraw === 'function') scheduleDraw();
+    if (options.updateUi !== false) {
+        updateManualLabelUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+    }
     return added;
 }
 
@@ -1054,14 +1159,51 @@ function doesSuggestedConnectCoverSuggestion(parentSuggestion, childSuggestion, 
     });
 }
 
+function getSuggestedConnectCoverageBounds(suggestion, padding = 0) {
+    if (!suggestion || suggestion.type !== 'connect') return null;
+    return getConnectAnnotationSearchBounds(suggestion, padding);
+}
+
+function canSuggestedConnectBoundsCover(parentEntry, childEntry, tolerance) {
+    if (!parentEntry?.bounds || !childEntry?.bounds) return true;
+    return doBoundsIntersect(expandBounds(parentEntry.bounds, tolerance), childEntry.bounds);
+}
+
 function filterCoveredSuggestedConnectAnnotations(suggestions) {
-    return (suggestions || []).filter((candidateSuggestion, candidateIndex, allSuggestions) =>
-        !allSuggestions.some((otherSuggestion, otherIndex) => {
-            if (candidateIndex === otherIndex) return false;
-            if (!shouldPreferSuggestedConnectAnnotation(otherSuggestion, candidateSuggestion)) return false;
-            return doesSuggestedConnectCoverSuggestion(otherSuggestion, candidateSuggestion);
+    const suggestionEntries = (suggestions || [])
+        .filter(suggestion => suggestion && suggestion.type === 'connect')
+        .map((suggestion, index) => ({
+            suggestion,
+            index,
+            layerName: suggestion.layerName,
+            bounds: getSuggestedConnectCoverageBounds(suggestion, 0)
+        }));
+    if (suggestionEntries.length <= 1) {
+        return suggestionEntries.map(entry => entry.suggestion);
+    }
+
+    const entriesByLayer = new Map();
+    suggestionEntries.forEach(entry => {
+        const layerEntries = entriesByLayer.get(entry.layerName);
+        if (layerEntries) {
+            layerEntries.push(entry);
+        } else {
+            entriesByLayer.set(entry.layerName, [entry]);
+        }
+    });
+
+    const tolerance = getManualEndpointTouchToleranceWorld();
+    return suggestionEntries
+        .filter(candidateEntry => {
+            const layerEntries = entriesByLayer.get(candidateEntry.layerName) || [];
+            return !layerEntries.some(otherEntry => {
+                if (candidateEntry.index === otherEntry.index) return false;
+                if (!canSuggestedConnectBoundsCover(otherEntry, candidateEntry, tolerance)) return false;
+                if (!shouldPreferSuggestedConnectAnnotation(otherEntry.suggestion, candidateEntry.suggestion)) return false;
+                return doesSuggestedConnectCoverSuggestion(otherEntry.suggestion, candidateEntry.suggestion, tolerance);
+            });
         })
-    );
+        .map(entry => entry.suggestion);
 }
 
 function mergeUniqueSuggestedConnectAnnotations(suggestions) {
@@ -1117,16 +1259,31 @@ async function collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotat
         return [];
     }
 
+    const metrics = options.metrics && typeof options.metrics === 'object'
+        ? options.metrics
+        : null;
+    const collectStartTime = performance.now();
+
+    const existingConnectLineKeysStartTime = performance.now();
     const existingConnectLineKeys = collectExistingConnectLineKeys([
         ...manualAnnotations,
         ...connectAnnotations
     ]);
+    if (metrics) {
+        metrics.existingConnectLineKeysMs = performance.now() - existingConnectLineKeysStartTime;
+        metrics.existingConnectLineKeyCount = existingConnectLineKeys.size;
+    }
     const mergedSeedLineCandidates = new Map();
 
+    const straightSeedsStartTime = performance.now();
     const straightSeeds = typeof collectStraightConnectSuggestionSeedsAsync === 'function'
         ? await collectStraightConnectSuggestionSeedsAsync(connectAnnotations, existingConnectLineKeys, options)
         : collectStraightConnectSuggestionSeeds(connectAnnotations, existingConnectLineKeys);
     if (!shouldContinueManualSuggestionWork(options)) return [];
+    if (metrics) {
+        metrics.straightSeedMs = performance.now() - straightSeedsStartTime;
+        metrics.straightSeedCount = straightSeeds.length;
+    }
     straightSeeds.forEach(lineCandidate => {
         if (!lineCandidate) return;
         mergedSeedLineCandidates.set(lineCandidate.id, lineCandidate);
@@ -1137,27 +1294,53 @@ async function collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotat
     }
     if (!shouldContinueManualSuggestionWork(options)) return [];
 
+    const teeSeedsStartTime = performance.now();
     const teeSeeds = typeof collectTeeConnectSuggestionSeedsAsync === 'function'
         ? await collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existingConnectLineKeys, options)
         : collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLineKeys);
     if (!shouldContinueManualSuggestionWork(options)) return [];
+    if (metrics) {
+        metrics.teeSeedMs = performance.now() - teeSeedsStartTime;
+        metrics.teeSeedCount = teeSeeds.length;
+    }
     teeSeeds.forEach(lineCandidate => {
         if (!lineCandidate) return;
         mergedSeedLineCandidates.set(lineCandidate.id, lineCandidate);
     });
 
     const seedLineCandidates = Array.from(mergedSeedLineCandidates.values());
+    if (metrics) {
+        metrics.seedLineCandidateCount = seedLineCandidates.length;
+    }
+    const seedSuggestionsStartTime = performance.now();
     const seedSuggestions = typeof buildConnectSuggestionsFromSeedLinesAsync === 'function'
         ? buildConnectSuggestionsFromSeedLinesAsync(seedLineCandidates, existingConnectLineKeys, options)
         : buildConnectSuggestionsFromSeedLines(seedLineCandidates, existingConnectLineKeys);
     const resolvedSeedSuggestions = await Promise.resolve(seedSuggestions);
     if (!shouldContinueManualSuggestionWork(options)) return [];
+    if (metrics) {
+        metrics.buildSeedSuggestionsMs = performance.now() - seedSuggestionsStartTime;
+        metrics.seedSuggestionCount = resolvedSeedSuggestions.length;
+    }
 
+    const overlaySuggestionsStartTime = performance.now();
     const overlaySuggestions = typeof buildExpandedStraightConnectSuggestionsFromAnnotations === 'function'
         ? buildExpandedStraightConnectSuggestionsFromAnnotations(connectAnnotations, existingConnectLineKeys)
         : [];
+    if (metrics) {
+        metrics.overlaySuggestionsMs = performance.now() - overlaySuggestionsStartTime;
+        metrics.overlaySuggestionCount = overlaySuggestions.length;
+    }
 
-    return mergeUniqueSuggestedConnectAnnotations([...resolvedSeedSuggestions, ...overlaySuggestions]);
+    const mergeSuggestionsStartTime = performance.now();
+    const mergedSuggestions = mergeUniqueSuggestedConnectAnnotations([...resolvedSeedSuggestions, ...overlaySuggestions]);
+    if (metrics) {
+        metrics.mergeSuggestionsMs = performance.now() - mergeSuggestionsStartTime;
+        metrics.mergedSuggestionCount = mergedSuggestions.length;
+        metrics.collectSuggestionsMs = performance.now() - collectStartTime;
+    }
+
+    return mergedSuggestions;
 }
 
 function formatConnectSuggestionSuffix(suggestedConnectCount) {
@@ -1169,68 +1352,113 @@ function formatConnectSuggestionSuffix(suggestedConnectCount) {
 function startSuggestedConnectAnnotationsRequest(requestId, connectAnnotations, baseMessage, options = {}) {
     const shouldKeepRequest = () => requestId === manualSuggestionRequestId
         && (options.requireConnectMode === false || annotationMode === 'connect');
+    const suppressUi = options.suppressUi === true;
     if (!shouldKeepRequest()) return Promise.resolve([]);
 
-    setAnnotationFeedback(`${baseMessage} Đang tìm gợi ý...`, 'info');
-    updateManualLabelUI();
-    if (typeof scheduleDraw === 'function') scheduleDraw();
+    if (!suppressUi) {
+        setAnnotationFeedback(`${baseMessage} Đang tìm gợi ý...`, 'info');
+        updateManualLabelUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+    }
 
     return collectSuggestedConnectAnnotationsForConnectsAsync(connectAnnotations, {
+        ...options,
         shouldContinue: shouldKeepRequest
     })
         .then(suggestedConnects => {
             if (!shouldKeepRequest()) return [];
-            setSuggestedConnectAnnotations(suggestedConnects, { redraw: false });
-            setAnnotationFeedback(`${baseMessage}${formatConnectSuggestionSuffix(suggestedConnects.length)}`, 'info');
-            updateManualLabelUI();
-            if (typeof scheduleDraw === 'function') scheduleDraw();
+            if (!suppressUi) {
+                setSuggestedConnectAnnotations(suggestedConnects, { redraw: false });
+                setAnnotationFeedback(`${baseMessage}${formatConnectSuggestionSuffix(suggestedConnects.length)}`, 'info');
+                updateManualLabelUI();
+                if (typeof scheduleDraw === 'function') scheduleDraw();
+            }
             return suggestedConnects;
         })
         .catch(error => {
             if (!shouldKeepRequest()) return [];
             console.error('Failed to collect manual connect suggestions:', error);
-            setAnnotationFeedback(`${baseMessage} Không tính được gợi ý connect: ${error.message}`, 'error');
-            updateManualLabelUI();
+            if (!suppressUi) {
+                setAnnotationFeedback(`${baseMessage} Không tính được gợi ý connect: ${error.message}`, 'error');
+                updateManualLabelUI();
+            }
             return [];
         });
 }
 
 function requestSuggestedConnectAnnotations(connectAnnotations, baseMessage, options = {}) {
     const requestId = ++manualSuggestionRequestId;
+    const suppressUi = options.suppressUi === true;
+    const metrics = options.metrics && typeof options.metrics === 'object'
+        ? options.metrics
+        : null;
+    const requestStartTime = performance.now();
+    const finalizeRequestMetrics = suggestedConnects => {
+        if (metrics) {
+            metrics.requestTotalMs = performance.now() - requestStartTime;
+            metrics.suggestedCount = Array.isArray(suggestedConnects) ? suggestedConnects.length : 0;
+        }
+        return suggestedConnects;
+    };
     if (typeof options.onRequestId === 'function') {
         options.onRequestId(requestId);
     }
+    const rootExpansionStartTime = performance.now();
     const suggestionRootAnnotations = collectConnectedSuggestionRootAnnotations(connectAnnotations, manualAnnotations);
+    if (metrics) {
+        metrics.inputSeedCount = Array.isArray(connectAnnotations) ? connectAnnotations.length : 0;
+        metrics.rootSeedCount = suggestionRootAnnotations.length;
+        metrics.rootExpansionMs = performance.now() - rootExpansionStartTime;
+        metrics.snapIndexReadyAtStart = Boolean(snapPointIndexReady);
+    }
     suggestedConnectAnnotations = [];
-    updateManualLabelUI();
-    if (typeof scheduleDraw === 'function') scheduleDraw();
-
-    if (!snapPointIndexReady) {
-        setAnnotationFeedback(`${baseMessage} Đang chuẩn bị chỉ mục line để gợi ý...`, 'info');
+    if (!suppressUi) {
         updateManualLabelUI();
         if (typeof scheduleDraw === 'function') scheduleDraw();
+    }
+
+    if (!snapPointIndexReady) {
+        if (!suppressUi) {
+            setAnnotationFeedback(`${baseMessage} Đang chuẩn bị chỉ mục line để gợi ý...`, 'info');
+            updateManualLabelUI();
+            if (typeof scheduleDraw === 'function') scheduleDraw();
+        }
         scheduleSnapPointIndexWarmup();
+        const indexWaitStartTime = performance.now();
         return ensureSnapPointIndexAsync()
             .then(indexReady => {
+                if (metrics) {
+                    metrics.indexWaitMs = performance.now() - indexWaitStartTime;
+                }
                 if (!indexReady) return [];
                 return startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage, options);
             })
             .catch(error => {
                 if (requestId !== manualSuggestionRequestId) return [];
                 console.error('Failed to prepare manual snap point index:', error);
-                setAnnotationFeedback(`${baseMessage} Không chuẩn bị được chỉ mục gợi ý: ${error.message}`, 'error');
-                updateManualLabelUI();
+                if (!suppressUi) {
+                    setAnnotationFeedback(`${baseMessage} Không chuẩn bị được chỉ mục gợi ý: ${error.message}`, 'error');
+                    updateManualLabelUI();
+                }
                 return [];
-            });
+            })
+            .then(finalizeRequestMetrics);
     }
 
-    return startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage, options);
+    if (metrics) {
+        metrics.indexWaitMs = 0;
+    }
+    return startSuggestedConnectAnnotationsRequest(requestId, suggestionRootAnnotations, baseMessage, options)
+        .then(finalizeRequestMetrics);
 }
 
 function acceptSuggestedConnectAnnotations(options = {}) {
     const requestNextSuggestions = options.requestNextSuggestions !== false;
     const silent = options.silent === true;
-    if (!hasSuggestedConnectAnnotations()) {
+    const suppressUi = options.suppressUi === true;
+    const providedSuggestions = Array.isArray(options.suggestions) ? options.suggestions : null;
+    const sourceSuggestions = providedSuggestions || suggestedConnectAnnotations;
+    if (!Array.isArray(sourceSuggestions) || !sourceSuggestions.length) {
         return options.returnResult ? {
             accepted: false,
             finalizationResult: null,
@@ -1255,7 +1483,7 @@ function acceptSuggestedConnectAnnotations(options = {}) {
     const acceptedConnects = [];
     const acceptedJunctions = [];
 
-    suggestedConnectAnnotations.forEach(suggestion => {
+    sourceSuggestions.forEach(suggestion => {
         if (!isSuggestConnectLineLikeLongEnough(suggestion)) return;
         const suggestionLineKeys = getConnectAnnotationLineKeys(suggestion);
         if (!suggestionLineKeys.length || suggestionLineKeys.every(lineKey => existingConnectLineKeys.has(lineKey))) return;
@@ -1281,7 +1509,9 @@ function acceptSuggestedConnectAnnotations(options = {}) {
     });
 
     if (!acceptedConnects.length) {
-        clearSuggestedConnectAnnotations({ redraw: false });
+        if (!providedSuggestions) {
+            clearSuggestedConnectAnnotations({ redraw: false });
+        }
         if (!options.preserveRequestId) {
             manualSuggestionRequestId += 1;
         }
@@ -1297,13 +1527,19 @@ function acceptSuggestedConnectAnnotations(options = {}) {
     }
 
     const existingAnnotationIds = new Set(manualAnnotations.map(annotation => annotation.id));
-    const addedAnnotations = addAnnotations([...acceptedConnects, ...acceptedJunctions], { record: false });
+    const addedAnnotations = addAnnotations([...acceptedConnects, ...acceptedJunctions], {
+        record: false,
+        updateUi: !suppressUi
+    });
     const finalizationResult = finalizeAddedAnnotations(addedAnnotations, {
         existingAnnotationIds,
-        record: true
+        record: true,
+        updateUi: !suppressUi
     });
     const baseMessage = `Đã thêm ${finalizationResult.addedConnectAnnotations.length} connect và ${finalizationResult.finalAddedAnnotations.filter(annotation => annotation.type === 'junction').length} junction từ gợi ý.`;
-    setSuggestedConnectAnnotations([], { redraw: false });
+    if (!providedSuggestions) {
+        setSuggestedConnectAnnotations([], { redraw: false });
+    }
     if (requestNextSuggestions && finalizationResult.addedConnectAnnotations.length) {
         requestSuggestedConnectAnnotations(finalizationResult.addedConnectAnnotations, baseMessage);
     } else {
@@ -1315,7 +1551,7 @@ function acceptSuggestedConnectAnnotations(options = {}) {
         }
     }
     refreshAnnotationModeLabel();
-    if (typeof scheduleDraw === 'function') scheduleDraw();
+    if (!suppressUi && typeof scheduleDraw === 'function') scheduleDraw();
     return options.returnResult ? {
         accepted: finalizationResult.addedConnectAnnotations.length > 0,
         finalizationResult,
@@ -1390,15 +1626,354 @@ function normalizeDetectedConnectSpec(connectSpec) {
     };
 }
 
-async function autoAcceptSuggestedConnectAnnotationsFromSeeds(seedConnectAnnotations, baseMessage, options = {}) {
+function buildConnectAutoAcceptManualContext() {
+    const connectsById = new Map();
+    const connectsByTraversalKey = new Map();
+    const lineKeyToConnectEntries = new Map();
+
+    manualAnnotations.forEach(annotation => {
+        if (annotation?.type !== 'connect') return;
+        if (annotation.id !== undefined && annotation.id !== null) {
+            connectsById.set(annotation.id, annotation);
+        }
+        const traversalKey = getConnectAnnotationTraversalKey(annotation);
+        if (traversalKey) {
+            const layerTraversalKey = `${annotation.layerName}::${traversalKey}`;
+            if (!connectsByTraversalKey.has(layerTraversalKey)) {
+                connectsByTraversalKey.set(layerTraversalKey, annotation);
+            }
+        }
+        const lineKeys = getConnectAnnotationLineKeys(annotation);
+        const lineKeySet = new Set(lineKeys);
+        const connectEntry = { annotation, lineKeySet };
+        lineKeys.forEach(lineKey => {
+            const entries = lineKeyToConnectEntries.get(lineKey);
+            if (entries) {
+                entries.push(connectEntry);
+            } else {
+                lineKeyToConnectEntries.set(lineKey, [connectEntry]);
+            }
+        });
+    });
+
+    return {
+        connectsById,
+        connectsByTraversalKey,
+        lineKeyToConnectEntries
+    };
+}
+
+function getManualConnectAnnotationForSeed(seedAnnotation, manualContext = null) {
+    if (!seedAnnotation || seedAnnotation.type !== 'connect') return null;
+    if (seedAnnotation.id !== undefined && seedAnnotation.id !== null) {
+        const matchingAnnotation = manualContext?.connectsById instanceof Map
+            ? manualContext.connectsById.get(seedAnnotation.id)
+            : manualAnnotations.find(annotation => annotation?.type === 'connect' && annotation.id === seedAnnotation.id);
+        if (matchingAnnotation) return matchingAnnotation;
+    }
+
+    const seedTraversalKey = getConnectAnnotationTraversalKey(seedAnnotation);
+    if (!seedTraversalKey) return null;
+    const layerTraversalKey = `${seedAnnotation.layerName}::${seedTraversalKey}`;
+    if (manualContext?.connectsByTraversalKey instanceof Map) {
+        return manualContext.connectsByTraversalKey.get(layerTraversalKey) || null;
+    }
+    return manualAnnotations.find(annotation =>
+        annotation?.type === 'connect'
+        && annotation.layerName === seedAnnotation.layerName
+        && getConnectAnnotationTraversalKey(annotation) === seedTraversalKey
+    ) || null;
+}
+
+function isConnectAnnotationCoveredByAnotherManualConnect(annotation, manualContext = null) {
+    if (!annotation || annotation.type !== 'connect') return false;
+    const annotationLineKeys = getConnectAnnotationLineKeys(annotation);
+    if (annotationLineKeys.length && manualContext?.lineKeyToConnectEntries instanceof Map) {
+        const candidateEntries = manualContext.lineKeyToConnectEntries.get(annotationLineKeys[0]) || [];
+        return candidateEntries.some(entry => {
+            const existingAnnotation = entry?.annotation;
+            if (!existingAnnotation || existingAnnotation.id === annotation.id || existingAnnotation.layerName !== annotation.layerName) return false;
+            return annotationLineKeys.every(lineKey => entry.lineKeySet.has(lineKey));
+        });
+    }
+    return manualAnnotations.some(existingAnnotation => {
+        if (!existingAnnotation || existingAnnotation.type !== 'connect') return false;
+        if (existingAnnotation.id === annotation.id || existingAnnotation.layerName !== annotation.layerName) return false;
+
+        const existingLineKeys = getConnectAnnotationLineKeys(existingAnnotation);
+        if (annotationLineKeys.length && existingLineKeys.length) {
+            const existingLineKeySet = new Set(existingLineKeys);
+            if (annotationLineKeys.every(lineKey => existingLineKeySet.has(lineKey))) {
+                return true;
+            }
+        }
+
+        return doesConnectAnnotationGeometricallyCover(existingAnnotation, annotation);
+    });
+}
+
+function getConnectAutoAcceptQueueKey(annotation, fallbackIndex = 0) {
+    return getConnectAnnotationTraversalKey(annotation)
+        || (annotation?.id !== undefined && annotation.id !== null ? `id:${annotation.id}` : `index:${fallbackIndex}`);
+}
+
+function shouldProcessConnectAutoAcceptSeed(seedAnnotation, processedSeedKeys, manualContext = null) {
+    const currentAnnotation = getManualConnectAnnotationForSeed(seedAnnotation, manualContext);
+    if (!currentAnnotation) return null;
+    const seedKey = getConnectAutoAcceptQueueKey(currentAnnotation);
+    if (!seedKey || processedSeedKeys.has(seedKey)) return null;
+    if (isConnectAnnotationCoveredByAnotherManualConnect(currentAnnotation, manualContext)) return null;
+    return { annotation: currentAnnotation, seedKey };
+}
+
+function createConnectAutoAcceptSeedQueue(seedConnectAnnotations) {
+    const solidSeeds = [];
+    const dashedSeeds = [];
+    const queuedSolidSeedKeys = new Set();
+    const queuedDashedSeedKeys = new Set();
+    let solidSeedIndex = 0;
+    let dashedSeedIndex = 0;
+
+    const enqueue = (annotation, fallbackIndex = 0) => {
+        if (!annotation || annotation.type !== 'connect') return false;
+        const seedKey = getConnectAutoAcceptQueueKey(annotation, fallbackIndex);
+        if (!seedKey) return false;
+        const isDashedSeed = typeof isDashedLineLikeForTeeSuggestion === 'function'
+            && isDashedLineLikeForTeeSuggestion(annotation);
+
+        if (isDashedSeed) {
+            if (queuedSolidSeedKeys.has(seedKey) || queuedDashedSeedKeys.has(seedKey)) return false;
+            queuedDashedSeedKeys.add(seedKey);
+            dashedSeeds.push(annotation);
+            return true;
+        }
+
+        if (queuedSolidSeedKeys.has(seedKey)) return false;
+        queuedSolidSeedKeys.add(seedKey);
+        solidSeeds.push(annotation);
+        return true;
+    };
+
+    (seedConnectAnnotations || []).forEach((annotation, index) => {
+        enqueue(annotation, index);
+    });
+
+    return {
+        enqueue,
+        get length() {
+            return (solidSeeds.length - solidSeedIndex) + (dashedSeeds.length - dashedSeedIndex);
+        },
+        nextBatch() {
+            if (solidSeedIndex < solidSeeds.length) {
+                const annotations = solidSeeds.slice(solidSeedIndex);
+                solidSeedIndex = solidSeeds.length;
+                return { annotations, queueType: 'solid' };
+            }
+            if (dashedSeedIndex < dashedSeeds.length) {
+                const annotations = dashedSeeds.slice(dashedSeedIndex);
+                dashedSeedIndex = dashedSeeds.length;
+                return { annotations, queueType: 'dashed' };
+            }
+            return null;
+        },
+        next() {
+            if (solidSeedIndex < solidSeeds.length) {
+                const annotation = solidSeeds[solidSeedIndex];
+                solidSeedIndex += 1;
+                return { annotation, queueType: 'solid' };
+            }
+            if (dashedSeedIndex < dashedSeeds.length) {
+                const annotation = dashedSeeds[dashedSeedIndex];
+                dashedSeedIndex += 1;
+                return { annotation, queueType: 'dashed' };
+            }
+            return null;
+        }
+    };
+}
+
+async function autoAcceptSuggestedConnectAnnotationsFromSeedQueue(seedConnectAnnotations, baseMessage, options = {}) {
+    const autoAcceptStartTime = performance.now();
     if (!Array.isArray(seedConnectAnnotations) || !seedConnectAnnotations.length || !hasManualLineCandidateSource()) {
-        return { rounds: 0, acceptedConnectCount: 0, acceptedJunctionCount: 0 };
+        return {
+            rounds: 0,
+            acceptedConnectCount: 0,
+            acceptedJunctionCount: 0,
+            timing: {
+                totalMs: performance.now() - autoAcceptStartTime,
+                roundBreakdown: []
+            }
+        };
+    }
+
+    const seedQueue = createConnectAutoAcceptSeedQueue(seedConnectAnnotations);
+    const processedSeedKeys = new Set();
+    const roundBreakdown = [];
+    let acceptedConnectCount = 0;
+    let acceptedJunctionCount = 0;
+    let processedSeedCount = 0;
+    let processedBatchCount = 0;
+    let skippedSeedCount = 0;
+    let activeRequestId = null;
+    let ownsCurrentRequest = false;
+
+    while (seedQueue.length) {
+        const queuedBatch = seedQueue.nextBatch();
+        if (!queuedBatch?.annotations?.length) break;
+
+        const manualContext = buildConnectAutoAcceptManualContext();
+        const processableSeeds = [];
+        let firstProcessableSeedKey = null;
+        queuedBatch.annotations.forEach(seedAnnotation => {
+            const processableSeed = shouldProcessConnectAutoAcceptSeed(seedAnnotation, processedSeedKeys, manualContext);
+            if (!processableSeed) {
+                skippedSeedCount += 1;
+                return;
+            }
+            processedSeedKeys.add(processableSeed.seedKey);
+            processableSeeds.push(processableSeed.annotation);
+            if (firstProcessableSeedKey === null) {
+                firstProcessableSeedKey = processableSeed.seedKey;
+            }
+        });
+
+        if (!processableSeeds.length) {
+            continue;
+        }
+
+        processedBatchCount += 1;
+        processedSeedCount += processableSeeds.length;
+        const roundMetrics = {
+            round: processedBatchCount,
+            queueType: queuedBatch.queueType,
+            rawSeedCount: queuedBatch.annotations.length,
+            seedCount: processableSeeds.length,
+            firstSeedKey: firstProcessableSeedKey,
+            fullRecheckExistingConnects: false,
+            recheckSeedSource: 'frontier-queue'
+        };
+        const requestMetrics = {};
+        const requestStartTime = performance.now();
+        const suggestedConnects = await requestSuggestedConnectAnnotations(processableSeeds, baseMessage, {
+            requireConnectMode: false,
+            suppressUi: options.suppressUi === true,
+            onRequestId: requestId => {
+                activeRequestId = requestId;
+                ownsCurrentRequest = true;
+            },
+            metrics: requestMetrics
+        });
+        roundMetrics.requestMs = performance.now() - requestStartTime;
+        roundMetrics.suggestedCount = suggestedConnects.length;
+        roundMetrics.request = requestMetrics;
+
+        if (activeRequestId !== manualSuggestionRequestId) {
+            roundMetrics.acceptMs = 0;
+            roundMetrics.acceptedConnectCount = 0;
+            roundMetrics.acceptedJunctionCount = 0;
+            roundMetrics.totalMs = roundMetrics.requestMs;
+            roundMetrics.exitReason = 'stale-request';
+            roundBreakdown.push(roundMetrics);
+            break;
+        }
+
+        if (!suggestedConnects.length) {
+            roundMetrics.acceptMs = 0;
+            roundMetrics.acceptedConnectCount = 0;
+            roundMetrics.acceptedJunctionCount = 0;
+            roundMetrics.totalMs = roundMetrics.requestMs;
+            roundMetrics.exitReason = 'no-suggestions';
+            roundBreakdown.push(roundMetrics);
+            continue;
+        }
+
+        const acceptStartTime = performance.now();
+        const acceptResult = acceptSuggestedConnectAnnotations({
+            suggestions: suggestedConnects,
+            requestNextSuggestions: false,
+            returnResult: true,
+            silent: true,
+            suppressUi: options.suppressUi === true,
+            preserveRequestId: true
+        });
+        roundMetrics.acceptMs = performance.now() - acceptStartTime;
+        roundMetrics.acceptedConnectCount = acceptResult?.addedConnectAnnotations?.length || 0;
+        roundMetrics.acceptedJunctionCount = acceptResult?.addedJunctionAnnotations?.length || 0;
+        roundMetrics.totalMs = roundMetrics.requestMs + roundMetrics.acceptMs;
+
+        if (!acceptResult?.accepted || !acceptResult.addedConnectAnnotations.length) {
+            roundMetrics.exitReason = 'no-new-accepted-connects';
+            roundBreakdown.push(roundMetrics);
+            continue;
+        }
+
+        acceptResult.addedConnectAnnotations.forEach((annotation, index) => {
+            seedQueue.enqueue(annotation, `${processedBatchCount}:${index}`);
+        });
+        acceptedConnectCount += acceptResult.addedConnectAnnotations.length;
+        acceptedJunctionCount += acceptResult.addedJunctionAnnotations.length;
+        roundMetrics.exitReason = 'accepted';
+        roundMetrics.queueLengthAfterAccept = seedQueue.length;
+        roundBreakdown.push(roundMetrics);
+
+        if (typeof yieldToBrowser === 'function') {
+            await yieldToBrowser();
+        }
+    }
+
+    if (ownsCurrentRequest && activeRequestId === manualSuggestionRequestId) {
+        suggestedConnectAnnotations = [];
+        manualSuggestionRequestId += 1;
+    }
+
+    const suffix = acceptedConnectCount
+        ? ` Tự thêm ${acceptedConnectCount} connect và ${acceptedJunctionCount} junction từ gợi ý.`
+        : ' Không có gợi ý connect mới để tự thêm.';
+    setAnnotationFeedback(`${baseMessage}${suffix}`, 'info');
+    updateManualLabelUI();
+    if (typeof scheduleDraw === 'function') scheduleDraw();
+
+    return {
+        rounds: processedSeedCount,
+        acceptedConnectCount,
+        acceptedJunctionCount,
+        timing: {
+            totalMs: performance.now() - autoAcceptStartTime,
+            roundBreakdown,
+            skippedSeedCount
+        }
+    };
+}
+
+async function autoAcceptSuggestedConnectAnnotationsFromSeeds(seedConnectAnnotations, baseMessage, options = {}) {
+    const autoAcceptStartTime = performance.now();
+    if (!Array.isArray(seedConnectAnnotations) || !seedConnectAnnotations.length || !hasManualLineCandidateSource()) {
+        return {
+            rounds: 0,
+            acceptedConnectCount: 0,
+            acceptedJunctionCount: 0,
+            timing: {
+                totalMs: performance.now() - autoAcceptStartTime,
+                roundBreakdown: []
+            }
+        };
+    }
+    if (options.seedQueueAutoAccept === true) {
+        return autoAcceptSuggestedConnectAnnotationsFromSeedQueue(seedConnectAnnotations, baseMessage, options);
     }
 
     const maxRounds = Math.max(0, Number(options.maxRounds) || 0);
     if (!maxRounds) {
         requestSuggestedConnectAnnotations(seedConnectAnnotations, baseMessage);
-        return { rounds: 0, acceptedConnectCount: 0, acceptedJunctionCount: 0 };
+        return {
+            rounds: 0,
+            acceptedConnectCount: 0,
+            acceptedJunctionCount: 0,
+            timing: {
+                totalMs: performance.now() - autoAcceptStartTime,
+                roundBreakdown: []
+            }
+        };
     }
 
     let acceptedConnectCount = 0;
@@ -1406,44 +1981,107 @@ async function autoAcceptSuggestedConnectAnnotationsFromSeeds(seedConnectAnnotat
     let completedRounds = 0;
     let activeRequestId = null;
     let ownsCurrentRequest = false;
+    const roundBreakdown = [];
+    let previousRoundAcceptedConnectAnnotations = [];
 
-    const getRoundSeeds = roundIndex => {
+    const getRepresentativeRoundSeeds = connectAnnotations => {
+        if (typeof collectRepresentativeSuggestionTraversalSeedAnnotations !== 'function') {
+            return Array.isArray(connectAnnotations) ? connectAnnotations : [];
+        }
+        return collectRepresentativeSuggestionTraversalSeedAnnotations(connectAnnotations, manualAnnotations);
+    };
+
+    const shouldUseTouchedComponentRecheck = roundIndex => roundIndex > 0
+        && options.fullRecheckExistingConnects !== false
+        && options.recheckFromAcceptedSuggestions !== false
+        && previousRoundAcceptedConnectAnnotations.length > 0;
+
+    const getRawRoundSeeds = roundIndex => {
         if (roundIndex <= 0 || options.fullRecheckExistingConnects === false) {
             return seedConnectAnnotations;
+        }
+        if (shouldUseTouchedComponentRecheck(roundIndex)) {
+            return previousRoundAcceptedConnectAnnotations;
         }
         return manualAnnotations.filter(annotation => annotation?.type === 'connect');
     };
 
+    const getRoundSeeds = roundIndex => {
+        return getRepresentativeRoundSeeds(getRawRoundSeeds(roundIndex));
+    };
+
     for (let roundIndex = 0; roundIndex < maxRounds; roundIndex += 1) {
+        const rawRoundSeeds = getRawRoundSeeds(roundIndex);
         const currentSeeds = getRoundSeeds(roundIndex);
         if (!currentSeeds.length) break;
+        const roundMetrics = {
+            round: roundIndex + 1,
+            rawSeedCount: rawRoundSeeds.length,
+            seedCount: currentSeeds.length,
+            fullRecheckExistingConnects: roundIndex > 0 && options.fullRecheckExistingConnects !== false,
+            recheckSeedSource: roundIndex <= 0 || options.fullRecheckExistingConnects === false
+                ? 'initial'
+                : (shouldUseTouchedComponentRecheck(roundIndex) ? 'previous-accepted' : 'all-manual-connects')
+        };
         const roundMessage = maxRounds > 1
             ? `${baseMessage} Đang tự mở rộng connect (${roundIndex + 1}/${maxRounds})...`
             : baseMessage;
+        const requestMetrics = {};
+        const requestStartTime = performance.now();
         const suggestedConnects = await requestSuggestedConnectAnnotations(currentSeeds, roundMessage, {
             requireConnectMode: false,
+            suppressUi: options.suppressUi === true,
             onRequestId: requestId => {
                 activeRequestId = requestId;
                 ownsCurrentRequest = true;
-            }
+            },
+            metrics: requestMetrics
         });
-        if (activeRequestId !== manualSuggestionRequestId || !suggestedConnects.length) break;
+        roundMetrics.requestMs = performance.now() - requestStartTime;
+        roundMetrics.suggestedCount = suggestedConnects.length;
+        roundMetrics.request = requestMetrics;
+        if (activeRequestId !== manualSuggestionRequestId || !suggestedConnects.length) {
+            roundMetrics.acceptMs = 0;
+            roundMetrics.acceptedConnectCount = 0;
+            roundMetrics.acceptedJunctionCount = 0;
+            roundMetrics.totalMs = roundMetrics.requestMs;
+            roundMetrics.exitReason = activeRequestId !== manualSuggestionRequestId
+                ? 'stale-request'
+                : 'no-suggestions';
+            roundBreakdown.push(roundMetrics);
+            break;
+        }
 
         const shouldRequestNextSuggestions = roundIndex === maxRounds - 1 && options.requestNextSuggestions !== false;
+        const acceptStartTime = performance.now();
         const acceptResult = acceptSuggestedConnectAnnotations({
+            suggestions: options.suppressUi === true ? suggestedConnects : undefined,
             requestNextSuggestions: shouldRequestNextSuggestions,
             returnResult: true,
             silent: true,
+            suppressUi: options.suppressUi === true,
             preserveRequestId: !shouldRequestNextSuggestions
         });
+        roundMetrics.acceptMs = performance.now() - acceptStartTime;
         if (shouldRequestNextSuggestions) {
             ownsCurrentRequest = false;
         }
-        if (!acceptResult?.accepted || !acceptResult.addedConnectAnnotations.length) break;
+        roundMetrics.acceptedConnectCount = acceptResult?.addedConnectAnnotations?.length || 0;
+        roundMetrics.acceptedJunctionCount = acceptResult?.addedJunctionAnnotations?.length || 0;
+        roundMetrics.totalMs = roundMetrics.requestMs + roundMetrics.acceptMs;
+        if (!acceptResult?.accepted || !acceptResult.addedConnectAnnotations.length) {
+            roundMetrics.exitReason = 'no-new-accepted-connects';
+            roundBreakdown.push(roundMetrics);
+            break;
+        }
+
+        roundMetrics.exitReason = 'accepted';
+        roundBreakdown.push(roundMetrics);
 
         completedRounds += 1;
         acceptedConnectCount += acceptResult.addedConnectAnnotations.length;
         acceptedJunctionCount += acceptResult.addedJunctionAnnotations.length;
+        previousRoundAcceptedConnectAnnotations = acceptResult.addedConnectAnnotations;
 
         if (typeof yieldToBrowser === 'function') {
             await yieldToBrowser();
@@ -1461,10 +2099,19 @@ async function autoAcceptSuggestedConnectAnnotationsFromSeeds(seedConnectAnnotat
         if (typeof scheduleDraw === 'function') scheduleDraw();
     }
 
-    return { rounds: completedRounds, acceptedConnectCount, acceptedJunctionCount };
+    return {
+        rounds: completedRounds,
+        acceptedConnectCount,
+        acceptedJunctionCount,
+        timing: {
+            totalMs: performance.now() - autoAcceptStartTime,
+            roundBreakdown
+        }
+    };
 }
 
 async function addDetectedConnectAnnotationsToManualPanel(connectSpecs, options = {}) {
+    const promotionStartTime = performance.now();
     const normalizedSpecs = (Array.isArray(connectSpecs) ? connectSpecs : [])
         .map(normalizeDetectedConnectSpec)
         .filter(Boolean);
@@ -1473,7 +2120,16 @@ async function addDetectedConnectAnnotationsToManualPanel(connectSpecs, options 
             addedConnectCount: 0,
             addedJunctionCount: 0,
             suggestionAcceptedConnectCount: 0,
-            suggestionAcceptedJunctionCount: 0
+            suggestionAcceptedJunctionCount: 0,
+            timing: {
+                totalMs: performance.now() - promotionStartTime,
+                addToManualMs: 0,
+                autoAcceptMs: 0,
+                autoAccept: {
+                    totalMs: 0,
+                    roundBreakdown: []
+                }
+            }
         };
     }
 
@@ -1499,12 +2155,18 @@ async function addDetectedConnectAnnotationsToManualPanel(connectSpecs, options 
             .forEach(junctionAnnotation => autoJunctions.push(junctionAnnotation));
     });
 
+    const addToManualStartTime = performance.now();
     const existingAnnotationIds = new Set(manualAnnotations.map(annotation => annotation.id));
-    const addedAnnotations = addAnnotations([...connectAnnotations, ...autoJunctions], { record: false });
+    const addedAnnotations = addAnnotations([...connectAnnotations, ...autoJunctions], {
+        record: false,
+        updateUi: options.suppressUi !== true
+    });
     const finalizationResult = finalizeAddedAnnotations(addedAnnotations, {
         existingAnnotationIds,
-        record: true
+        record: true,
+        updateUi: options.suppressUi !== true
     });
+    const addToManualMs = performance.now() - addToManualStartTime;
     const addedConnectAnnotations = finalizationResult.addedConnectAnnotations;
     const addedJunctionCount = finalizationResult.finalAddedAnnotations.filter(annotation => annotation.type === 'junction').length;
     const baseMessage = addedConnectAnnotations.length
@@ -1515,7 +2177,14 @@ async function addDetectedConnectAnnotationsToManualPanel(connectSpecs, options 
         applyManualLabelPanelState(false);
     }
 
-    let autoAcceptResult = { acceptedConnectCount: 0, acceptedJunctionCount: 0 };
+    let autoAcceptResult = {
+        acceptedConnectCount: 0,
+        acceptedJunctionCount: 0,
+        timing: {
+            totalMs: 0,
+            roundBreakdown: []
+        }
+    };
     if (addedConnectAnnotations.length) {
         if (options.autoAcceptSuggestions === false) {
             requestSuggestedConnectAnnotations(addedConnectAnnotations, baseMessage);
@@ -1523,7 +2192,10 @@ async function addDetectedConnectAnnotationsToManualPanel(connectSpecs, options 
             autoAcceptResult = await autoAcceptSuggestedConnectAnnotationsFromSeeds(addedConnectAnnotations, baseMessage, {
                 maxRounds: options.maxSuggestionRounds ?? 2,
                 fullRecheckExistingConnects: options.fullRecheckExistingConnects,
-                requestNextSuggestions: options.requestNextSuggestions
+                recheckFromAcceptedSuggestions: options.recheckFromAcceptedSuggestions,
+                requestNextSuggestions: options.requestNextSuggestions,
+                suppressUi: options.suppressUi === true,
+                seedQueueAutoAccept: options.seedQueueAutoAccept === true
             });
         }
     } else {
@@ -1538,7 +2210,16 @@ async function addDetectedConnectAnnotationsToManualPanel(connectSpecs, options 
         addedConnectCount: addedConnectAnnotations.length,
         addedJunctionCount,
         suggestionAcceptedConnectCount: autoAcceptResult.acceptedConnectCount || 0,
-        suggestionAcceptedJunctionCount: autoAcceptResult.acceptedJunctionCount || 0
+        suggestionAcceptedJunctionCount: autoAcceptResult.acceptedJunctionCount || 0,
+        timing: {
+            totalMs: performance.now() - promotionStartTime,
+            addToManualMs,
+            autoAcceptMs: autoAcceptResult?.timing?.totalMs || 0,
+            autoAccept: autoAcceptResult?.timing || {
+                totalMs: 0,
+                roundBreakdown: []
+            }
+        }
     };
 }
 

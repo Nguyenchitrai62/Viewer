@@ -100,6 +100,102 @@ function expandBounds(bounds, paddingX = 0, paddingY = paddingX) {
     };
 }
 
+const groupedConnectSeedExpansionCacheByExistingLines = new WeakMap();
+const straightConnectSuggestionSeedCacheByExistingLines = new WeakMap();
+const connectAnnotationDerivedValueCache = new WeakMap();
+const lineCandidateDerivedValueCache = new WeakMap();
+let manualSuggestionQueryCacheVersion = null;
+let manualSuggestionQueryCache = {
+    layerLineCandidates: new Map(),
+    nearbyPointLineCandidates: new Map(),
+    sameLayerEndpointLineCandidates: new Map()
+};
+
+function getGroupedConnectSeedExpansionCache(existingConnectLineKeys) {
+    if (!(existingConnectLineKeys instanceof Set)) return null;
+
+    let cache = groupedConnectSeedExpansionCacheByExistingLines.get(existingConnectLineKeys);
+    if (!cache) {
+        cache = new Map();
+        groupedConnectSeedExpansionCacheByExistingLines.set(existingConnectLineKeys, cache);
+    }
+    return cache;
+}
+
+function getStraightConnectSuggestionSeedCache(existingConnectLineKeys) {
+    if (!(existingConnectLineKeys instanceof Set)) return null;
+
+    let cache = straightConnectSuggestionSeedCacheByExistingLines.get(existingConnectLineKeys);
+    if (!cache) {
+        cache = new Map();
+        straightConnectSuggestionSeedCacheByExistingLines.set(existingConnectLineKeys, cache);
+    }
+    return cache;
+}
+
+function getConnectAnnotationDerivedCache(annotation) {
+    if (!annotation || annotation.type !== 'connect' || typeof annotation !== 'object') return null;
+
+    let cache = connectAnnotationDerivedValueCache.get(annotation);
+    if (!cache) {
+        cache = {
+            searchBoundsByPadding: new Map(),
+            traversalBoundsByPadding: new Map()
+        };
+        connectAnnotationDerivedValueCache.set(annotation, cache);
+    }
+    return cache;
+}
+
+function getLineCandidateDerivedCache(lineCandidate) {
+    if (!lineCandidate || typeof lineCandidate !== 'object') return null;
+
+    let cache = lineCandidateDerivedValueCache.get(lineCandidate);
+    if (!cache) {
+        cache = {};
+        lineCandidateDerivedValueCache.set(lineCandidate, cache);
+    }
+    return cache;
+}
+
+function getConnectAnnotationSuggestionSeedCacheKey(annotation) {
+    if (!annotation || annotation.type !== 'connect') return null;
+    const traversalKey = getConnectAnnotationTraversalKey(annotation)
+        || (annotation.id !== undefined && annotation.id !== null ? `id:${annotation.id}` : null);
+    if (!traversalKey) return null;
+    return `${annotation.layerName || 'unknown-layer'}::${traversalKey}`;
+}
+
+function getManualSuggestionQueryCacheVersion() {
+    if (typeof snapPointIndexBuildToken !== 'undefined') {
+        return snapPointIndexBuildToken;
+    }
+    return 'no-snap-token';
+}
+
+function ensureManualSuggestionQueryCache() {
+    const cacheVersion = getManualSuggestionQueryCacheVersion();
+    if (manualSuggestionQueryCacheVersion !== cacheVersion) {
+        manualSuggestionQueryCacheVersion = cacheVersion;
+        manualSuggestionQueryCache = {
+            layerLineCandidates: new Map(),
+            nearbyPointLineCandidates: new Map(),
+            sameLayerEndpointLineCandidates: new Map()
+        };
+    }
+    return manualSuggestionQueryCache;
+}
+
+function getManualSuggestionBoundsCacheKey(bounds) {
+    if (!bounds) return 'all';
+    return [
+        Number(bounds.minX),
+        Number(bounds.minY),
+        Number(bounds.maxX),
+        Number(bounds.maxY)
+    ].join('|');
+}
+
 function getPointsBounds(points) {
     if (!Array.isArray(points) || !points.length) return null;
 
@@ -130,11 +226,21 @@ function getManualSuggestionSearchPadding() {
 }
 
 function getConnectAnnotationSearchBounds(annotation, padding = getManualSuggestionSearchPadding()) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    const paddingKey = Number(padding);
+    if (annotationCache?.searchBoundsByPadding.has(paddingKey)) {
+        return annotationCache.searchBoundsByPadding.get(paddingKey);
+    }
+
     const annotationPoints = Array.isArray(annotation?.points) ? annotation.points : [];
     const segmentPoints = getConnectAnnotationSegments(annotation)
         .flatMap(segment => Array.isArray(segment) ? segment : []);
     const bounds = getPointsBounds([...annotationPoints, ...segmentPoints]);
-    return expandBounds(bounds, padding);
+    const searchBounds = expandBounds(bounds, padding);
+    if (annotationCache) {
+        annotationCache.searchBoundsByPadding.set(paddingKey, searchBounds);
+    }
+    return searchBounds;
 }
 
 function hasManualLineCandidateSource() {
@@ -229,25 +335,41 @@ function queryLineCandidatesFromSharedShapeCache(layerName = null, queryRange = 
 function queryLayerLineCandidates(layerName, queryRange = null) {
     if (!layerName) return [];
 
+    const queryCache = ensureManualSuggestionQueryCache();
+    const layerQueryKey = `${layerName}::${getManualSuggestionBoundsCacheKey(queryRange)}`;
+    const cachedLayerLineCandidates = queryCache.layerLineCandidates.get(layerQueryKey);
+    if (cachedLayerLineCandidates) {
+        return cachedLayerLineCandidates.slice();
+    }
+
     const lineCandidates = snapPointLineItemsByLayer.get(layerName) || [];
     if (lineCandidates.length && !queryRange) {
-        return lineCandidates.slice();
+        const result = lineCandidates.slice();
+        queryCache.layerLineCandidates.set(layerQueryKey, result);
+        return result.slice();
     }
 
     const quadtree = snapPointLineQuadtreesByLayer.get(layerName);
     if (quadtree) {
-        return Array.from(new Set(quadtree.query(queryRange)));
+        const result = Array.from(new Set(quadtree.query(queryRange)));
+        queryCache.layerLineCandidates.set(layerQueryKey, result);
+        return result.slice();
     }
 
     if (lineCandidates.length) {
-        return lineCandidates.filter(lineCandidate => doBoundsIntersect(getLineCandidateBounds(lineCandidate), queryRange));
+        const result = lineCandidates.filter(lineCandidate => doBoundsIntersect(getLineCandidateBounds(lineCandidate), queryRange));
+        queryCache.layerLineCandidates.set(layerQueryKey, result);
+        return result.slice();
     }
 
     if (typeof snapPointIndexReady !== 'undefined' && snapPointIndexReady) {
+        queryCache.layerLineCandidates.set(layerQueryKey, []);
         return [];
     }
 
-    return queryLineCandidatesFromSharedShapeCache(layerName, queryRange);
+    const result = queryLineCandidatesFromSharedShapeCache(layerName, queryRange);
+    queryCache.layerLineCandidates.set(layerQueryKey, result);
+    return result.slice();
 }
 
 function getConnectLineKey(annotation) {
@@ -327,12 +449,24 @@ function createAnnotation(type, layerName, points, options = {}) {
 }
 
 function getConnectAnnotationLineKeys(annotation) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.lineKeys) {
+        return annotationCache.lineKeys;
+    }
+
+    let lineKeys = [];
     if (!annotation || annotation.type !== 'connect') return [];
     if (Array.isArray(annotation.lineKeys) && annotation.lineKeys.length) {
-        return Array.from(new Set(annotation.lineKeys.map(lineKey => String(lineKey)))).sort();
+        lineKeys = Array.from(new Set(annotation.lineKeys.map(lineKey => String(lineKey)))).sort();
+    } else {
+        const lineKey = getConnectLineKey(annotation);
+        lineKeys = lineKey ? [lineKey] : [];
     }
-    const lineKey = getConnectLineKey(annotation);
-    return lineKey ? [lineKey] : [];
+
+    if (annotationCache) {
+        annotationCache.lineKeys = lineKeys;
+    }
+    return lineKeys;
 }
 
 function getConnectAnnotationGroupKey(annotation) {
@@ -341,40 +475,81 @@ function getConnectAnnotationGroupKey(annotation) {
 }
 
 function getConnectAnnotationSegments(annotation) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.segments) {
+        return annotationCache.segments;
+    }
+
+    let segments = [];
     if (Array.isArray(annotation?.segments) && annotation.segments.length) {
-        return annotation.segments.map(segment =>
+        segments = annotation.segments.map(segment =>
             Array.isArray(segment) ? segment.map(cloneAnnotationPoint) : []
         );
+    } else if (Array.isArray(annotation?.points) && annotation.points.length >= 2) {
+        segments = [[cloneAnnotationPoint(annotation.points[0]), cloneAnnotationPoint(annotation.points[1])]];
     }
-    if (Array.isArray(annotation?.points) && annotation.points.length >= 2) {
-        return [[cloneAnnotationPoint(annotation.points[0]), cloneAnnotationPoint(annotation.points[1])]];
+
+    if (annotationCache) {
+        annotationCache.segments = segments;
     }
-    return [];
+    return segments;
 }
 
 function getConnectAnnotationLength(annotation) {
-    return getConnectAnnotationSegments(annotation).reduce((totalLength, segment) => {
-        if (!Array.isArray(segment) || segment.length < 2) return totalLength;
-        return totalLength + Math.hypot(
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.length !== undefined) {
+        return annotationCache.length;
+    }
+
+    const totalLength = getConnectAnnotationSegments(annotation).reduce((runningLength, segment) => {
+        if (!Array.isArray(segment) || segment.length < 2) return runningLength;
+        return runningLength + Math.hypot(
             Number(segment[1].x) - Number(segment[0].x),
             Number(segment[1].y) - Number(segment[0].y)
         );
     }, 0);
+
+    if (annotationCache) {
+        annotationCache.length = totalLength;
+    }
+    return totalLength;
 }
 
 function getConnectAnnotationVirtualLength(annotation) {
-    if (!Array.isArray(annotation?.points) || annotation.points.length < 2) return 0;
-    return Math.hypot(
-        Number(annotation.points[1].x) - Number(annotation.points[0].x),
-        Number(annotation.points[1].y) - Number(annotation.points[0].y)
-    );
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.virtualLength !== undefined) {
+        return annotationCache.virtualLength;
+    }
+
+    let virtualLength = 0;
+    if (Array.isArray(annotation?.points) && annotation.points.length >= 2) {
+        virtualLength = Math.hypot(
+            Number(annotation.points[1].x) - Number(annotation.points[0].x),
+            Number(annotation.points[1].y) - Number(annotation.points[0].y)
+        );
+    }
+
+    if (annotationCache) {
+        annotationCache.virtualLength = virtualLength;
+    }
+    return virtualLength;
 }
 
 function getConnectAnnotationEffectiveLength(annotation) {
-    return Math.max(
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.effectiveLength !== undefined) {
+        return annotationCache.effectiveLength;
+    }
+
+    const effectiveLength = Math.max(
         getConnectAnnotationLength(annotation),
         getConnectAnnotationVirtualLength(annotation)
     );
+
+    if (annotationCache) {
+        annotationCache.effectiveLength = effectiveLength;
+    }
+    return effectiveLength;
 }
 
 function isPointNearAnyLineSegment(point, segments, tolerance = getManualEndpointTouchToleranceWorld()) {
@@ -425,6 +600,11 @@ function doesConnectAnnotationGeometricallyCover(parentAnnotation, childAnnotati
 }
 
 function getConnectAnnotationEndpointKeys(annotation) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.endpointKeys) {
+        return annotationCache.endpointKeys;
+    }
+
     const endpointKeys = new Set();
     getConnectAnnotationLineKeys(annotation).forEach(lineKey => {
         const lineCandidate = snapPointLineItems.get(lineKey);
@@ -448,24 +628,46 @@ function getConnectAnnotationEndpointKeys(annotation) {
         });
     }
 
-    return Array.from(endpointKeys);
+    const resolvedEndpointKeys = Array.from(endpointKeys);
+    if (annotationCache) {
+        annotationCache.endpointKeys = resolvedEndpointKeys;
+    }
+    return resolvedEndpointKeys;
 }
 
 function getLineCandidateLength(lineCandidate) {
+    const lineCandidateCache = getLineCandidateDerivedCache(lineCandidate);
+    if (lineCandidateCache?.length !== undefined) {
+        return lineCandidateCache.length;
+    }
     if (!lineCandidate?.points || lineCandidate.points.length < 2) return 0;
-    return Math.hypot(
+    const length = Math.hypot(
         Number(lineCandidate.points[1].x) - Number(lineCandidate.points[0].x),
         Number(lineCandidate.points[1].y) - Number(lineCandidate.points[0].y)
     );
+
+    if (lineCandidateCache) {
+        lineCandidateCache.length = length;
+    }
+    return length;
 }
 
 function getLineCandidateUnitDirection(lineCandidate) {
+    const lineCandidateCache = getLineCandidateDerivedCache(lineCandidate);
+    if (lineCandidateCache?.unitDirection) {
+        return lineCandidateCache.unitDirection;
+    }
     const length = getLineCandidateLength(lineCandidate);
     if (length <= 1e-6) return null;
-    return {
+    const unitDirection = {
         x: (Number(lineCandidate.points[1].x) - Number(lineCandidate.points[0].x)) / length,
         y: (Number(lineCandidate.points[1].y) - Number(lineCandidate.points[0].y)) / length
     };
+
+    if (lineCandidateCache) {
+        lineCandidateCache.unitDirection = unitDirection;
+    }
+    return unitDirection;
 }
 
 const MANUAL_LABEL_INTERNAL_PARALLEL_MAX_ANGLE_DEGREES = 5;
@@ -576,6 +778,30 @@ function isDashContinuationLineCandidate(lineCandidate, referenceLineCandidate =
     return false;
 }
 
+function isDashGroupLinkedLineCandidate(lineCandidateA, lineCandidateB, referenceLineCandidate = null) {
+    return doLineCandidatesShareDashGroup(lineCandidateA, lineCandidateB)
+        || Boolean(referenceLineCandidate && doLineCandidatesShareDashGroup(referenceLineCandidate, lineCandidateA))
+        || Boolean(referenceLineCandidate && doLineCandidatesShareDashGroup(referenceLineCandidate, lineCandidateB));
+}
+
+function isDashGroupedLineCandidateSet(lineCandidates) {
+    const candidates = Array.isArray(lineCandidates) ? lineCandidates.filter(Boolean) : [];
+    if (!candidates.length) return false;
+    if (candidates.some(lineCandidate => isShortDashedLineCandidate(lineCandidate))) {
+        return true;
+    }
+
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+        for (let otherCandidateIndex = candidateIndex + 1; otherCandidateIndex < candidates.length; otherCandidateIndex += 1) {
+            if (doLineCandidatesShareDashGroup(candidates[candidateIndex], candidates[otherCandidateIndex])) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 function getLineCandidateProjectionRange(lineCandidate, originPoint, direction) {
     if (!lineCandidate?.points || lineCandidate.points.length < 2 || !originPoint || !direction) {
         return [0, 0];
@@ -629,7 +855,8 @@ function getDashedLineCandidateCompatibility(referenceLineCandidate, lineCandida
     const maxOffset = CONFIG.MANUAL_LABEL_DASH_MAX_OFFSET || 0;
     const axisOffsetA = getLineCandidateAxisOffset(lineCandidateA, originPoint, direction);
     const axisOffsetB = getLineCandidateAxisOffset(lineCandidateB, originPoint, direction);
-    if (axisOffsetA > maxOffset || axisOffsetB > maxOffset) return null;
+    const sharedDashGroup = isDashGroupLinkedLineCandidate(lineCandidateA, lineCandidateB, referenceLineCandidate);
+    if (!sharedDashGroup && (axisOffsetA > maxOffset || axisOffsetB > maxOffset)) return null;
 
     const [aMin, aMax] = getLineCandidateProjectionRange(lineCandidateA, originPoint, direction);
     const [bMin, bMax] = getLineCandidateProjectionRange(lineCandidateB, originPoint, direction);
@@ -664,7 +891,7 @@ function getDashedLineCandidateCompatibility(referenceLineCandidate, lineCandida
         side,
         gap,
         lateralOffset,
-        sharedDashGroup: doLineCandidatesShareDashGroup(lineCandidateA, lineCandidateB),
+        sharedDashGroup,
         score: gap + lateralOffset
     };
 }
@@ -728,6 +955,17 @@ function getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options =
     const tolerance = Number.isFinite(options?.tolerance)
         ? Number(options.tolerance)
         : getManualEndpointTouchToleranceWorld();
+    const endpointQueryCache = ensureManualSuggestionQueryCache();
+    const endpointQueryKey = [
+        layerName,
+        String(endpointKey),
+        tolerance,
+        options?.includeInteriorTouch ? 1 : 0
+    ].join('::');
+    const cachedEndpointCandidates = endpointQueryCache.sameLayerEndpointLineCandidates.get(endpointQueryKey);
+    if (cachedEndpointCandidates) {
+        return cachedEndpointCandidates.slice();
+    }
     const mergedLineCandidates = new Map();
     const exactLineCandidates = snapPointLineCandidates.get(endpointKey);
     if (Array.isArray(exactLineCandidates)) {
@@ -739,7 +977,9 @@ function getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options =
 
     const endpointPoint = parseSnapPointKey(endpointKey, layerName);
     if (!endpointPoint) {
-        return Array.from(mergedLineCandidates.values());
+        const result = Array.from(mergedLineCandidates.values());
+        endpointQueryCache.sameLayerEndpointLineCandidates.set(endpointQueryKey, result);
+        return result.slice();
     }
 
     getNearbySameLayerLineCandidatesForPoint(endpointPoint, layerName, tolerance, {
@@ -748,7 +988,9 @@ function getSameLayerLineCandidatesForEndpoint(endpointKey, layerName, options =
         mergedLineCandidates.set(lineCandidate.id, lineCandidate);
     });
 
-    return Array.from(mergedLineCandidates.values());
+    const result = Array.from(mergedLineCandidates.values());
+    endpointQueryCache.sameLayerEndpointLineCandidates.set(endpointQueryKey, result);
+    return result.slice();
 }
 
 function getReferenceLineCandidateForLines(lineCandidates) {
@@ -955,11 +1197,20 @@ function createConnectAnnotationFromLineCandidates(lineCandidates, options = {})
 }
 
 function getReferenceLineCandidateForAnnotation(annotation) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.referenceLineCandidate) {
+        return annotationCache.referenceLineCandidate;
+    }
+
     const lineCandidates = getConnectAnnotationLineKeys(annotation)
         .map(lineKey => snapPointLineItems.get(lineKey))
         .filter(Boolean);
     if (lineCandidates.length) {
-        return getReferenceLineCandidateForLines(lineCandidates);
+        const referenceLineCandidate = getReferenceLineCandidateForLines(lineCandidates);
+        if (annotationCache) {
+            annotationCache.referenceLineCandidate = referenceLineCandidate;
+        }
+        return referenceLineCandidate;
     }
 
     const fallbackLineCandidates = getConnectAnnotationSegments(annotation)
@@ -970,36 +1221,81 @@ function getReferenceLineCandidateForAnnotation(annotation) {
             points: segment.map(cloneAnnotationPoint),
             endpointKeys: segment.map(point => getSnapPointKey(annotation.layerName, point.x, point.y))
         }));
-    return getReferenceLineCandidateForLines(fallbackLineCandidates);
+    const referenceLineCandidate = getReferenceLineCandidateForLines(fallbackLineCandidates);
+    if (annotationCache) {
+        annotationCache.referenceLineCandidate = referenceLineCandidate;
+    }
+    return referenceLineCandidate;
 }
 
 function getConnectAnnotationBoundaryEndpointKeys(annotation) {
-    return new Set(
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.boundaryEndpointKeys) {
+        return annotationCache.boundaryEndpointKeys;
+    }
+
+    const boundaryEndpointKeys = new Set(
         (annotation?.points || []).map(point => getSnapPointKey(annotation.layerName, point.x, point.y))
     );
+
+    if (annotationCache) {
+        annotationCache.boundaryEndpointKeys = boundaryEndpointKeys;
+    }
+    return boundaryEndpointKeys;
 }
 
 function getConnectAnnotationVirtualSegments(annotation) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.virtualSegments) {
+        return annotationCache.virtualSegments;
+    }
+
+    let virtualSegments = [];
     if (Array.isArray(annotation?.points) && annotation.points.length >= 2) {
-        return [[
+        virtualSegments = [[
             cloneAnnotationPoint(annotation.points[0]),
             cloneAnnotationPoint(annotation.points[1])
         ]];
+    } else {
+        virtualSegments = getConnectAnnotationSegments(annotation);
     }
 
-    return getConnectAnnotationSegments(annotation);
+    if (annotationCache) {
+        annotationCache.virtualSegments = virtualSegments;
+    }
+    return virtualSegments;
 }
 
 function getConnectAnnotationInternalEndpointKeys(annotation) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.internalEndpointKeys) {
+        return annotationCache.internalEndpointKeys;
+    }
+
     const boundaryEndpointKeys = getConnectAnnotationBoundaryEndpointKeys(annotation);
-    return getConnectAnnotationEndpointKeys(annotation)
+    const internalEndpointKeys = getConnectAnnotationEndpointKeys(annotation)
         .filter(endpointKey => !boundaryEndpointKeys.has(endpointKey));
+
+    if (annotationCache) {
+        annotationCache.internalEndpointKeys = internalEndpointKeys;
+    }
+    return internalEndpointKeys;
 }
 
 function getConnectAnnotationInternalPoints(annotation) {
-    return getConnectAnnotationInternalEndpointKeys(annotation)
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.internalPoints) {
+        return annotationCache.internalPoints;
+    }
+
+    const internalPoints = getConnectAnnotationInternalEndpointKeys(annotation)
         .map(endpointKey => parseSnapPointKey(endpointKey, annotation?.layerName || null))
         .filter(Boolean);
+
+    if (annotationCache) {
+        annotationCache.internalPoints = internalPoints;
+    }
+    return internalPoints;
 }
 
 function getManualParallelEndpointTouchToleranceWorld() {
@@ -1060,6 +1356,18 @@ function isPointNearLineCandidateIncident(point, lineCandidate, tolerance = getM
 function getNearbySameLayerLineCandidatesForPoint(point, layerName, tolerance = getManualEndpointTouchToleranceWorld(), options = {}) {
     if (!point || !layerName || tolerance <= 1e-6) return [];
 
+    const nearbyPointQueryCache = ensureManualSuggestionQueryCache();
+    const nearbyPointQueryKey = [
+        layerName,
+        getSnapPointKey(layerName, point.x, point.y),
+        tolerance,
+        options?.includeInteriorTouch ? 1 : 0
+    ].join('::');
+    const cachedNearbyLineCandidates = nearbyPointQueryCache.nearbyPointLineCandidates.get(nearbyPointQueryKey);
+    if (cachedNearbyLineCandidates) {
+        return cachedNearbyLineCandidates.slice();
+    }
+
     const queryRange = expandBounds({
         minX: Number(point.x),
         minY: Number(point.y),
@@ -1067,12 +1375,14 @@ function getNearbySameLayerLineCandidatesForPoint(point, layerName, tolerance = 
         maxY: Number(point.y)
     }, tolerance);
 
-    return queryLayerLineCandidates(layerName, queryRange).filter(lineCandidate => {
+    const result = queryLayerLineCandidates(layerName, queryRange).filter(lineCandidate => {
         if (!lineCandidate || lineCandidate.layerName !== layerName) return false;
         return options?.includeInteriorTouch
             ? isPointNearLineCandidateIncident(point, lineCandidate, tolerance)
             : isPointNearLineCandidateEndpoint(point, lineCandidate, tolerance);
     });
+    nearbyPointQueryCache.nearbyPointLineCandidates.set(nearbyPointQueryKey, result);
+    return result.slice();
 }
 
 function getLineLikeEndpointSearchSegments(lineLike) {
@@ -1390,7 +1700,7 @@ function doesLineLikeCrossConnectInterior(lineLike, connectAnnotation, tolerance
 function isDashedLineLikeForTeeSuggestion(lineLike) {
     if (!lineLike) return false;
     if (lineLike.type === 'connect') {
-        return getConnectAnnotationResolvedLineCandidates(lineLike).some(lineCandidate => isShortDashedLineCandidate(lineCandidate));
+        return isDashGroupedLineCandidateSet(getConnectAnnotationResolvedLineCandidates(lineLike));
     }
     return isShortDashedLineCandidate(lineLike);
 }
@@ -1473,6 +1783,10 @@ function getConnectSuggestionTraversalTouchToleranceWorld() {
 }
 
 function getConnectAnnotationTraversalPoints(annotation) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.traversalPoints) {
+        return annotationCache.traversalPoints;
+    }
     if (!annotation || annotation.type !== 'connect') return [];
 
     const pointMap = new Map();
@@ -1484,11 +1798,25 @@ function getConnectAnnotationTraversalPoints(annotation) {
         if (!point) return;
         pointMap.set(`${Number(point.x).toFixed(3)}|${Number(point.y).toFixed(3)}`, cloneAnnotationPoint(point));
     });
-    return Array.from(pointMap.values());
+    const traversalPoints = Array.from(pointMap.values());
+    if (annotationCache) {
+        annotationCache.traversalPoints = traversalPoints;
+    }
+    return traversalPoints;
 }
 
 function getConnectAnnotationTraversalBounds(annotation, padding = getConnectSuggestionTraversalTouchToleranceWorld()) {
-    return getConnectAnnotationSearchBounds(annotation, padding);
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    const paddingKey = Number(padding);
+    if (annotationCache?.traversalBoundsByPadding.has(paddingKey)) {
+        return annotationCache.traversalBoundsByPadding.get(paddingKey);
+    }
+
+    const traversalBounds = getConnectAnnotationSearchBounds(annotation, padding);
+    if (annotationCache) {
+        annotationCache.traversalBoundsByPadding.set(paddingKey, traversalBounds);
+    }
+    return traversalBounds;
 }
 
 function buildConnectSuggestionTraversalIndex(connectAnnotations, padding = getConnectSuggestionTraversalTouchToleranceWorld()) {
@@ -1634,8 +1962,10 @@ function collectConnectedSuggestionRootAnnotations(connectAnnotations, existingA
         sourceLayerName: annotation.layerName
     }));
 
-    while (queuedAnnotations.length) {
-        const queuedState = queuedAnnotations.shift();
+    let queuedAnnotationIndex = 0;
+    while (queuedAnnotationIndex < queuedAnnotations.length) {
+        const queuedState = queuedAnnotations[queuedAnnotationIndex];
+        queuedAnnotationIndex += 1;
         const annotation = queuedState?.annotation;
         const sourceLayerName = queuedState?.sourceLayerName;
         const traversalKey = getConnectAnnotationTraversalKey(annotation);
@@ -1684,13 +2014,121 @@ function collectConnectedSuggestionRootAnnotations(connectAnnotations, existingA
     return connectedRoots;
 }
 
+function collectRepresentativeSuggestionTraversalSeedAnnotations(connectAnnotations, existingAnnotations = []) {
+    const initialConnectAnnotations = collectUniqueConnectAnnotationsForSuggestionTraversal(connectAnnotations);
+    if (!initialConnectAnnotations.length) return [];
+
+    const touchTolerance = getConnectSuggestionTraversalTouchToleranceWorld();
+    const traversalConnectAnnotations = collectUniqueConnectAnnotationsForSuggestionTraversal([
+        ...initialConnectAnnotations,
+        ...(existingAnnotations || []).filter(annotation => annotation?.type === 'connect')
+    ]);
+    const traversalIndex = buildConnectSuggestionTraversalIndex(traversalConnectAnnotations, touchTolerance);
+
+    const endpointToConnectAnnotations = new Map();
+    traversalConnectAnnotations.forEach(annotation => {
+        const traversalKey = getConnectAnnotationTraversalKey(annotation);
+        if (!traversalKey) return;
+        getConnectAnnotationEndpointKeys(annotation).forEach(endpointKey => {
+            const connectList = endpointToConnectAnnotations.get(endpointKey);
+            if (connectList) {
+                connectList.push(annotation);
+            } else {
+                endpointToConnectAnnotations.set(endpointKey, [annotation]);
+            }
+        });
+    });
+
+    const representativeSeeds = [];
+    const seenTraversalStates = new Set();
+
+    initialConnectAnnotations.forEach(annotation => {
+        const sourceLayerName = annotation?.layerName;
+        const traversalKey = getConnectAnnotationTraversalKey(annotation);
+        const traversalStateKey = traversalKey && sourceLayerName
+            ? `${sourceLayerName}::${traversalKey}`
+            : null;
+        if (!traversalStateKey || seenTraversalStates.has(traversalStateKey)) {
+            return;
+        }
+
+        representativeSeeds.push(annotation);
+        const queuedAnnotations = [{ annotation, sourceLayerName }];
+        let queuedAnnotationIndex = 0;
+        while (queuedAnnotationIndex < queuedAnnotations.length) {
+            const queuedState = queuedAnnotations[queuedAnnotationIndex];
+            queuedAnnotationIndex += 1;
+            const queuedAnnotation = queuedState?.annotation;
+            const queuedSourceLayerName = queuedState?.sourceLayerName;
+            const queuedTraversalKey = getConnectAnnotationTraversalKey(queuedAnnotation);
+            const queuedStateKey = queuedTraversalKey && queuedSourceLayerName
+                ? `${queuedSourceLayerName}::${queuedTraversalKey}`
+                : null;
+            if (!queuedStateKey || seenTraversalStates.has(queuedStateKey)) continue;
+
+            seenTraversalStates.add(queuedStateKey);
+
+            getConnectAnnotationEndpointKeys(queuedAnnotation).forEach(endpointKey => {
+                const connectList = endpointToConnectAnnotations.get(endpointKey);
+                if (!Array.isArray(connectList)) return;
+                connectList.forEach(connectedAnnotation => {
+                    const connectedTraversalKey = getConnectAnnotationTraversalKey(connectedAnnotation);
+                    const connectedStateKey = connectedTraversalKey && queuedSourceLayerName
+                        ? `${queuedSourceLayerName}::${connectedTraversalKey}`
+                        : null;
+                    if (!connectedStateKey || seenTraversalStates.has(connectedStateKey)) return;
+                    queuedAnnotations.push({
+                        annotation: connectedAnnotation,
+                        sourceLayerName: queuedSourceLayerName
+                    });
+                });
+            });
+
+            queryConnectedSuggestionTraversalCandidates(queuedAnnotation, traversalIndex).forEach(connectedAnnotation => {
+                const connectedTraversalKey = getConnectAnnotationTraversalKey(connectedAnnotation);
+                const connectedStateKey = connectedTraversalKey && queuedSourceLayerName
+                    ? `${queuedSourceLayerName}::${connectedTraversalKey}`
+                    : null;
+                if (!connectedStateKey || seenTraversalStates.has(connectedStateKey)) return;
+                if (!doConnectAnnotationsTouchForSuggestionTraversal(queuedAnnotation, connectedAnnotation, touchTolerance)) return;
+                queuedAnnotations.push({
+                    annotation: connectedAnnotation,
+                    sourceLayerName: queuedSourceLayerName
+                });
+            });
+        }
+    });
+
+    return representativeSeeds;
+}
+
 function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnectLineKeys) {
     const groupedLineCandidates = [];
-    const queuedLineCandidates = [seedLineCandidate];
+    const solidLineCandidates = [seedLineCandidate];
+    const dashedLineCandidates = [];
     const seenLineKeys = new Set();
+    const queuedSolidLineKeys = new Set(seedLineCandidate?.id ? [seedLineCandidate.id] : []);
+    const queuedDashedLineKeys = new Set();
 
-    while (queuedLineCandidates.length) {
-        const currentLineCandidate = queuedLineCandidates.shift();
+    const queueLineCandidate = (lineCandidate, preferDashedQueue = false) => {
+        if (!lineCandidate || seenLineKeys.has(lineCandidate.id)) return;
+        if (preferDashedQueue) {
+            if (queuedSolidLineKeys.has(lineCandidate.id) || queuedDashedLineKeys.has(lineCandidate.id)) return;
+            queuedDashedLineKeys.add(lineCandidate.id);
+            dashedLineCandidates.push(lineCandidate);
+        } else {
+            if (queuedSolidLineKeys.has(lineCandidate.id)) return;
+            queuedSolidLineKeys.add(lineCandidate.id);
+            solidLineCandidates.push(lineCandidate);
+        }
+    };
+
+    let solidLineIndex = 0;
+    let dashedLineIndex = 0;
+    while (solidLineIndex < solidLineCandidates.length || dashedLineIndex < dashedLineCandidates.length) {
+        const currentLineCandidate = solidLineIndex < solidLineCandidates.length
+            ? solidLineCandidates[solidLineIndex++]
+            : dashedLineCandidates[dashedLineIndex++];
         if (!currentLineCandidate || seenLineKeys.has(currentLineCandidate.id)) continue;
         seenLineKeys.add(currentLineCandidate.id);
         if (currentLineCandidate.layerName !== seedLineCandidate.layerName) continue;
@@ -1712,13 +2150,16 @@ function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnect
                 if (adjacentLineCandidate.layerName !== seedLineCandidate.layerName) return;
                 if (existingConnectLineKeys.has(adjacentLineCandidate.id)) return;
                 if (!areParallelLineCandidates(seedLineCandidate, adjacentLineCandidate)) return;
-                queuedLineCandidates.push(adjacentLineCandidate);
+                queueLineCandidate(
+                    adjacentLineCandidate,
+                    isDashContinuationLineCandidate(adjacentLineCandidate, seedLineCandidate, currentLineCandidate)
+                );
             });
         });
 
         getDashedAlignedNeighborLineCandidates(currentLineCandidate, seedLineCandidate, existingConnectLineKeys).forEach(adjacentLineCandidate => {
             if (!adjacentLineCandidate || seenLineKeys.has(adjacentLineCandidate.id)) return;
-            queuedLineCandidates.push(adjacentLineCandidate);
+            queueLineCandidate(adjacentLineCandidate, true);
         });
     }
 
@@ -1728,10 +2169,25 @@ function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnect
 function buildGroupedConnectAnnotationFromSeedLine(seedLineCandidate, existingConnectLineKeys, options = {}) {
     if (!seedLineCandidate) return null;
 
-    const groupedLineCandidates = collectStraightGroupedLineCandidates(seedLineCandidate, existingConnectLineKeys);
-    if (!groupedLineCandidates.length) return null;
+    const groupedSeedCache = getGroupedConnectSeedExpansionCache(existingConnectLineKeys);
+    let groupedSeedEntry = groupedSeedCache ? groupedSeedCache.get(seedLineCandidate.id) : undefined;
 
-    const groupedLineKey = groupedLineCandidates.map(candidate => candidate.id).sort().join('||');
+    if (groupedSeedEntry === undefined) {
+        const groupedLineCandidates = collectStraightGroupedLineCandidates(seedLineCandidate, existingConnectLineKeys);
+        groupedSeedEntry = groupedLineCandidates.length
+            ? {
+                groupedLineCandidates,
+                groupedLineKey: groupedLineCandidates.map(candidate => candidate.id).sort().join('||')
+            }
+            : null;
+        if (groupedSeedCache) {
+            groupedSeedCache.set(seedLineCandidate.id, groupedSeedEntry);
+        }
+    }
+
+    if (!groupedSeedEntry) return null;
+
+    const { groupedLineCandidates, groupedLineKey } = groupedSeedEntry;
     const annotation = createConnectAnnotationFromLineCandidates(groupedLineCandidates, {
         id: options.id !== undefined ? options.id : `suggested:${groupedLineKey}`,
         source: options.source || 'suggested',
@@ -1954,9 +2410,20 @@ function buildExpandedStraightConnectSuggestionsFromAnnotations(connectAnnotatio
 function collectStraightConnectSuggestionSeeds(connectAnnotations, existingConnectLineKeys) {
     const seedLineCandidates = new Map();
     const suggestableSeedLengthCache = new Map();
+    const straightSeedCache = getStraightConnectSuggestionSeedCache(existingConnectLineKeys);
     connectAnnotations.forEach(annotation => {
         if (!annotation || annotation.type !== 'connect') return;
+        const annotationCacheKey = getConnectAnnotationSuggestionSeedCacheKey(annotation);
+        if (annotationCacheKey && straightSeedCache && straightSeedCache.has(annotationCacheKey)) {
+            (straightSeedCache.get(annotationCacheKey) || []).forEach(lineCandidate => {
+                if (!lineCandidate) return;
+                seedLineCandidates.set(lineCandidate.id, lineCandidate);
+            });
+            return;
+        }
+
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
+        const annotationSeedLineCandidates = new Map();
         Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation)).forEach(endpointKey => {
             const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
                 tolerance: getManualParallelEndpointTouchToleranceWorld(),
@@ -1967,9 +2434,14 @@ function collectStraightConnectSuggestionSeeds(connectAnnotations, existingConne
                 if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, annotation, getManualParallelEndpointTouchToleranceWorld())) return;
                 if (referenceLineCandidate && !areParallelLineCandidates(referenceLineCandidate, lineCandidate)) return;
                 if (!isSuggestableConnectSeedLineLongEnough(lineCandidate, existingConnectLineKeys, suggestableSeedLengthCache)) return;
+                annotationSeedLineCandidates.set(lineCandidate.id, lineCandidate);
                 seedLineCandidates.set(lineCandidate.id, lineCandidate);
             });
         });
+
+        if (annotationCacheKey && straightSeedCache) {
+            straightSeedCache.set(annotationCacheKey, Array.from(annotationSeedLineCandidates.values()));
+        }
     });
     return Array.from(seedLineCandidates.values());
 }
@@ -2052,14 +2524,25 @@ function shouldContinueManualSuggestionWork(options = {}) {
 async function collectStraightConnectSuggestionSeedsAsync(connectAnnotations, existingConnectLineKeys, options = {}) {
     const seedLineCandidates = new Map();
     const suggestableSeedLengthCache = new Map();
+    const straightSeedCache = getStraightConnectSuggestionSeedCache(existingConnectLineKeys);
     const yieldState = { lastYieldTime: performance.now() };
     let processedCount = 0;
 
     for (const annotation of connectAnnotations || []) {
         if (!shouldContinueManualSuggestionWork(options)) return [];
         if (!annotation || annotation.type !== 'connect') continue;
+        const annotationCacheKey = getConnectAnnotationSuggestionSeedCacheKey(annotation);
+        if (annotationCacheKey && straightSeedCache && straightSeedCache.has(annotationCacheKey)) {
+            (straightSeedCache.get(annotationCacheKey) || []).forEach(lineCandidate => {
+                if (!lineCandidate) return;
+                seedLineCandidates.set(lineCandidate.id, lineCandidate);
+            });
+            continue;
+        }
+
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
         const endpointKeys = Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation));
+        const annotationSeedLineCandidates = new Map();
         for (const endpointKey of endpointKeys) {
             const connectedLines = getSameLayerLineCandidatesForEndpoint(endpointKey, annotation.layerName, {
                 tolerance: getManualParallelEndpointTouchToleranceWorld(),
@@ -2073,8 +2556,13 @@ async function collectStraightConnectSuggestionSeedsAsync(connectAnnotations, ex
                 if (doesLineCandidateTouchConnectInternalEndpoints(lineCandidate, annotation, getManualParallelEndpointTouchToleranceWorld())) continue;
                 if (referenceLineCandidate && !areParallelLineCandidates(referenceLineCandidate, lineCandidate)) continue;
                 if (!isSuggestableConnectSeedLineLongEnough(lineCandidate, existingConnectLineKeys, suggestableSeedLengthCache)) continue;
+                annotationSeedLineCandidates.set(lineCandidate.id, lineCandidate);
                 seedLineCandidates.set(lineCandidate.id, lineCandidate);
             }
+        }
+
+        if (annotationCacheKey && straightSeedCache) {
+            straightSeedCache.set(annotationCacheKey, Array.from(annotationSeedLineCandidates.values()));
         }
     }
 
@@ -2185,14 +2673,22 @@ async function buildConnectSuggestionsFromSeedLinesAsync(seedLineCandidates, exi
 }
 
 function getConnectAnnotationResolvedLineCandidates(annotation) {
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.resolvedLineCandidates) {
+        return annotationCache.resolvedLineCandidates;
+    }
+
     const lineCandidates = getConnectAnnotationLineKeys(annotation)
         .map(lineKey => snapPointLineItems.get(lineKey))
         .filter(Boolean);
     if (lineCandidates.length) {
+        if (annotationCache) {
+            annotationCache.resolvedLineCandidates = lineCandidates;
+        }
         return lineCandidates;
     }
 
-    return getConnectAnnotationSegments(annotation)
+    const resolvedLineCandidates = getConnectAnnotationSegments(annotation)
         .filter(segment => Array.isArray(segment) && segment.length >= 2)
         .map((segment, segmentIndex) => ({
             id: `segment:${annotation?.id ?? 'unknown'}:${segmentIndex}`,
@@ -2201,6 +2697,11 @@ function getConnectAnnotationResolvedLineCandidates(annotation) {
             endpointKeys: segment.map(point => getSnapPointKey(annotation?.layerName || point.layerName, point.x, point.y))
         }))
         .filter(lineCandidate => lineCandidate.layerName && lineCandidate.points.length >= 2);
+
+    if (annotationCache) {
+        annotationCache.resolvedLineCandidates = resolvedLineCandidates;
+    }
+    return resolvedLineCandidates;
 }
 
 function getLineLikeGroupKey(lineLike) {
@@ -2282,8 +2783,18 @@ function getLineCandidateEndpointPoints(lineCandidate) {
 }
 
 function getConnectAnnotationBoundaryPoints(annotation) {
-    if (!Array.isArray(annotation?.points)) return [];
-    return annotation.points.map(cloneAnnotationPoint);
+    const annotationCache = getConnectAnnotationDerivedCache(annotation);
+    if (annotationCache?.boundaryPoints) {
+        return annotationCache.boundaryPoints;
+    }
+
+    const boundaryPoints = Array.isArray(annotation?.points)
+        ? annotation.points.map(cloneAnnotationPoint)
+        : [];
+    if (annotationCache) {
+        annotationCache.boundaryPoints = boundaryPoints;
+    }
+    return boundaryPoints;
 }
 
 function getMinimumDistanceBetweenPointSets(pointsA, pointsB) {

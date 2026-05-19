@@ -1476,9 +1476,12 @@
         return addDetectedConnectAnnotationsToManualPanel(connectSpecs, {
             source: 'detection',
             autoAcceptSuggestions: true,
-            maxSuggestionRounds: 2,
+            maxSuggestionRounds: 1,
             fullRecheckExistingConnects: true,
+            recheckFromAcceptedSuggestions: true,
             requestNextSuggestions: false,
+            suppressUi: true,
+            seedQueueAutoAccept: true,
             openPanel: true
         });
     }
@@ -1560,6 +1563,30 @@
             const summary = detectionSummaryMessage(rawResult, adjustedResult);
             console.log('Line-fire detection result:', rawResult);
             console.log('Line-fire adjusted result:', adjustedResult);
+            console.log('Line-fire manual auto-accept timing:', manualPromotionResult?.timing || null);
+            console.log('Line-fire manual auto-accept rounds:', manualPromotionResult?.timing?.autoAccept?.roundBreakdown || []);
+            if (typeof console?.table === 'function' && Array.isArray(manualPromotionResult?.timing?.autoAccept?.roundBreakdown)) {
+                console.table(manualPromotionResult.timing.autoAccept.roundBreakdown.map(round => ({
+                    round: round?.round ?? null,
+                    rawSeedCount: round?.rawSeedCount ?? null,
+                    seedCount: round?.seedCount ?? null,
+                    recheckSeedSource: round?.recheckSeedSource ?? null,
+                    rootSeedCount: round?.request?.rootSeedCount ?? null,
+                    rootExpansionMs: round?.request?.rootExpansionMs ?? null,
+                    straightSeedMs: round?.request?.straightSeedMs ?? null,
+                    straightSeedCount: round?.request?.straightSeedCount ?? null,
+                    teeSeedMs: round?.request?.teeSeedMs ?? null,
+                    teeSeedCount: round?.request?.teeSeedCount ?? null,
+                    buildSeedSuggestionsMs: round?.request?.buildSeedSuggestionsMs ?? null,
+                    overlaySuggestionsMs: round?.request?.overlaySuggestionsMs ?? null,
+                    mergeSuggestionsMs: round?.request?.mergeSuggestionsMs ?? null,
+                    requestMs: round?.requestMs ?? null,
+                    acceptMs: round?.acceptMs ?? null,
+                    suggestedCount: round?.suggestedCount ?? null,
+                    acceptedConnectCount: round?.acceptedConnectCount ?? null,
+                    exitReason: round?.exitReason ?? null
+                })));
+            }
             console.log('Line-fire timing:', {
                 backend_api_seconds: apiTimeSeconds,
                 logic_and_auto_accept_seconds: logicTimeSeconds
