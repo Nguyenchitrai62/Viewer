@@ -378,14 +378,20 @@ function updateRenderSurfaceMode(preferRasterPreview = shouldPreferShapeRasterPr
     return false;
 }
 
-function invalidateShapeRasterCache() {
+function discardShapeRasterCache({ preserveDisplayedPreview = false } = {}) {
     shapeRasterCache = null;
     shapeRasterCacheToken += 1;
     shapeRasterCacheBuildScheduled = false;
-    shapeRasterPreviewMountedCanvas = null;
     highZoomVectorFrameCache = null;
     cancelPendingVectorRender();
-    hideShapeRasterPreview();
+    if (!preserveDisplayedPreview) {
+        shapeRasterPreviewMountedCanvas = null;
+        hideShapeRasterPreview();
+    }
+}
+
+function invalidateShapeRasterCache() {
+    discardShapeRasterCache();
 }
 
 function getShapeRasterScaleForBounds(bounds, requestedScale) {

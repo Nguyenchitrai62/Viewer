@@ -244,6 +244,17 @@ function isMainLayerClassificationStillCurrent(pageKey) {
     return Boolean(hasRenderableDocument() && getMainLayerPageCacheKey() === pageKey);
 }
 
+function isMainLayerClassificationRequestStillCurrent(pageKey, requestToken) {
+    return Boolean(
+        mainLayerClassificationRequestToken === requestToken &&
+        isMainLayerClassificationStillCurrent(pageKey)
+    );
+}
+
+function cancelCurrentMainLayerClassificationWork() {
+    mainLayerClassificationRequestToken += 1;
+}
+
 function createMainLayerAbortError(message = 'Main layer classification was superseded by a newer page.') {
     const error = new Error(message);
     error.name = 'AbortError';
@@ -309,18 +320,24 @@ async function canvasToMainLayerBase64(canvasElement) {
     return canvasElement.toDataURL('image/png').split(',', 2)[1];
 }
 
-async function renderMainLayerCandidateImages(layerNames, pageKey = null) {
+async function renderMainLayerCandidateImages(layerNames, pageKey = null, requestToken = null) {
     const scale = Number(CONFIG.MAIN_LAYER_RENDER_SCALE) || 1;
     if (typeof getExportBounds !== 'function' || typeof renderLayerOnExportCanvas !== 'function' || typeof createCanvas !== 'function') {
         throw new Error('Layer image renderer is not ready.');
     }
 
-    if (pageKey && !isMainLayerClassificationStillCurrent(pageKey)) {
+    if (pageKey && requestToken !== null && !isMainLayerClassificationRequestStillCurrent(pageKey, requestToken)) {
+        throw createMainLayerAbortError();
+    }
+    if (pageKey && requestToken === null && !isMainLayerClassificationStillCurrent(pageKey)) {
         throw createMainLayerAbortError();
     }
 
     const bounds = await getExportBounds(scale);
-    if (pageKey && !isMainLayerClassificationStillCurrent(pageKey)) {
+    if (pageKey && requestToken !== null && !isMainLayerClassificationRequestStillCurrent(pageKey, requestToken)) {
+        throw createMainLayerAbortError();
+    }
+    if (pageKey && requestToken === null && !isMainLayerClassificationStillCurrent(pageKey)) {
         throw createMainLayerAbortError();
     }
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
@@ -333,7 +350,10 @@ async function renderMainLayerCandidateImages(layerNames, pageKey = null) {
     const layers = [];
 
     for (const layerName of layerNames) {
-        if (pageKey && !isMainLayerClassificationStillCurrent(pageKey)) {
+        if (pageKey && requestToken !== null && !isMainLayerClassificationRequestStillCurrent(pageKey, requestToken)) {
+            throw createMainLayerAbortError();
+        }
+        if (pageKey && requestToken === null && !isMainLayerClassificationStillCurrent(pageKey)) {
             throw createMainLayerAbortError();
         }
         renderLayerOnExportCanvas(exportCtx, exportCanvas, layerName, bounds, scale);
@@ -444,11 +464,11 @@ async function classifyMainLayersForCurrentPage(options = {}) {
     updateMainLayerButtonState();
 
     pendingEntry.promise = (async () => {
-        if (!isMainLayerClassificationStillCurrent(pageKey)) {
+        if (!isMainLayerClassificationRequestStillCurrent(pageKey, requestToken)) {
             throw createMainLayerAbortError();
         }
-        const layers = await renderMainLayerCandidateImages(candidateLayerNames, pageKey);
-        if (!isMainLayerClassificationStillCurrent(pageKey)) {
+        const layers = await renderMainLayerCandidateImages(candidateLayerNames, pageKey, requestToken);
+        if (!isMainLayerClassificationRequestStillCurrent(pageKey, requestToken)) {
             throw createMainLayerAbortError();
         }
         const response = await fetch(`${ENV.API_BASE_URL}/classify_main_layers`, {
@@ -467,7 +487,7 @@ async function classifyMainLayersForCurrentPage(options = {}) {
         }
 
         const data = await response.json();
-        if (!isMainLayerClassificationStillCurrent(pageKey)) {
+        if (!isMainLayerClassificationRequestStillCurrent(pageKey, requestToken)) {
             throw createMainLayerAbortError();
         }
         const readyEntry = normalizeMainLayerClassificationResponse(

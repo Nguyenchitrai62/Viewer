@@ -36,6 +36,162 @@ function setupVisualization() {
     resetView();
 }
 
+function releaseVisualizationMemoryForPageSwitch() {
+    if (typeof interactionTimer !== 'undefined' && interactionTimer) {
+        clearTimeout(interactionTimer);
+        interactionTimer = null;
+    }
+    if (typeof discardShapeRasterCache === 'function') {
+        discardShapeRasterCache({ preserveDisplayedPreview: true });
+    } else if (typeof cancelPendingVectorRender === 'function') {
+        cancelPendingVectorRender();
+    }
+
+    if (typeof invalidateFindPopupPageCache === 'function') {
+        invalidateFindPopupPageCache();
+    }
+
+    jsonData = null;
+    jsonShapes = null;
+    documentMetadata = null;
+    svgData = null;
+    currentJsonSourceFile = null;
+    currentJsonGzipPromise = null;
+    layerIndex = {};
+    layerVisibility = {};
+    sortedLayerKeys = [];
+    totalCommands = {};
+    allShapesSorted = [];
+    allShapesBounds = null;
+    shapeQuadtree = null;
+    _perLayerBounds = {};
+    precomputedLengths = {};
+    pipelineRawResults = null;
+    pipelineLayerNames = [];
+    detectionRawResults = null;
+    detectionAdjustedResults = null;
+    detectionLayerNames = [];
+    if (typeof invalidateDetectionExtractImageCache === 'function') {
+        invalidateDetectionExtractImageCache();
+    }
+
+    cachedPageImage = null;
+    cachedPageImageLoading = false;
+    cachedPageImagePageNum = null;
+    cachedPageImageScale = null;
+    cachedPageImagePromise = null;
+    cachedPageImageRequestedPageNum = null;
+
+    layerList.innerHTML = '';
+
+    cropLengths = null;
+    cropLengthsFull = null;
+    cropLengthsFiltered = null;
+    mainLayers = null;
+    anchorBbox = null;
+    cropPreviewBbox = null;
+    cropPreviewTransform = null;
+    anchorPatterns = [];
+    rawAnchorPatternCount = 0;
+    lastSearchMs = 0;
+    lastSequenceSearchMs = 0;
+    similarBboxes = [];
+    sequenceMatches = [];
+    sequencePatternTokens = null;
+    searchBboxSize = null;
+    cropItems = [];
+    cropSelectedItemIds = new Set();
+    expandedNodes = {};
+    dragSelecting = false;
+    selectionMode = 'hide';
+    isCropModalOpen = false;
+
+    isDrawingBbox = false;
+    isApplyingSavedPattern = false;
+    bboxStart = null;
+    currentBbox = null;
+    isVLMBboxMode = false;
+    vlmBboxStart = null;
+    vlmBboxEnd = null;
+    isVLMDrawing = false;
+    if (typeof hideVLMModal === 'function') {
+        hideVLMModal({ clearPending: false });
+    }
+    if (typeof pendingVLMCrop !== 'undefined') {
+        pendingVLMCrop = null;
+    }
+    if (typeof pendingVLMBbox !== 'undefined') {
+        pendingVLMBbox = null;
+    }
+    if (typeof extractedCellOverlays !== 'undefined') {
+        extractedCellOverlays = [];
+    }
+    if (typeof extractedCellDownloadBundle !== 'undefined') {
+        extractedCellDownloadBundle = null;
+    }
+    if (typeof syncExtractedCellDownloadButton === 'function') {
+        syncExtractedCellDownloadButton();
+    }
+    btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
+    btnDrawBbox.classList.remove('active');
+    btnAIExtract.textContent = UI_TEXT.VLM_EXTRACT;
+    btnAIExtract.classList.remove('active');
+    annotationMode = null;
+    pendingConnectPoint = null;
+    hoveredSnapPoint = null;
+    manualAnnotations = [];
+    manualAnnotationId = 0;
+    manualAnnotationHistory = [];
+    snapPoints = [];
+    snapPointQuadtree = null;
+    snapPointLineCandidates = new Map();
+    snapPointLineItems = new Map();
+    snapPointLineItemsByLayer = new Map();
+    snapPointLineQuadtreesByLayer = new Map();
+    snapPointIndexReady = false;
+    snapPointIndexBuildPromise = null;
+    snapPointIndexBuildToken += 1;
+    if (typeof cancelManualSnapPointIndexWarmup === 'function') {
+        cancelManualSnapPointIndexWarmup();
+    } else {
+        snapPointIndexWarmupHandle = null;
+        snapPointIndexWarmupUsesIdleCallback = false;
+    }
+    annotationFeedbackMessage = '';
+    annotationFeedbackTone = 'info';
+    hoveredAnnotationId = null;
+    suggestedConnectAnnotations = [];
+    manualSuggestionRequestId += 1;
+    if (typeof invalidateManualAnnotationSpatialIndex === 'function') {
+        invalidateManualAnnotationSpatialIndex();
+    }
+    canvasContainer.classList.remove('drawing-bbox', 'vlm-bbox-mode', 'annotation-junction-mode', 'annotation-connect-mode', 'annotation-pair-check-mode', 'annotation-delete-mode');
+    crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
+    if (typeof updateModeLabel === 'function') {
+        updateModeLabel(null);
+    }
+    if (typeof updateManualLabelUI === 'function') {
+        updateManualLabelUI();
+    }
+    if (typeof updateDetectionExtractUI === 'function') {
+        updateDetectionExtractUI();
+    }
+    if (typeof resetSymbolAnnotationState === 'function') {
+        resetSymbolAnnotationState({ clearCache: false });
+    }
+
+    document.getElementById('found-count').style.display = 'none';
+
+    globalSeqnoToIds = {};
+    cropSeqnoToIds = {};
+    seqnoEndpoints = {};
+    seqnoToLayer = {};
+    seqnoGroups = {};
+    groupToSeqnos = {};
+    hoveredGroup = null;
+    seqnoHoverIndexReady = false;
+}
+
 function resizeCanvas() {
     canvas.width = canvasContainer.clientWidth;
     canvas.height = canvasContainer.clientHeight;
@@ -114,19 +270,9 @@ function resetView() {
 }
 
 function clearVisualization() {
-    if (typeof interactionTimer !== 'undefined' && interactionTimer) {
-        clearTimeout(interactionTimer);
-        interactionTimer = null;
-    }
-    if (typeof cancelPendingVectorRender === 'function') {
-        cancelPendingVectorRender();
-    }
-
+    releaseVisualizationMemoryForPageSwitch();
     if (typeof invalidateShapeRasterCache === 'function') {
         invalidateShapeRasterCache();
-    }
-    if (typeof invalidateFindPopupPageCache === 'function') {
-        invalidateFindPopupPageCache();
     }
     if (typeof hideShapeRasterPreview === 'function') {
         hideShapeRasterPreview();
@@ -142,41 +288,6 @@ function clearVisualization() {
     document.getElementById('svg-text-layer').innerHTML = '';
     document.getElementById('svg-graphic-layer').innerHTML = '';
 
-    // Reset data
-    jsonData = null;
-    jsonShapes = null;
-    documentMetadata = null;
-    svgData = null;
-    currentJsonSourceFile = null;
-    currentJsonGzipPromise = null;
-    layerIndex = {};
-    layerVisibility = {};
-    sortedLayerKeys = [];
-    totalCommands = {};
-    allShapesSorted = [];
-    allShapesBounds = null;
-    shapeQuadtree = null;
-    _perLayerBounds = {};
-    precomputedLengths = {}; // Clear stale length cache to avoid wrong matches on new page
-    pipelineRawResults = null;
-    pipelineLayerNames = [];
-    detectionRawResults = null;
-    detectionAdjustedResults = null;
-    detectionLayerNames = [];
-    if (typeof invalidateDetectionExtractImageCache === 'function') {
-        invalidateDetectionExtractImageCache();
-    }
-
-    cachedPageImage = null;
-    cachedPageImageLoading = false;
-    cachedPageImagePageNum = null;
-    cachedPageImageScale = null;
-    cachedPageImagePromise = null;
-    cachedPageImageRequestedPageNum = null;
-
-    // Clear layer list
-    layerList.innerHTML = '';
-
     // Show drop zone if hidden
     dropZone.classList.remove('hidden');
 
@@ -184,117 +295,6 @@ function clearVisualization() {
     zoom = CONFIG.INITIAL_ZOOM;
     offsetX = 0;
     offsetY = 0;
-
-    // Clear crop data and search state
-    cropLengths = null;
-    cropLengthsFull = null;
-    cropLengthsFiltered = null;
-    mainLayers = null;
-    anchorBbox = null;
-    cropPreviewBbox = null;
-    cropPreviewTransform = null;
-    anchorPatterns = [];
-    rawAnchorPatternCount = 0;
-    lastSearchMs = 0;
-    lastSequenceSearchMs = 0;
-    similarBboxes = [];
-    sequenceMatches = []; // Reset sequence matches
-    sequencePatternTokens = null; // Reset sequence tokens
-    searchBboxSize = null;
-    cropItems = [];
-    cropSelectedItemIds = new Set();
-    expandedNodes = {};
-    dragSelecting = false;
-    selectionMode = 'hide';
-    isCropModalOpen = false;
-
-    // Reset transient UI modes so button labels/icons stay in sync after a reload.
-    isDrawingBbox = false;
-    isApplyingSavedPattern = false;
-    bboxStart = null;
-    currentBbox = null;
-    isVLMBboxMode = false;
-    vlmBboxStart = null;
-    vlmBboxEnd = null;
-    isVLMDrawing = false;
-    if (typeof hideVLMModal === 'function') {
-        hideVLMModal({ clearPending: false });
-    }
-    if (typeof pendingVLMCrop !== 'undefined') {
-        pendingVLMCrop = null;
-    }
-    if (typeof pendingVLMBbox !== 'undefined') {
-        pendingVLMBbox = null;
-    }
-    if (typeof extractedCellOverlays !== 'undefined') {
-        extractedCellOverlays = [];
-    }
-    if (typeof extractedCellDownloadBundle !== 'undefined') {
-        extractedCellDownloadBundle = null;
-    }
-    if (typeof syncExtractedCellDownloadButton === 'function') {
-        syncExtractedCellDownloadButton();
-    }
-    btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
-    btnDrawBbox.classList.remove('active');
-    btnAIExtract.textContent = UI_TEXT.VLM_EXTRACT;
-    btnAIExtract.classList.remove('active');
-    annotationMode = null;
-    pendingConnectPoint = null;
-    hoveredSnapPoint = null;
-    manualAnnotations = [];
-    manualAnnotationId = 0;
-    manualAnnotationHistory = [];
-    snapPoints = [];
-    snapPointQuadtree = null;
-    snapPointLineCandidates = new Map();
-    snapPointLineItems = new Map();
-    snapPointLineItemsByLayer = new Map();
-    snapPointLineQuadtreesByLayer = new Map();
-    snapPointIndexReady = false;
-    snapPointIndexBuildPromise = null;
-    snapPointIndexBuildToken += 1;
-    if (typeof cancelManualSnapPointIndexWarmup === 'function') {
-        cancelManualSnapPointIndexWarmup();
-    } else {
-        snapPointIndexWarmupHandle = null;
-        snapPointIndexWarmupUsesIdleCallback = false;
-    }
-    annotationFeedbackMessage = '';
-    annotationFeedbackTone = 'info';
-    hoveredAnnotationId = null;
-    suggestedConnectAnnotations = [];
-    manualSuggestionRequestId += 1;
-    if (typeof invalidateManualAnnotationSpatialIndex === 'function') {
-        invalidateManualAnnotationSpatialIndex();
-    }
-    canvasContainer.classList.remove('drawing-bbox', 'vlm-bbox-mode', 'annotation-junction-mode', 'annotation-connect-mode', 'annotation-pair-check-mode', 'annotation-delete-mode');
-    crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
-    if (typeof updateModeLabel === 'function') {
-        updateModeLabel(null);
-    }
-    if (typeof updateManualLabelUI === 'function') {
-        updateManualLabelUI();
-    }
-    if (typeof updateDetectionExtractUI === 'function') {
-        updateDetectionExtractUI();
-    }
-    if (typeof resetSymbolAnnotationState === 'function') {
-        resetSymbolAnnotationState({ clearCache: false });
-    }
-
-    // Clear search info
-    document.getElementById('found-count').style.display = 'none';
-
-    // Clear seqno mapping
-    globalSeqnoToIds = {};
-    cropSeqnoToIds = {};
-    seqnoEndpoints = {};
-    seqnoToLayer = {};
-    seqnoGroups = {};
-    groupToSeqnos = {};
-    hoveredGroup = null;
-    seqnoHoverIndexReady = false;
 
     // Clear selected thumbnail
     document.querySelectorAll('.page-thumbnail').forEach(thumb => thumb.classList.remove('selected'));

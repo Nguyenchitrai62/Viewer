@@ -836,6 +836,12 @@ function cancelManualSnapPointIndexWarmup() {
     snapPointIndexWarmupUsesIdleCallback = false;
 }
 
+function cancelSnapPointIndexBuild() {
+    cancelManualSnapPointIndexWarmup();
+    snapPointIndexBuildToken += 1;
+    snapPointIndexBuildPromise = null;
+}
+
 function getAnnotationSnapToleranceWorld() {
     return CONFIG.MANUAL_LABEL_SNAP_SCREEN_PX / Math.max(zoom, 0.01);
 }

@@ -946,40 +946,54 @@ function getBase64DecodedByteLength(base64Value) {
     return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
 }
 
-function decodeBase64ToUint8Array(base64Value) {
-    const rawValue = base64Value || '';
-    const sanitized = /\s/.test(rawValue) ? rawValue.replace(/\s+/g, '') : rawValue;
-    const outputLength = getBase64DecodedByteLength(sanitized);
-    const bytes = new Uint8Array(outputLength);
-    if (!outputLength) {
-        return bytes;
-    }
+function createBase64DecodedByteStream(base64Value) {
+    const rawValue = typeof base64Value === 'string' ? base64Value : '';
+    const chunkChars = 4 * 8192;
+    let sourceIndex = 0;
+    let pendingChars = '';
 
-    const chunkChars = 4 * 8192; // keep each chunk aligned to base64 quantum
-    let byteOffset = 0;
-    for (let i = 0; i < sanitized.length; i += chunkChars) {
-        const chunk = sanitized.slice(i, i + chunkChars);
-        if (!chunk) continue;
-        const binary = atob(chunk);
-        for (let j = 0; j < binary.length; j++) {
-            bytes[byteOffset++] = binary.charCodeAt(j);
+    return new ReadableStream({
+        pull(controller) {
+            while (pendingChars.length < chunkChars && sourceIndex < rawValue.length) {
+                const nextSlice = rawValue.slice(sourceIndex, sourceIndex + chunkChars);
+                sourceIndex += chunkChars;
+                pendingChars += /\s/.test(nextSlice) ? nextSlice.replace(/\s+/g, '') : nextSlice;
+            }
+
+            const sourceExhausted = sourceIndex >= rawValue.length;
+            const availableChars = sourceExhausted
+                ? pendingChars.length
+                : (pendingChars.length - (pendingChars.length % 4));
+
+            if (availableChars <= 0) {
+                if (sourceExhausted) {
+                    controller.close();
+                }
+                return;
+            }
+
+            const chunk = pendingChars.slice(0, availableChars);
+            pendingChars = pendingChars.slice(availableChars);
+            const binary = atob(chunk);
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+                bytes[index] = binary.charCodeAt(index);
+            }
+            controller.enqueue(bytes);
+
+            if (sourceExhausted && pendingChars.length === 0) {
+                controller.close();
+            }
         }
-    }
-    return bytes;
+    });
 }
 
 async function parseGzipBase64ToDocumentStreaming(gzipB64, { sourceLabel = 'JSON gzip', onProgress = null } = {}) {
-    const gzipBytes = decodeBase64ToUint8Array(gzipB64);
-    if (!gzipBytes.length) {
+    if (!getBase64DecodedByteLength(gzipB64)) {
         throw new Error('Empty gzip payload.');
     }
 
-    const gzipByteStream = new ReadableStream({
-        start(controller) {
-            controller.enqueue(gzipBytes);
-            controller.close();
-        }
-    });
+    const gzipByteStream = createBase64DecodedByteStream(gzipB64);
     const decompressedStream = gzipByteStream.pipeThrough(new DecompressionStream('gzip'));
 
     if (decompressedStream && typeof decompressedStream.getReader === 'function') {

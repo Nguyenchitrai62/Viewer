@@ -14,6 +14,7 @@ function revokeCurrentPdfDocumentUrl() {
 }
 
 async function releaseCurrentPdfResources() {
+    cancelCurrentPdfRasterPreviewWork();
     const pdfToDestroy = currentPdfDocument;
     currentPdfDocument = null;
     currentPdfDocumentPromise = null;
@@ -96,10 +97,16 @@ async function ensureCurrentPdfDocument() {
 
 function beginPriorityPageLoad() {
     activePageLoadCount += 1;
+    if (canvasContainer) {
+        canvasContainer.style.pointerEvents = 'none';
+    }
 }
 
 function endPriorityPageLoad() {
     activePageLoadCount = Math.max(0, activePageLoadCount - 1);
+    if (canvasContainer && activePageLoadCount === 0) {
+        canvasContainer.style.pointerEvents = '';
+    }
 }
 
 function hasCachedPageImage(pageNum = currentPageNum) {
@@ -140,6 +147,42 @@ function isCurrentPdfRasterPreviewPending(pageNum = currentPageNum) {
     if (!currentPdfFile || !pageNum) return false;
     if (hasCachedPageImage(pageNum)) return false;
     return Boolean(cachedPageImageLoading || cachedPageImageRequestedPageNum === pageNum);
+}
+
+function cancelCurrentPdfRasterPreviewWork() {
+    cachedPageImageTaskToken += 1;
+    cachedPageImage = null;
+    cachedPageImagePageNum = null;
+    cachedPageImageScale = null;
+    cachedPageImageLoading = false;
+    cachedPageImagePromise = null;
+    cachedPageImageRequestedPageNum = null;
+    if (cachedPageImageRenderTask) {
+        try {
+            cachedPageImageRenderTask.cancel();
+        } catch (error) {
+            console.warn('PDF raster preview cancel error:', error);
+        }
+        cachedPageImageRenderTask = null;
+    }
+}
+
+function cancelCurrentPageOptimizationWork() {
+    if (typeof discardShapeRasterCache === 'function') {
+        discardShapeRasterCache({ preserveDisplayedPreview: true });
+    } else if (typeof cancelPendingVectorRender === 'function') {
+        cancelPendingVectorRender();
+    }
+    if (typeof invalidateFindPopupPageCache === 'function') {
+        invalidateFindPopupPageCache();
+    }
+    if (typeof cancelSnapPointIndexBuild === 'function') {
+        cancelSnapPointIndexBuild();
+    }
+    if (typeof cancelCurrentMainLayerClassificationWork === 'function') {
+        cancelCurrentMainLayerClassificationWork();
+    }
+    cancelCurrentPdfRasterPreviewWork();
 }
 
 async function buildCurrentPdfRasterPreview(pageNum = currentPageNum) {
@@ -233,18 +276,26 @@ async function preRenderPageImage(pageNum = currentPageNum) {
     }
 
     cachedPageImageLoading = true;
-    cachedPageImagePromise = (async () => {
+    const buildPromise = (async () => {
+        const taskToken = cachedPageImageTaskToken;
         let latestCanvas = null;
 
-        while (cachedPageImageRequestedPageNum) {
+        while (taskToken === cachedPageImageTaskToken && cachedPageImageRequestedPageNum) {
             const targetPage = cachedPageImageRequestedPageNum;
             cachedPageImageRequestedPageNum = null;
             console.time(`Pre-render page ${targetPage} image`);
 
             let page = null;
+            let renderTask = null;
             try {
                 const pdf = await ensureCurrentPdfDocument();
+                if (taskToken !== cachedPageImageTaskToken) {
+                    return latestCanvas;
+                }
                 page = await pdf.getPage(targetPage);
+                if (taskToken !== cachedPageImageTaskToken) {
+                    return latestCanvas;
+                }
 
                 const scale = CONFIG.PDF_PAGE_CACHE_SCALE || 3;
                 const viewport = page.getViewport({ scale });
@@ -255,10 +306,17 @@ async function preRenderPageImage(pageNum = currentPageNum) {
                 const offCtx = offCanvas.getContext('2d');
                 if (!offCtx) continue;
 
-                await page.render({
+                renderTask = page.render({
                     canvasContext: offCtx,
                     viewport
-                }).promise;
+                });
+                cachedPageImageRenderTask = renderTask;
+
+                await renderTask.promise;
+
+                if (taskToken !== cachedPageImageTaskToken) {
+                    return latestCanvas;
+                }
 
                 if (currentPageNum === targetPage) {
                     cachedPageImage = offCanvas;
@@ -273,8 +331,14 @@ async function preRenderPageImage(pageNum = currentPageNum) {
                     console.log(`Pre-render page ${targetPage} discarded (user switched to page ${currentPageNum})`);
                 }
             } catch (error) {
+                if (taskToken !== cachedPageImageTaskToken || error?.name === 'RenderingCancelledException') {
+                    continue;
+                }
                 console.warn(`Pre-render page ${targetPage} failed:`, error);
             } finally {
+                if (cachedPageImageRenderTask === renderTask) {
+                    cachedPageImageRenderTask = null;
+                }
                 if (page) {
                     try { page.cleanup(); } catch (e) {}
                 }
@@ -284,9 +348,13 @@ async function preRenderPageImage(pageNum = currentPageNum) {
 
         return latestCanvas;
     })().finally(() => {
-        cachedPageImageLoading = false;
-        cachedPageImagePromise = null;
+        if (cachedPageImagePromise === buildPromise) {
+            cachedPageImageLoading = false;
+            cachedPageImagePromise = null;
+        }
     });
+
+    cachedPageImagePromise = buildPromise;
 
     return cachedPageImagePromise;
 }
@@ -1200,6 +1268,13 @@ async function loadCachedPage(pageNum, { requestId = pageLoadRequestId, sourceFi
 
     beginPriorityPageLoad();
     try {
+        if (typeof releaseVisualizationMemoryForPageSwitch === 'function') {
+            releaseVisualizationMemoryForPageSwitch();
+            await yieldToBrowser();
+            if (requestId !== pageLoadRequestId) {
+                return;
+            }
+        }
         console.time(`Stream parse page ${pageNum}`);
         const documentData = await parseGzipBase64ToDocumentStreaming(gzipB64, {
             sourceLabel: `cached page ${pageNum}`,
@@ -1250,6 +1325,10 @@ async function processSelectedPage(pageNum) {
     updateSelectedThumbnail(pageNum);
 
     const sourceContext = getPageSelectionContext();
+    const isDifferentPageSelection = Boolean(sourceContext.file !== currentPdfFile || pageNum !== currentPageNum);
+    if (isDifferentPageSelection) {
+        cancelCurrentPageOptimizationWork();
+    }
 
     // If cached, use cache (instant)
     if (getPageGzipCacheValue(sourceContext.cache, pageNum, { touch: false })) {
@@ -1333,6 +1412,13 @@ async function processSelectedPage(pageNum) {
         if (!response.ok) {
             invalidatePdfUploadSessionForResponse(response, file);
             throw new Error(await parseHttpErrorResponse(response));
+        }
+        if (typeof releaseVisualizationMemoryForPageSwitch === 'function') {
+            releaseVisualizationMemoryForPageSwitch();
+            await yieldToBrowser();
+            if (requestId !== pageLoadRequestId) {
+                return;
+            }
         }
         const documentData = await loadJsonResponseStreaming(response, {
             sourceLabel: `page ${pageNum}`,
