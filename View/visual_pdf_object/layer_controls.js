@@ -158,23 +158,17 @@ function getMainLayerMinElementCount() {
     return Number.isFinite(value) && value >= 0 ? value : 100;
 }
 
-function getMainLayerBlackChannelMax() {
-    const value = Number(CONFIG.MAIN_LAYER_BLACK_CHANNEL_MAX);
-    return Number.isFinite(value) && value >= 0 ? value : 70;
-}
-
-function getMainLayerBlackBrightnessMax() {
-    const value = Number(CONFIG.MAIN_LAYER_BLACK_BRIGHTNESS_MAX);
-    return Number.isFinite(value) && value >= 0 ? value : 0.18;
-}
-
-function isMainLayerBlackCandidate(layerName) {
+function isMainLayerExcludedGrayOrWhiteCandidate(layerName) {
     const channels = parseColorChannels(getLayerVisualMeta(layerName).color);
     if (!channels) return false;
-    const clamped = channels.slice(0, 3).map(channel => Math.max(0, Math.min(255, Number(channel) || 0)));
-    const maxChannel = Math.max(...clamped);
-    return maxChannel <= getMainLayerBlackChannelMax()
-        && getPerceivedLayerBrightness(layerName) <= getMainLayerBlackBrightnessMax();
+
+    const clamped = channels
+        .slice(0, 3)
+        .map(channel => Math.max(0, Math.min(255, Math.round(Number(channel) || 0))));
+    return clamped.length === 3
+        && clamped[0] === clamped[1]
+        && clamped[1] === clamped[2]
+        && clamped[0] !== 0;
 }
 
 function getMainLayerCandidateLayerNames() {
@@ -183,7 +177,7 @@ function getMainLayerCandidateLayerNames() {
         .filter(layerName => {
             const elementCount = Number(totalCommands[layerName] || 0);
             return elementCount > minElements
-                && isMainLayerBlackCandidate(layerName)
+                && !isMainLayerExcludedGrayOrWhiteCandidate(layerName)
                 && Array.isArray(layerIndex[layerName])
                 && layerIndex[layerName].length > 0;
         });
@@ -583,8 +577,8 @@ function updateMainLayerButtonState() {
     btnShowMainLayer.disabled = !candidateLayerNames.length;
     btnShowMainLayer.textContent = 'Main Layer';
     btnShowMainLayer.title = candidateLayerNames.length
-        ? `Phân loại ${candidateLayerNames.length} layer màu đen có hơn ${getMainLayerMinElementCount()} ele`
-        : `Không có layer màu đen nào có hơn ${getMainLayerMinElementCount()} ele`;
+        ? `Phân loại ${candidateLayerNames.length} layer khác xám/trắng có hơn ${getMainLayerMinElementCount()} ele`
+        : `Không có layer khác xám/trắng nào có hơn ${getMainLayerMinElementCount()} ele`;
 }
 
 function applyMainLayerClassificationFilter(entry) {
