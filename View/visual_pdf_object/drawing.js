@@ -1154,6 +1154,10 @@ function drawViewportOverlays(targetCtx, {
     if (typeof drawManualAnnotationOverlays === 'function') {
         drawManualAnnotationOverlays(targetCtx);
     }
+
+    if (typeof drawDetectionExtractOverlays === 'function') {
+        drawDetectionExtractOverlays(targetCtx);
+    }
 }
 
 function draw() {

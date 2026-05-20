@@ -111,6 +111,39 @@
         return DETECTION_CLASS_COLORS[detectionNormalizeClassName(className).toLowerCase()] || DETECTION_CLASS_COLORS.default;
     }
 
+    function detectionGetConfidenceDisplayThreshold() {
+        const threshold = Number(CONFIG.CONFIDENCE_DISPLAY_THRESHOLD);
+        return Number.isFinite(threshold) ? Math.max(0, threshold) : 0;
+    }
+
+    function detectionFormatConfidenceLabel(confidence) {
+        const normalizedConfidence = detectionSafeNumber(confidence);
+        if (normalizedConfidence === null) return '';
+        return `${(normalizedConfidence * 100).toFixed(normalizedConfidence >= 0.995 ? 2 : 1)}%`;
+    }
+
+    function detectionBuildOverlayRenderContext(detectionJson) {
+        const bounds = detectionOverlayContext?.bounds;
+        if (!bounds || !Number.isFinite(bounds.width) || bounds.width <= 0 || !Number.isFinite(bounds.height) || bounds.height <= 0) {
+            return null;
+        }
+
+        const imageSize = detectionJson?.image_size || {};
+        const imageWidth = Number(imageSize.width || detectionOverlayContext.imageWidth);
+        const imageHeight = Number(imageSize.height || detectionOverlayContext.imageHeight);
+        if (!Number.isFinite(imageWidth) || imageWidth <= 0 || !Number.isFinite(imageHeight) || imageHeight <= 0) {
+            return null;
+        }
+
+        return {
+            ...detectionOverlayContext,
+            imageWidth,
+            imageHeight,
+            scaleX: imageWidth / bounds.width,
+            scaleY: imageHeight / bounds.height
+        };
+    }
+
     function setDetectionExtractStatus(message, tone = 'info') {
         if (!detectExtractStatus) return;
         detectExtractStatus.classList.remove('is-error', 'is-success');
@@ -1298,6 +1331,63 @@
         return prepareShapeForDraw(shape, DETECTION_RENDER_PRIORITY, true);
     }
 
+    function drawDetectionExtractOverlays(targetCtx) {
+        if (detectionResultViewMode !== DETECTION_VIEW_MODE_RAW) return;
+        if (!Array.isArray(detectionRawResults?.detections) || !detectionRawResults.detections.length) return;
+
+        const context = detectionBuildOverlayRenderContext(detectionRawResults);
+        if (!context) return;
+
+        const confidenceDisplayThreshold = detectionGetConfidenceDisplayThreshold();
+        const zoomSafe = Math.max(zoom, 0.01);
+        const fontSize = 11 / zoomSafe;
+        const paddingX = 4 / zoomSafe;
+        const paddingY = 3 / zoomSafe;
+        const labelGap = 2 / zoomSafe;
+
+        targetCtx.save();
+        targetCtx.lineJoin = 'round';
+        targetCtx.textBaseline = 'top';
+        targetCtx.font = `700 ${fontSize}px Arial`;
+
+        detectionRawResults.detections.forEach(detection => {
+            const confidence = detectionSafeNumber(detection?.confidence);
+            if (confidence === null || confidence < confidenceDisplayThreshold) return;
+
+            const className = detectionNormalizeClassName(detection?.class_name);
+            const layerName = `${DETECTION_LAYER_PREFIX}${className}`;
+            if (layerVisibility[layerName] === false) return;
+
+            const pixelBounds = detectionBoundsFromAabb(detection?.aabb || [])
+                || detectionBoundsFromPointPairs(detection?.obb || []);
+            if (!pixelBounds) return;
+
+            const labelText = detectionFormatConfidenceLabel(confidence);
+            if (!labelText) return;
+
+            const worldTopLeft = detectionPixelPointToWorld({ x: pixelBounds.minX, y: pixelBounds.minY }, context);
+            const textWidth = targetCtx.measureText(labelText).width;
+            const labelWidth = textWidth + (paddingX * 2);
+            const labelHeight = fontSize + (paddingY * 2);
+            const maxLabelX = Math.max(context.bounds.minX, context.bounds.maxX - labelWidth);
+            const maxLabelY = Math.max(context.bounds.minY, context.bounds.maxY - labelHeight);
+            const labelX = Math.max(context.bounds.minX, Math.min(worldTopLeft.x, maxLabelX));
+            let labelY = worldTopLeft.y - labelHeight - labelGap;
+            if (labelY < context.bounds.minY) {
+                labelY = Math.min(maxLabelY, worldTopLeft.y + labelGap);
+            }
+            labelY = Math.max(context.bounds.minY, labelY);
+
+            const color = detectionGetClassColor(className);
+            targetCtx.fillStyle = toRgbString(color, 0.92);
+            targetCtx.fillRect(labelX, labelY, labelWidth, labelHeight);
+            targetCtx.fillStyle = '#ffffff';
+            targetCtx.fillText(labelText, labelX + paddingX, labelY + paddingY);
+        });
+
+        targetCtx.restore();
+    }
+
     function applyDetectionResultsToLayers(adjustedDetectionJson, exportContext) {
         clearDetectionVisualization({ refresh: false, preserveResults: true });
         const imageSize = adjustedDetectionJson?.image_size || {};
@@ -1660,6 +1750,7 @@
     window.applyDetectionExtractPanelState = applyDetectionExtractPanelState;
     window.updateDetectionExtractUI = updateDetectionExtractUI;
     window.clearDetectionVisualization = clearDetectionVisualization;
+    window.drawDetectionExtractOverlays = drawDetectionExtractOverlays;
     window.invalidateDetectionExtractImageCache = detectionInvalidateExtractImageCache;
     window.runDetectionExtract = runDetectionExtract;
 })();
