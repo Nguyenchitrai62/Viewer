@@ -6,12 +6,14 @@
     const detectExtractSummary = document.getElementById('detect-extract-summary');
     const btnDetectViewProcessed = document.getElementById('btn-detect-view-processed');
     const btnDetectViewRaw = document.getElementById('btn-detect-view-raw');
+    const btnDetectViewFinal = document.getElementById('btn-detect-view-final');
     const btnRunDetectExtract = document.getElementById('btn-run-detect-extract');
     const btnClearDetectExtract = document.getElementById('btn-clear-detect-extract');
 
     const DETECTION_PANEL_STORAGE_KEY = 'visual_pdf_object.detect_extract_collapsed';
     const DETECTION_VIEW_MODE_RAW = 'raw';
     const DETECTION_VIEW_MODE_PROCESSED = 'processed';
+    const DETECTION_VIEW_MODE_FINAL = 'final';
     const DETECTION_LAYER_PREFIX = 'Detect: ';
     const DETECTION_RENDER_PRIORITY = 2;
     const DETECTION_DEFAULT_SEARCH_PADDING = 5;
@@ -29,6 +31,10 @@
         sprinkler: [0.93, 0.36, 0.12],
         default: [0.49, 0.27, 0.95]
     });
+    const DETECTION_ANNOTATION_COLORS = Object.freeze({
+        connect: '#0ea5e9',
+        junction: '#ef4444'
+    });
     const DETECTION_CACHE_BOUNDS_EPSILON = 1e-4;
     const DETECTION_CACHE_SCALE_EPSILON = 1e-3;
 
@@ -36,7 +42,7 @@
     let isDetectionExtractRunning = false;
     let detectionExtractImageCache = null;
     let detectionOverlayContext = null;
-    let detectionResultViewMode = DETECTION_VIEW_MODE_PROCESSED;
+    let detectionResultViewMode = DETECTION_VIEW_MODE_FINAL;
 
     function detectionClone(value) {
         if (typeof structuredClone === 'function') {
@@ -167,20 +173,44 @@
             : 0;
     }
 
+    function detectionGetFinalResultCount() {
+        return Array.isArray(detectionAutoAcceptResults?.manual_annotations)
+            ? detectionAutoAcceptResults.manual_annotations.length
+            : 0;
+    }
+
+    function detectionGetResultCountForViewMode(viewMode = detectionResultViewMode) {
+        if (viewMode === DETECTION_VIEW_MODE_RAW) {
+            return detectionGetRawResultCount();
+        }
+        if (viewMode === DETECTION_VIEW_MODE_FINAL) {
+            return detectionGetFinalResultCount();
+        }
+        return detectionGetProcessedResultCount();
+    }
+
     function detectionGetResultForViewMode(viewMode = detectionResultViewMode) {
         if (viewMode === DETECTION_VIEW_MODE_RAW) {
             return detectionRawResults;
+        }
+        if (viewMode === DETECTION_VIEW_MODE_FINAL) {
+            return detectionAutoAcceptResults;
         }
         return detectionAdjustedResults;
     }
 
     function detectionEnsureAvailableViewMode() {
-        const rawCount = detectionGetRawResultCount();
-        const processedCount = detectionGetProcessedResultCount();
-        if (detectionResultViewMode === DETECTION_VIEW_MODE_RAW && !rawCount && processedCount) {
-            detectionResultViewMode = DETECTION_VIEW_MODE_PROCESSED;
-        } else if (detectionResultViewMode === DETECTION_VIEW_MODE_PROCESSED && !processedCount && rawCount) {
-            detectionResultViewMode = DETECTION_VIEW_MODE_RAW;
+        const availableModes = [
+            detectionGetFinalResultCount() > 0 ? DETECTION_VIEW_MODE_FINAL : null,
+            detectionGetProcessedResultCount() > 0 ? DETECTION_VIEW_MODE_PROCESSED : null,
+            detectionGetRawResultCount() > 0 ? DETECTION_VIEW_MODE_RAW : null
+        ].filter(Boolean);
+        if (!availableModes.length) {
+            detectionResultViewMode = DETECTION_VIEW_MODE_FINAL;
+            return;
+        }
+        if (!availableModes.includes(detectionResultViewMode)) {
+            detectionResultViewMode = availableModes[0];
         }
     }
 
@@ -190,18 +220,21 @@
 
     function updateDetectionExtractSummary() {
         if (!detectExtractSummary) return;
-        detectExtractSummary.textContent = `Raw ${detectionGetRawResultCount()} | Processed ${detectionGetProcessedResultCount()} | Verify >= ${detectionFormatCoverageThreshold()}`;
+        detectExtractSummary.textContent = `Raw ${detectionGetRawResultCount()} | Process ${detectionGetProcessedResultCount()} | Final ${detectionGetFinalResultCount()} | Verify >= ${detectionFormatCoverageThreshold()}`;
     }
 
     function refreshDetectionVisualizationForCurrentView() {
         const activeResult = detectionGetResultForViewMode();
         if (!activeResult || !detectionOverlayContext) return false;
-        applyDetectionResultsToLayers(activeResult, detectionOverlayContext);
+        if (Array.isArray(detectionLayerNames) && detectionLayerNames.length) {
+            clearDetectionVisualization({ refresh: false, preserveResults: true });
+        }
+        scheduleDraw();
         return true;
     }
 
     function setDetectionResultViewMode(nextMode, options = {}) {
-        if (nextMode !== DETECTION_VIEW_MODE_RAW && nextMode !== DETECTION_VIEW_MODE_PROCESSED) {
+        if (nextMode !== DETECTION_VIEW_MODE_RAW && nextMode !== DETECTION_VIEW_MODE_PROCESSED && nextMode !== DETECTION_VIEW_MODE_FINAL) {
             return;
         }
         detectionResultViewMode = nextMode;
@@ -214,10 +247,10 @@
 
     function updateDetectionExtractUI() {
         detectionEnsureAvailableViewMode();
-        const activeResult = detectionGetResultForViewMode();
-        const detectionCount = Array.isArray(activeResult?.detections) ? activeResult.detections.length : 0;
+        const detectionCount = detectionGetResultCountForViewMode();
         const rawCount = detectionGetRawResultCount();
         const processedCount = detectionGetProcessedResultCount();
+        const finalCount = detectionGetFinalResultCount();
         if (detectExtractCountBadge) {
             detectExtractCountBadge.textContent = String(detectionCount);
         }
@@ -234,14 +267,20 @@
             btnDetectViewRaw.setAttribute('aria-pressed', String(isActive));
             btnDetectViewRaw.disabled = isDetectionExtractRunning || rawCount === 0;
         }
+        if (btnDetectViewFinal) {
+            const isActive = detectionResultViewMode === DETECTION_VIEW_MODE_FINAL;
+            btnDetectViewFinal.classList.toggle('is-active', isActive);
+            btnDetectViewFinal.setAttribute('aria-pressed', String(isActive));
+            btnDetectViewFinal.disabled = isDetectionExtractRunning || finalCount === 0;
+        }
         if (btnRunDetectExtract) {
             btnRunDetectExtract.disabled = isDetectionExtractRunning || !hasRenderableDocument();
             btnRunDetectExtract.textContent = isDetectionExtractRunning ? 'Running...' : 'Detect';
         }
         if (btnClearDetectExtract) {
-            btnClearDetectExtract.disabled = isDetectionExtractRunning || (!rawCount && !processedCount);
+            btnClearDetectExtract.disabled = isDetectionExtractRunning || (!rawCount && !processedCount && !finalCount);
         }
-        if (!rawCount && !processedCount && detectExtractStatus && !isDetectionExtractRunning) {
+        if (!rawCount && !processedCount && !finalCount && detectExtractStatus && !isDetectionExtractRunning) {
             setDetectionExtractStatus('No detection results yet.');
         }
     }
@@ -257,9 +296,7 @@
         }
         try {
             localStorage.setItem(DETECTION_PANEL_STORAGE_KEY, collapsed ? '1' : '0');
-        } catch (error) {
-            console.warn('Failed to persist detection panel state:', error);
-        }
+        } catch (error) {}
         if (typeof scheduleDraw === 'function') {
             scheduleDraw();
         }
@@ -298,6 +335,7 @@
         if (!options.preserveResults) {
             detectionRawResults = null;
             detectionAdjustedResults = null;
+            detectionAutoAcceptResults = null;
             detectionOverlayContext = null;
         }
 
@@ -1331,58 +1369,327 @@
         return prepareShapeForDraw(shape, DETECTION_RENDER_PRIORITY, true);
     }
 
-    function drawDetectionExtractOverlays(targetCtx) {
-        if (detectionResultViewMode !== DETECTION_VIEW_MODE_RAW) return;
-        if (!Array.isArray(detectionRawResults?.detections) || !detectionRawResults.detections.length) return;
+    function detectionHexToRgba(hexColor, alpha = 1) {
+        if (typeof hexColor !== 'string') return `rgba(15, 23, 42, ${alpha})`;
+        const normalized = hexColor.replace('#', '').trim();
+        const parsed = normalized.length === 3
+            ? normalized.split('').map(value => value + value).join('')
+            : normalized;
+        if (parsed.length !== 6) return `rgba(15, 23, 42, ${alpha})`;
+        const red = Number.parseInt(parsed.slice(0, 2), 16);
+        const green = Number.parseInt(parsed.slice(2, 4), 16);
+        const blue = Number.parseInt(parsed.slice(4, 6), 16);
+        if (![red, green, blue].every(Number.isFinite)) {
+            return `rgba(15, 23, 42, ${alpha})`;
+        }
+        return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+    }
 
-        const context = detectionBuildOverlayRenderContext(detectionRawResults);
+    function detectionGetOverlayStyle(entry = null) {
+        const annotationType = String(entry?.annotationType || entry?.className || '').trim().toLowerCase();
+        if (annotationType === 'connect' || annotationType === 'junction') {
+            const baseColor = DETECTION_ANNOTATION_COLORS[annotationType];
+            return {
+                stroke: baseColor,
+                fill: detectionHexToRgba(baseColor, 0.12),
+                point: baseColor,
+                labelFill: detectionHexToRgba(baseColor, 0.92)
+            };
+        }
+
+        const fallbackColor = detectionGetClassColor(annotationType || 'default');
+        return {
+            stroke: toRgbString(fallbackColor),
+            fill: toRgbString(fallbackColor, 0.12),
+            point: toRgbString(fallbackColor),
+            labelFill: toRgbString(fallbackColor, 0.92)
+        };
+    }
+
+    function detectionGetOverlayHalfSizeWorld() {
+        if (typeof getManualLabelHalfSizeWorld === 'function') {
+            const halfSizeWorld = Number(getManualLabelHalfSizeWorld());
+            if (Number.isFinite(halfSizeWorld) && halfSizeWorld > 0) {
+                return halfSizeWorld;
+            }
+        }
+        return Math.max(3 / Math.max(zoom, 0.01), 1 / Math.max(zoom, 0.01));
+    }
+
+    function detectionDrawWorldPolygonPath(targetCtx, polygon) {
+        if (typeof drawWorldPolygon === 'function') {
+            drawWorldPolygon(targetCtx, polygon);
+            return;
+        }
+        if (!Array.isArray(polygon) || !polygon.length) return;
+        targetCtx.beginPath();
+        targetCtx.moveTo(polygon[0].x, polygon[0].y);
+        for (let index = 1; index < polygon.length; index += 1) {
+            targetCtx.lineTo(polygon[index].x, polygon[index].y);
+        }
+        targetCtx.closePath();
+    }
+
+    function detectionDrawWorldPointMarker(targetCtx, point, color, radiusWorld) {
+        if (typeof drawWorldPoint === 'function') {
+            drawWorldPoint(targetCtx, point, color, radiusWorld);
+            return;
+        }
+        targetCtx.beginPath();
+        targetCtx.arc(point.x, point.y, radiusWorld, 0, Math.PI * 2);
+        targetCtx.fillStyle = color;
+        targetCtx.fill();
+    }
+
+    function detectionNormalizeAnnotationPoint(point, fallbackLayerName = '') {
+        if (!point || typeof point !== 'object') return null;
+        const pointX = detectionSafeNumber(point.x);
+        const pointY = detectionSafeNumber(point.y);
+        if (pointX === null || pointY === null) return null;
+        return {
+            x: pointX,
+            y: pointY,
+            layerName: String(point.layerName || point.layer_name || fallbackLayerName || '').trim()
+        };
+    }
+
+    function detectionNormalizeAnnotationSegments(segments, fallbackLayerName = '') {
+        if (!Array.isArray(segments)) return [];
+        return segments
+            .map(segment => {
+                if (!Array.isArray(segment) || segment.length < 2) return null;
+                const normalizedSegment = segment
+                    .slice(0, 2)
+                    .map(point => detectionNormalizeAnnotationPoint(point, fallbackLayerName))
+                    .filter(Boolean);
+                return normalizedSegment.length >= 2 ? normalizedSegment : null;
+            })
+            .filter(Boolean);
+    }
+
+    function detectionBuildFallbackAnnotationPolygon(annotation) {
+        if (!annotation || !Array.isArray(annotation.points) || !annotation.points.length) return null;
+        const halfSize = detectionGetOverlayHalfSizeWorld();
+        if (annotation.type === 'junction') {
+            const center = annotation.points[0];
+            return [
+                { x: center.x - halfSize, y: center.y - halfSize },
+                { x: center.x + halfSize, y: center.y - halfSize },
+                { x: center.x + halfSize, y: center.y + halfSize },
+                { x: center.x - halfSize, y: center.y + halfSize }
+            ];
+        }
+        if (!annotation.points[1]) return null;
+        return detectionBuildManualConnectWorldPolygon(annotation.points[0], annotation.points[1], halfSize);
+    }
+
+    function detectionGetAnnotationOverlayPolygon(annotation) {
+        if (typeof getManualAnnotationWorldPolygon === 'function') {
+            const polygon = getManualAnnotationWorldPolygon(annotation);
+            if (Array.isArray(polygon) && polygon.length >= 3) {
+                return polygon;
+            }
+        }
+        return detectionBuildFallbackAnnotationPolygon(annotation);
+    }
+
+    function detectionCreateAnnotationOverlayEntry(annotation) {
+        if (!annotation || typeof annotation !== 'object') return null;
+        const annotationType = annotation.type === 'junction' ? 'junction' : 'connect';
+        const fallbackLayerName = String(annotation.layerName || annotation.layer_name || '').trim();
+        const normalizedPoints = (annotation.points || annotation.manual_points || [])
+            .map(point => detectionNormalizeAnnotationPoint(point, fallbackLayerName))
+            .filter(Boolean);
+        if (annotationType === 'connect' && normalizedPoints.length < 2) return null;
+        if (annotationType === 'junction' && !normalizedPoints.length) return null;
+
+        const overlayAnnotation = {
+            type: annotationType,
+            layerName: normalizedPoints[0]?.layerName || fallbackLayerName,
+            points: annotationType === 'junction' ? [normalizedPoints[0]] : normalizedPoints.slice(0, 2),
+            segments: detectionNormalizeAnnotationSegments(annotation.segments || annotation.manual_segments || [], normalizedPoints[0]?.layerName || fallbackLayerName)
+        };
+        const polygon = detectionGetAnnotationOverlayPolygon(overlayAnnotation);
+        if (!polygon) return null;
+        return {
+            polygon,
+            points: overlayAnnotation.points,
+            segments: overlayAnnotation.segments,
+            annotationType,
+            className: annotationType,
+            layerName: overlayAnnotation.layerName,
+            labelText: '',
+            pointScale: overlayAnnotation.type === 'junction' ? 1.05 : 1
+        };
+    }
+
+    function detectionBuildDetectionPolygonOverlayEntry(detection, context, options = {}) {
+        const pixelPolygon = Array.isArray(detection?.obb) && detection.obb.length >= 3
+            ? detection.obb
+            : detectionAabbToPolygon(detection?.aabb);
+        const polygon = detectionPixelPolygonToWorldPolygon(pixelPolygon, context)
+            .map(point => Array.isArray(point) && point.length >= 2 ? { x: Number(point[0]), y: Number(point[1]) } : null)
+            .filter(Boolean);
+        if (polygon.length < 3) return null;
+
+        const confidence = detectionSafeNumber(detection?.confidence);
+        const shouldEnforceConfidence = options.enforceConfidence !== false;
+        if (shouldEnforceConfidence) {
+            const confidenceDisplayThreshold = detectionGetConfidenceDisplayThreshold();
+            if (confidence === null || confidence < confidenceDisplayThreshold) return null;
+        }
+
+        const className = detectionNormalizeClassName(detection?.class_name).toLowerCase();
+        const annotationType = detectionIsJunctionClass(className)
+            ? 'junction'
+            : (detectionIsConnectClass(className) ? 'connect' : className);
+
+        return {
+            polygon,
+            points: [],
+            segments: [],
+            annotationType,
+            className,
+            layerName: String(detection?.postprocess?.layer_name || detection?.layer_name || '').trim(),
+            labelText: options.includeLabel === true ? detectionFormatConfidenceLabel(confidence) : '',
+            labelBounds: detectionBoundsFromPointPairs(polygon)
+        };
+    }
+
+    function detectionBuildProcessedOverlayEntry(detection, context) {
+        const className = detectionNormalizeClassName(detection?.class_name);
+        const postprocess = detection?.postprocess || {};
+        const fallbackLayerName = String(postprocess.layer_name || detection?.layer_name || '').trim();
+        if (detectionIsConnectClass(className)) {
+            const connectEntry = detectionCreateAnnotationOverlayEntry({
+                type: 'connect',
+                layerName: fallbackLayerName,
+                points: postprocess.manual_points,
+                segments: postprocess.manual_segments
+            });
+            if (connectEntry) return connectEntry;
+        }
+        if (detectionIsJunctionClass(className)) {
+            const junctionEntry = detectionCreateAnnotationOverlayEntry({
+                type: 'junction',
+                layerName: fallbackLayerName,
+                points: postprocess.manual_points
+            });
+            if (junctionEntry) return junctionEntry;
+        }
+        return detectionBuildDetectionPolygonOverlayEntry(detection, context, {
+            includeLabel: false,
+            enforceConfidence: false
+        });
+    }
+
+    function detectionBuildOverlayEntriesForViewMode(viewMode, context) {
+        if (viewMode === DETECTION_VIEW_MODE_RAW) {
+            return Array.isArray(detectionRawResults?.detections)
+                ? detectionRawResults.detections
+                    .map(detection => detectionBuildDetectionPolygonOverlayEntry(detection, context, {
+                        includeLabel: true,
+                        enforceConfidence: true
+                    }))
+                    .filter(Boolean)
+                : [];
+        }
+        if (viewMode === DETECTION_VIEW_MODE_FINAL) {
+            return Array.isArray(detectionAutoAcceptResults?.manual_annotations)
+                ? detectionAutoAcceptResults.manual_annotations
+                    .map(annotation => detectionCreateAnnotationOverlayEntry(annotation))
+                    .filter(Boolean)
+                : [];
+        }
+        return Array.isArray(detectionAdjustedResults?.detections)
+            ? detectionAdjustedResults.detections
+                .map(detection => detectionBuildProcessedOverlayEntry(detection, context))
+                .filter(Boolean)
+            : [];
+    }
+
+    function detectionShouldDrawOverlayEntry(entry) {
+        if (!entry?.layerName) return true;
+        return layerVisibility[entry.layerName] !== false;
+    }
+
+    function detectionDrawOverlayLabel(targetCtx, labelText, labelBounds, context, overlayStyle, labelMetrics) {
+        if (!labelText || !labelBounds) return;
+        const { fontSize, paddingX, paddingY, labelGap } = labelMetrics;
+        const textWidth = targetCtx.measureText(labelText).width;
+        const labelWidth = textWidth + (paddingX * 2);
+        const labelHeight = fontSize + (paddingY * 2);
+        const maxLabelX = Math.max(context.bounds.minX, context.bounds.maxX - labelWidth);
+        const maxLabelY = Math.max(context.bounds.minY, context.bounds.maxY - labelHeight);
+        const labelX = Math.max(context.bounds.minX, Math.min(labelBounds.minX, maxLabelX));
+        let labelY = labelBounds.minY - labelHeight - labelGap;
+        if (labelY < context.bounds.minY) {
+            labelY = Math.min(maxLabelY, labelBounds.minY + labelGap);
+        }
+        labelY = Math.max(context.bounds.minY, labelY);
+
+        targetCtx.fillStyle = overlayStyle.labelFill;
+        targetCtx.fillRect(labelX, labelY, labelWidth, labelHeight);
+        targetCtx.fillStyle = '#ffffff';
+        targetCtx.fillText(labelText, labelX + paddingX, labelY + paddingY);
+    }
+
+    function drawDetectionExtractOverlays(targetCtx) {
+        const activeResult = detectionGetResultForViewMode();
+        if (!activeResult) return;
+
+        const contextSource = detectionResultViewMode === DETECTION_VIEW_MODE_FINAL
+            ? (detectionAdjustedResults || detectionRawResults || activeResult)
+            : activeResult;
+        const context = detectionBuildOverlayRenderContext(contextSource);
         if (!context) return;
 
-        const confidenceDisplayThreshold = detectionGetConfidenceDisplayThreshold();
+        const overlayEntries = detectionBuildOverlayEntriesForViewMode(detectionResultViewMode, context);
+        if (!overlayEntries.length) return;
+
         const zoomSafe = Math.max(zoom, 0.01);
         const fontSize = 11 / zoomSafe;
         const paddingX = 4 / zoomSafe;
         const paddingY = 3 / zoomSafe;
         const labelGap = 2 / zoomSafe;
+        const pointRadiusWorld = Math.max(3 / zoomSafe, 1 / zoomSafe);
 
         targetCtx.save();
         targetCtx.lineJoin = 'round';
         targetCtx.textBaseline = 'top';
         targetCtx.font = `700 ${fontSize}px Arial`;
 
-        detectionRawResults.detections.forEach(detection => {
-            const confidence = detectionSafeNumber(detection?.confidence);
-            if (confidence === null || confidence < confidenceDisplayThreshold) return;
+        overlayEntries.forEach(entry => {
+            if (!detectionShouldDrawOverlayEntry(entry)) return;
+            const overlayStyle = detectionGetOverlayStyle(entry);
 
-            const className = detectionNormalizeClassName(detection?.class_name);
-            const layerName = `${DETECTION_LAYER_PREFIX}${className}`;
-            if (layerVisibility[layerName] === false) return;
+            targetCtx.fillStyle = overlayStyle.fill;
+            targetCtx.strokeStyle = overlayStyle.stroke;
+            targetCtx.lineWidth = 2 / zoomSafe;
+            targetCtx.setLineDash([]);
+            detectionDrawWorldPolygonPath(targetCtx, entry.polygon);
+            targetCtx.fill();
+            detectionDrawWorldPolygonPath(targetCtx, entry.polygon);
+            targetCtx.stroke();
 
-            const pixelBounds = detectionBoundsFromAabb(detection?.aabb || [])
-                || detectionBoundsFromPointPairs(detection?.obb || []);
-            if (!pixelBounds) return;
+            (entry.segments || []).forEach(segment => {
+                if (!Array.isArray(segment) || segment.length < 2) return;
+                targetCtx.beginPath();
+                targetCtx.moveTo(segment[0].x, segment[0].y);
+                targetCtx.lineTo(segment[1].x, segment[1].y);
+                targetCtx.stroke();
+            });
 
-            const labelText = detectionFormatConfidenceLabel(confidence);
-            if (!labelText) return;
+            (entry.points || []).forEach(point => {
+                detectionDrawWorldPointMarker(targetCtx, point, overlayStyle.point, pointRadiusWorld * (entry.pointScale || 1));
+            });
 
-            const worldTopLeft = detectionPixelPointToWorld({ x: pixelBounds.minX, y: pixelBounds.minY }, context);
-            const textWidth = targetCtx.measureText(labelText).width;
-            const labelWidth = textWidth + (paddingX * 2);
-            const labelHeight = fontSize + (paddingY * 2);
-            const maxLabelX = Math.max(context.bounds.minX, context.bounds.maxX - labelWidth);
-            const maxLabelY = Math.max(context.bounds.minY, context.bounds.maxY - labelHeight);
-            const labelX = Math.max(context.bounds.minX, Math.min(worldTopLeft.x, maxLabelX));
-            let labelY = worldTopLeft.y - labelHeight - labelGap;
-            if (labelY < context.bounds.minY) {
-                labelY = Math.min(maxLabelY, worldTopLeft.y + labelGap);
-            }
-            labelY = Math.max(context.bounds.minY, labelY);
-
-            const color = detectionGetClassColor(className);
-            targetCtx.fillStyle = toRgbString(color, 0.92);
-            targetCtx.fillRect(labelX, labelY, labelWidth, labelHeight);
-            targetCtx.fillStyle = '#ffffff';
-            targetCtx.fillText(labelText, labelX + paddingX, labelY + paddingY);
+            detectionDrawOverlayLabel(targetCtx, entry.labelText, entry.labelBounds, context, overlayStyle, {
+                fontSize,
+                paddingX,
+                paddingY,
+                labelGap
+            });
         });
 
         targetCtx.restore();
@@ -1572,30 +1879,143 @@
             requestNextSuggestions: false,
             suppressUi: true,
             seedQueueAutoAccept: true,
-            openPanel: true
+            openPanel: false
         });
     }
 
-    function buildDetectionRequestPayload(imagePayload) {
+    function detectionCloneManualAnnotationForRequest(annotation) {
+        if (!annotation || typeof annotation !== 'object') return null;
+        if (typeof cloneAnnotation === 'function') {
+            return cloneAnnotation(annotation);
+        }
+
+        const layerName = typeof annotation.layerName === 'string'
+            ? annotation.layerName
+            : (typeof annotation.layer_name === 'string' ? annotation.layer_name : '');
+        if (!layerName || !annotation.type) return null;
+
+        const points = (Array.isArray(annotation.points) ? annotation.points : [])
+            .map(point => {
+                const pointX = Number(point?.x);
+                const pointY = Number(point?.y);
+                if (!Number.isFinite(pointX) || !Number.isFinite(pointY)) return null;
+                return {
+                    x: pointX,
+                    y: pointY,
+                    layerName: typeof point?.layerName === 'string' ? point.layerName : layerName
+                };
+            })
+            .filter(Boolean);
+        if ((annotation.type === 'connect' && points.length < 2) || (annotation.type === 'junction' && !points.length)) {
+            return null;
+        }
+
+        const segments = (Array.isArray(annotation.segments) ? annotation.segments : [])
+            .filter(segment => Array.isArray(segment) && segment.length >= 2)
+            .map(segment => segment.slice(0, 2).map(point => ({
+                x: Number(point?.x),
+                y: Number(point?.y),
+                layerName: typeof point?.layerName === 'string' ? point.layerName : layerName
+            })))
+            .filter(segment => segment.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)));
+
         return {
-            image_b64: imagePayload.imageB64,
-            image_name: imagePayload.imageName,
-            use_sahi: true
+            id: annotation.id ?? null,
+            type: annotation.type,
+            layerName,
+            source: typeof annotation.source === 'string' && annotation.source ? annotation.source : 'manual',
+            autoManaged: Boolean(annotation.autoManaged),
+            points,
+            lineKeys: (Array.isArray(annotation.lineKeys) ? annotation.lineKeys : []).map(lineKey => String(lineKey)).filter(Boolean),
+            segments
         };
     }
 
-    function detectionSummaryMessage(rawResult, adjustedResult) {
-        const rawCount = Number(rawResult?.num_detections ?? rawResult?.detections?.length ?? 0);
-        const finalCount = Number(adjustedResult?.num_detections ?? adjustedResult?.detections?.length ?? 0);
+    async function buildDetectionRequestPayload(imagePayload) {
+        let gzipData = currentPageNum
+            ? (getPageGzipCacheValue(cachedPages, currentPageNum, { touch: false })
+                || getPageGzipCacheValue(stagedCachedPages, currentPageNum, { touch: false }))
+            : null;
+
+        if (!gzipData && typeof ensurePipelineCacheForCurrentDocument === 'function') {
+            gzipData = await ensurePipelineCacheForCurrentDocument();
+        }
+        if (!gzipData) {
+            throw new Error('Khong co gzip_data cua trang hien tai de gui len backend.');
+        }
+
+        const visibleLayers = typeof getVisibleRenderableLayers === 'function'
+            ? getVisibleRenderableLayers()
+            : Object.keys(layerVisibility || {}).filter(layerName => layerVisibility?.[layerName]);
+        const manualAnnotationPayload = Array.isArray(manualAnnotations)
+            ? manualAnnotations.map(detectionCloneManualAnnotationForRequest).filter(Boolean)
+            : [];
+
+        const pageNum = Number.isInteger(Number(currentPageNum)) && Number(currentPageNum) >= 1 ? Number(currentPageNum) : 1;
+        const pdfName = (currentPdfFile && currentPdfFile.name)
+            || (currentJsonSourceFile && (currentJsonSourceFile.name || String(currentJsonSourceFile)))
+            || 'visual_layers';
+        const preferServerPageCache = Boolean(currentPdfFile && pageNum);
+        const documentKey = typeof getCurrentMainLayerDocumentKey === 'function'
+            ? getCurrentMainLayerDocumentKey()
+            : pdfName;
+
+        return {
+            payload: {
+                image_b64: imagePayload.imageB64,
+                image_name: imagePayload.imageName,
+                gzip_data: preferServerPageCache ? '' : gzipData,
+                pdf_name: pdfName,
+                page_num: pageNum,
+                document_key: documentKey,
+                prefer_server_page_cache: preferServerPageCache,
+                visible_layers: visibleLayers,
+                layer_visibility: { ...(layerVisibility || {}) },
+                render_bounds: imagePayload?.bounds ? { ...imagePayload.bounds } : null,
+                manual_annotations: manualAnnotationPayload,
+                use_sahi: true
+            },
+            fallbackGzipData: gzipData,
+            preferServerPageCache
+        };
+    }
+
+    function detectionSummaryMessage(rawResult, adjustedResult, autoAcceptResult = null, summary = null) {
+        const rawCount = Number(summary?.raw_detection_count ?? rawResult?.num_detections ?? rawResult?.detections?.length ?? 0);
+        const processedCount = Number(summary?.processed_detection_count ?? adjustedResult?.num_detections ?? adjustedResult?.detections?.length ?? 0);
+        const finalCount = Number(summary?.auto_accept_annotation_count ?? autoAcceptResult?.manual_annotations?.length ?? 0);
         const postprocess = adjustedResult?.postprocess || {};
         const totalConnect = Number(postprocess.total_connect_detections || 0);
         const validConnect = Number(postprocess.validated_connect_detections || 0);
         const rejectedConnect = Number(postprocess.rejected_connect_detections || 0);
-        return `raw ${rawCount} | final ${finalCount} | connect ${validConnect}/${totalConnect} valid, ${rejectedConnect} rejected`;
+        return `raw ${rawCount} | process ${processedCount} | final ${finalCount} | connect ${validConnect}/${totalConnect} valid, ${rejectedConnect} rejected`;
     }
 
-    function detectionFormatTimingMessage(apiTimeSeconds, logicTimeSeconds) {
-        return `BE API ${apiTimeSeconds.toFixed(2)}s | Logic+Auto ${logicTimeSeconds.toFixed(2)}s`;
+    function detectionFormatTimingMessage(bundleTiming = null, roundTripSeconds = 0) {
+        const timing = bundleTiming && typeof bundleTiming === 'object' ? bundleTiming : {};
+        const backendTotalSeconds = Number(timing.total_ms) / 1000;
+        const rawSeconds = Number(timing.raw_ms) / 1000;
+        const processedSeconds = Number(timing.processed_ms) / 1000;
+        const autoAcceptSeconds = Number(timing.auto_accept_ms) / 1000;
+        const segments = [];
+
+        if (Number.isFinite(backendTotalSeconds) && backendTotalSeconds > 0) {
+            segments.push(`BE ${backendTotalSeconds.toFixed(2)}s`);
+        }
+
+        const stageParts = [];
+        if (Number.isFinite(rawSeconds) && rawSeconds > 0) stageParts.push(`raw ${rawSeconds.toFixed(2)}s`);
+        if (Number.isFinite(processedSeconds) && processedSeconds > 0) stageParts.push(`proc ${processedSeconds.toFixed(2)}s`);
+        if (Number.isFinite(autoAcceptSeconds) && autoAcceptSeconds > 0) stageParts.push(`final ${autoAcceptSeconds.toFixed(2)}s`);
+        if (stageParts.length) {
+            segments.push(stageParts.join(', '));
+        }
+
+        if (Number.isFinite(roundTripSeconds) && roundTripSeconds > 0) {
+            segments.push(`RT ${roundTripSeconds.toFixed(2)}s`);
+        }
+
+        return segments.join(' | ');
     }
 
     async function runDetectionExtract() {
@@ -1613,79 +2033,71 @@
         try {
             clearDetectionVisualization({ refresh: true });
             const imagePayload = await createDetectionExtractImagePayload();
-            const snapPointWarmupPromise = typeof ensureSnapPointIndexAsync === 'function' && typeof hasManualLineCandidateSource === 'function' && hasManualLineCandidateSource()
-                ? ensureSnapPointIndexAsync().catch(error => {
-                    console.warn('Detection manual snap index warmup failed:', error);
-                    return false;
-                })
-                : Promise.resolve(false);
-            updateLoadingPopup('Detecting line-fire objects...', 'Calling batch worker API...');
+            updateLoadingPopup('Detecting line-fire objects...', 'Preparing page JSON + visible layer bundle...');
+            setDetectionExtractStatus('Dang dong goi anh + page JSON de gui backend...');
+            const requestBundle = await buildDetectionRequestPayload(imagePayload);
+            const requestPayload = requestBundle.payload;
+
+            updateLoadingPopup('Detecting line-fire objects...', 'Calling backend bundle route...');
             setDetectionExtractStatus(imagePayload.fromCache || imagePayload.fromRasterCache
-                ? 'Dang goi worker detect hang loat tu anh cache...'
-                : 'Dang goi worker detect hang loat...');
+                ? 'Dang goi bundle detect tu anh cache...'
+                : 'Dang goi bundle detect...');
 
             const startTime = performance.now();
-            const response = await fetch(`${ENV.API_BASE_URL}/detect_line_fire_sahi`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(buildDetectionRequestPayload(imagePayload))
-            });
-            if (!response.ok) {
-                throw new Error(await parseHttpErrorResponse(response));
-            }
-            const rawResult = await response.json();
-            const apiTimeSeconds = (performance.now() - startTime) / 1000;
-            detectionRawResults = rawResult;
-            detectionOverlayContext = imagePayload;
+            const callDetectExtractBackend = async payload => {
+                const response = await fetch(`${ENV.API_BASE_URL}/detect_extract_line_fire`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    throw new Error(await parseHttpErrorResponse(response));
+                }
+                return response.json();
+            };
 
-            updateLoadingPopup('Detecting line-fire objects...', 'Dang xu ly logic va goi y auto accept...');
-            setDetectionExtractStatus('Dang xu ly logic detect va goi y auto accept...');
-            const logicStartTime = performance.now();
-            await snapPointWarmupPromise;
-            const adjustedResult = adjustDetectionConnectsForVisibleLines(rawResult, imagePayload);
+            let bundleResult;
+            try {
+                bundleResult = await callDetectExtractBackend(requestPayload);
+            } catch (error) {
+                if (!requestBundle.preferServerPageCache || !requestBundle.fallbackGzipData || requestPayload.gzip_data) {
+                    throw error;
+                }
+                updateLoadingPopup('Detecting line-fire objects...', 'Retrying with page JSON payload...');
+                setDetectionExtractStatus('Cache page JSON o backend bi miss, dang gui gzip_data fallback...');
+                bundleResult = await callDetectExtractBackend({
+                    ...requestPayload,
+                    gzip_data: requestBundle.fallbackGzipData,
+                    prefer_server_page_cache: false
+                });
+            }
+            const roundTripSeconds = (performance.now() - startTime) / 1000;
+            const rawResult = bundleResult?.raw || null;
+            const adjustedResult = bundleResult?.processed || null;
+            const autoAcceptResult = bundleResult?.auto_accept || null;
+
+            detectionRawResults = rawResult;
             detectionAdjustedResults = adjustedResult;
+            detectionAutoAcceptResults = autoAcceptResult;
+            detectionOverlayContext = imagePayload;
+            setDetectionResultViewMode(DETECTION_VIEW_MODE_FINAL, { refreshVisualization: false });
             refreshDetectionVisualizationForCurrentView();
 
-            const manualPromotionResult = await detectionPromoteConnectsToManualPanel(adjustedResult);
-            adjustedResult.manual_promotion = manualPromotionResult;
-            const logicTimeSeconds = (performance.now() - logicStartTime) / 1000;
+            updateLoadingPopup('Detecting line-fire objects...', 'Preparing raw / processed / final results...');
+            setDetectionExtractStatus('Dang dong bo ket qua raw / process / final cho extract panel...');
 
-            const summary = detectionSummaryMessage(rawResult, adjustedResult);
-            console.log('Line-fire detection result:', rawResult);
-            console.log('Line-fire adjusted result:', adjustedResult);
-            console.log('Line-fire manual auto-accept timing:', manualPromotionResult?.timing || null);
-            console.log('Line-fire manual auto-accept rounds:', manualPromotionResult?.timing?.autoAccept?.roundBreakdown || []);
-            if (typeof console?.table === 'function' && Array.isArray(manualPromotionResult?.timing?.autoAccept?.roundBreakdown)) {
-                console.table(manualPromotionResult.timing.autoAccept.roundBreakdown.map(round => ({
-                    round: round?.round ?? null,
-                    rawSeedCount: round?.rawSeedCount ?? null,
-                    seedCount: round?.seedCount ?? null,
-                    recheckSeedSource: round?.recheckSeedSource ?? null,
-                    rootSeedCount: round?.request?.rootSeedCount ?? null,
-                    rootExpansionMs: round?.request?.rootExpansionMs ?? null,
-                    straightSeedMs: round?.request?.straightSeedMs ?? null,
-                    straightSeedCount: round?.request?.straightSeedCount ?? null,
-                    teeSeedMs: round?.request?.teeSeedMs ?? null,
-                    teeSeedCount: round?.request?.teeSeedCount ?? null,
-                    buildSeedSuggestionsMs: round?.request?.buildSeedSuggestionsMs ?? null,
-                    overlaySuggestionsMs: round?.request?.overlaySuggestionsMs ?? null,
-                    mergeSuggestionsMs: round?.request?.mergeSuggestionsMs ?? null,
-                    requestMs: round?.requestMs ?? null,
-                    acceptMs: round?.acceptMs ?? null,
-                    suggestedCount: round?.suggestedCount ?? null,
-                    acceptedConnectCount: round?.acceptedConnectCount ?? null,
-                    exitReason: round?.exitReason ?? null
-                })));
-            }
-            console.log('Line-fire timing:', {
-                backend_api_seconds: apiTimeSeconds,
-                logic_and_auto_accept_seconds: logicTimeSeconds
-            });
-            const manualSummary = manualPromotionResult.addedConnectCount || manualPromotionResult.suggestionAcceptedConnectCount
-                ? ` | manual +${manualPromotionResult.addedConnectCount}C, auto +${manualPromotionResult.suggestionAcceptedConnectCount}C`
+            const summary = detectionSummaryMessage(rawResult, adjustedResult, autoAcceptResult, bundleResult?.summary);
+            const backendCounts = autoAcceptResult?.counts || {};
+            const addedConnectCount = Number(backendCounts.added_connect_count ?? backendCounts.addedConnectCount ?? 0);
+            const acceptedConnectCount = Number(backendCounts.suggestion_accepted_connect_count ?? backendCounts.suggestionAcceptedConnectCount ?? 0);
+            const manualSummary = addedConnectCount || acceptedConnectCount
+                ? ` | BE manual +${addedConnectCount}C, accepted +${acceptedConnectCount}C`
                 : '';
-            const timingSummary = detectionFormatTimingMessage(apiTimeSeconds, logicTimeSeconds);
-            setDetectionExtractStatus(`${summary}${manualSummary} | ${timingSummary}`, 'success');
+            const timingSummary = detectionFormatTimingMessage(bundleResult?.timing, roundTripSeconds);
+            setDetectionExtractStatus(
+                timingSummary ? `${summary}${manualSummary} | ${timingSummary}` : `${summary}${manualSummary}`,
+                'success'
+            );
         } catch (error) {
             console.error('Line-fire detection failed:', error);
             setDetectionExtractStatus(`Loi detect: ${error.message}`, 'error');
@@ -1725,6 +2137,12 @@
     if (btnDetectViewRaw) {
         btnDetectViewRaw.addEventListener('click', () => {
             setDetectionResultViewMode(DETECTION_VIEW_MODE_RAW);
+        });
+    }
+
+    if (btnDetectViewFinal) {
+        btnDetectViewFinal.addEventListener('click', () => {
+            setDetectionResultViewMode(DETECTION_VIEW_MODE_FINAL);
         });
     }
 

@@ -630,6 +630,131 @@ function addAnnotations(annotations, options = {}) {
     return added;
 }
 
+function normalizeHydratedAnnotationPoint(point, fallbackLayerName = null) {
+    if (!point) return null;
+
+    const pointX = Array.isArray(point) ? Number(point[0]) : Number(point.x);
+    const pointY = Array.isArray(point) ? Number(point[1]) : Number(point.y);
+    if (!Number.isFinite(pointX) || !Number.isFinite(pointY)) return null;
+
+    const layerName = Array.isArray(point)
+        ? fallbackLayerName
+        : (typeof point.layerName === 'string' ? point.layerName : (typeof point.layer_name === 'string' ? point.layer_name : fallbackLayerName));
+
+    return {
+        x: pointX,
+        y: pointY,
+        layerName: layerName || fallbackLayerName
+    };
+}
+
+function normalizeHydratedAnnotation(annotation) {
+    if (!annotation || typeof annotation !== 'object') return null;
+
+    const type = annotation.type === 'connect' || annotation.type === 'junction'
+        ? annotation.type
+        : null;
+    const layerName = typeof annotation.layerName === 'string'
+        ? annotation.layerName
+        : (typeof annotation.layer_name === 'string' ? annotation.layer_name : '');
+    if (!type || !layerName) return null;
+
+    const rawPoints = Array.isArray(annotation.points)
+        ? annotation.points
+        : (Array.isArray(annotation.manual_points) ? annotation.manual_points : []);
+    const points = rawPoints
+        .map(point => normalizeHydratedAnnotationPoint(point, layerName))
+        .filter(Boolean);
+    if (type === 'connect' && points.length < 2) return null;
+    if (type === 'junction' && !points.length) return null;
+
+    const rawSegments = Array.isArray(annotation.segments)
+        ? annotation.segments
+        : (Array.isArray(annotation.manual_segments) ? annotation.manual_segments : []);
+    const segments = rawSegments
+        .filter(segment => Array.isArray(segment) && segment.length >= 2)
+        .map(segment => segment
+            .slice(0, 2)
+            .map(point => normalizeHydratedAnnotationPoint(point, layerName))
+            .filter(Boolean))
+        .filter(segment => segment.length >= 2);
+
+    const lineKeys = (Array.isArray(annotation.lineKeys) ? annotation.lineKeys : (Array.isArray(annotation.line_keys) ? annotation.line_keys : []))
+        .map(lineKey => String(lineKey))
+        .filter(Boolean);
+
+    return {
+        id: annotation.id ?? null,
+        type,
+        layerName,
+        source: typeof annotation.source === 'string' && annotation.source ? annotation.source : 'manual',
+        autoManaged: Boolean(annotation.autoManaged ?? annotation.auto_managed),
+        points,
+        lineKeys: Array.from(new Set(lineKeys)).sort(),
+        segments
+    };
+}
+
+function normalizeHydratedAnnotationList(annotations, duplicateIndex) {
+    const normalizedAnnotations = [];
+    (annotations || []).forEach(annotation => {
+        const normalizedAnnotation = normalizeHydratedAnnotation(annotation);
+        if (!normalizedAnnotation || hasDuplicateAnnotationInIndex(normalizedAnnotation, duplicateIndex)) return;
+        normalizedAnnotations.push(normalizedAnnotation);
+        addAnnotationToDuplicateIndex(normalizedAnnotation, duplicateIndex);
+    });
+    return normalizedAnnotations;
+}
+
+function hydrateManualAnnotationsFromBackend(payload, options = {}) {
+    const duplicateIndex = buildAnnotationDuplicateIndex([]);
+    const manualPayload = Array.isArray(payload?.manual_annotations)
+        ? payload.manual_annotations
+        : (Array.isArray(payload?.manualAnnotations) ? payload.manualAnnotations : (Array.isArray(payload) ? payload : []));
+    const suggestedPayload = Array.isArray(payload?.suggested_annotations)
+        ? payload.suggested_annotations
+        : (Array.isArray(payload?.suggestedAnnotations) ? payload.suggestedAnnotations : []);
+
+    const nextManualAnnotations = normalizeHydratedAnnotationList(manualPayload, duplicateIndex);
+    const nextSuggestedAnnotations = normalizeHydratedAnnotationList(suggestedPayload, duplicateIndex)
+        .filter(annotation => annotation.type === 'connect');
+
+    manualAnnotations = nextManualAnnotations;
+    manualAnnotationId = nextManualAnnotations.reduce((maxAnnotationId, annotation) => {
+        const numericId = Number(annotation?.id);
+        return Number.isFinite(numericId) ? Math.max(maxAnnotationId, numericId) : maxAnnotationId;
+    }, 0);
+    manualAnnotationHistory = [];
+    pendingConnectPoint = null;
+    suggestedConnectAnnotations = nextSuggestedAnnotations;
+    resetPairCheckState();
+    hoveredSnapPoint = null;
+    hoveredAnnotationId = null;
+    manualSuggestionRequestId += 1;
+    invalidateManualAnnotationSpatialIndex();
+
+    if (typeof options.feedbackMessage === 'string') {
+        annotationFeedbackMessage = options.feedbackMessage;
+        annotationFeedbackTone = options.feedbackTone || 'info';
+    }
+
+    if (typeof applyManualLabelPanelState === 'function'
+        && isManualLabelPanelCollapsed
+        && (nextManualAnnotations.length || nextSuggestedAnnotations.length)
+        && options.openPanel !== false) {
+        applyManualLabelPanelState(false);
+    }
+
+    refreshAnnotationModeLabel();
+    updateManualLabelUI();
+    if (options.redraw !== false && typeof scheduleDraw === 'function') scheduleDraw();
+
+    return {
+        manualAnnotations: nextManualAnnotations,
+        suggestedAnnotations: nextSuggestedAnnotations
+    };
+}
+
 function removeAnnotationsByIds(annotationIds, options = {}) {
     const idSet = new Set(annotationIds);
     const removed = manualAnnotations.filter(annotation => idSet.has(annotation.id));
@@ -2822,4 +2947,5 @@ function drawManualLabelCrosshairOverlay() {
 }
 
 window.addDetectedConnectAnnotationsToManualPanel = addDetectedConnectAnnotationsToManualPanel;
+window.hydrateManualAnnotationsFromBackend = hydrateManualAnnotationsFromBackend;
 updateManualLabelUI();

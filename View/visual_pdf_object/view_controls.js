@@ -70,6 +70,7 @@ function releaseVisualizationMemoryForPageSwitch() {
     pipelineLayerNames = [];
     detectionRawResults = null;
     detectionAdjustedResults = null;
+    detectionAutoAcceptResults = null;
     detectionLayerNames = [];
     if (typeof invalidateDetectionExtractImageCache === 'function') {
         invalidateDetectionExtractImageCache();

@@ -229,6 +229,7 @@ let pdfRasterPreviewLoadingPages = {};
 let pipelineLayerNames = [];
 let detectionRawResults = null;
 let detectionAdjustedResults = null;
+let detectionAutoAcceptResults = null;
 let detectionLayerNames = [];
 let annotationMode = null;
 let pendingConnectPoint = null;
