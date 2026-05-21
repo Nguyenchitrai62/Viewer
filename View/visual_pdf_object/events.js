@@ -270,6 +270,9 @@ function applyManualLabelPanelState(collapsed) {
     } catch (error) {
         console.warn('Failed to persist manual label panel state:', error);
     }
+    if (typeof window.handleExtractLinePanelStateChange === 'function') {
+        window.handleExtractLinePanelStateChange(Boolean(collapsed));
+    }
     if (typeof scheduleDraw === 'function') {
         scheduleDraw();
     }
@@ -608,8 +611,18 @@ canvasContainer.addEventListener('mousedown', e => {
     if (e.button !== 0) {
         return;
     }
+    if (!isDrawingBbox && !isVLMBboxMode && !annotationMode && typeof handleDetectionExtractCanvasClick === 'function') {
+        if (handleDetectionExtractCanvasClick(worldX, worldY, e)) {
+            activeMouseButton = null;
+            return;
+        }
+    }
     if (!isDrawingBbox && !isVLMBboxMode && !annotationMode) setInteractionState(true); // Start interaction only for pan, not bbox
     if (annotationMode) {
+        if (typeof window.isDetectionExtractManualEditingAllowed === 'function' && !window.isDetectionExtractManualEditingAllowed()) {
+            activeMouseButton = null;
+            return;
+        }
         handleAnnotationCanvasClick(worldX, worldY);
         return;
     }

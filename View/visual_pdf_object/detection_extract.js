@@ -4,16 +4,45 @@
     const detectExtractCountBadge = document.getElementById('detect-extract-count-badge');
     const detectExtractStatus = document.getElementById('detect-extract-status');
     const detectExtractSummary = document.getElementById('detect-extract-summary');
+    const extractLineStageCount = document.getElementById('extract-line-stage-count');
+    const extractTextStageCount = document.getElementById('extract-text-stage-count');
+    const extractSymbolStageCount = document.getElementById('extract-symbol-stage-count');
+    const extractMergeStageCount = document.getElementById('extract-merge-stage-count');
     const btnDetectViewProcessed = document.getElementById('btn-detect-view-processed');
     const btnDetectViewRaw = document.getElementById('btn-detect-view-raw');
     const btnDetectViewFinal = document.getElementById('btn-detect-view-final');
+    const btnExtractOverlayLine = document.getElementById('btn-extract-overlay-line');
+    const btnExtractOverlayText = document.getElementById('btn-extract-overlay-text');
+    const btnExtractOverlaySymbol = document.getElementById('btn-extract-overlay-symbol');
+    const btnExtractOverlayMerge = document.getElementById('btn-extract-overlay-merge');
+    const btnExtractLineSourceFinal = document.getElementById('btn-extract-line-source-final');
+    const btnExtractLineSourcePanel = document.getElementById('btn-extract-line-source-panel');
+    const btnExtractSymbolSourcePanel = document.getElementById('btn-extract-symbol-source-panel');
+    const btnExtractSymbolSourceApi = document.getElementById('btn-extract-symbol-source-api');
+    const btnExtractSymbolSourceBoth = document.getElementById('btn-extract-symbol-source-both');
     const btnRunDetectExtract = document.getElementById('btn-run-detect-extract');
+    const btnPromoteExtractLineToLabels = document.getElementById('btn-promote-extract-line-to-labels');
+    const btnRunExtractFireText = document.getElementById('btn-run-extract-fire-text');
+    const btnRunExtractFireSymbol = document.getElementById('btn-run-extract-fire-symbol');
+    const btnRunExtractFireMerge = document.getElementById('btn-run-extract-fire-merge');
+    const btnExportExtractFireJson = document.getElementById('btn-export-extract-fire-json');
     const btnClearDetectExtract = document.getElementById('btn-clear-detect-extract');
 
     const DETECTION_PANEL_STORAGE_KEY = 'visual_pdf_object.detect_extract_collapsed';
     const DETECTION_VIEW_MODE_RAW = 'raw';
-    const DETECTION_VIEW_MODE_PROCESSED = 'processed';
+        const DETECTION_VIEW_MODE_PROCESSED = 'processed';
     const DETECTION_VIEW_MODE_FINAL = 'final';
+    const EXTRACT_FIRE_STAGE_LINE = 'line';
+    const EXTRACT_FIRE_STAGE_TEXT = 'text';
+    const EXTRACT_FIRE_STAGE_SYMBOL = 'symbol';
+    const EXTRACT_FIRE_STAGE_MERGE = 'merge';
+    const EXTRACT_FIRE_LINE_SOURCE_FINAL = 'final';
+    const EXTRACT_FIRE_LINE_SOURCE_PANEL = 'panel';
+    const EXTRACT_FIRE_SYMBOL_SOURCE_PANEL = 'panel';
+    const EXTRACT_FIRE_SYMBOL_SOURCE_API = 'api';
+    const EXTRACT_FIRE_SYMBOL_SOURCE_BOTH = 'both';
+    const EXTRACT_FIRE_IMPORTED_SYMBOL_LABEL_NAME = 'Sprinkler';
+    const EXTRACT_FIRE_IMPORTED_SYMBOL_COLOR = '#ea580c';
     const DETECTION_LAYER_PREFIX = 'Detect: ';
     const DETECTION_RENDER_PRIORITY = 2;
     const DETECTION_DEFAULT_SEARCH_PADDING = 5;
@@ -35,14 +64,143 @@
         connect: '#0ea5e9',
         junction: '#ef4444'
     });
+    const EXTRACT_FIRE_OVERLAY_COLORS = Object.freeze({
+        text: '#9333ea',
+        symbol: '#ea580c',
+        mergeLine: '#16a34a',
+        mergeNode: '#dc2626',
+        mergeSymbol: '#0891b2'
+    });
     const DETECTION_CACHE_BOUNDS_EPSILON = 1e-4;
     const DETECTION_CACHE_SCALE_EPSILON = 1e-3;
 
     let isDetectionExtractPanelCollapsed = true;
-    let isDetectionExtractRunning = false;
     let detectionExtractImageCache = null;
     let detectionOverlayContext = null;
     let detectionResultViewMode = DETECTION_VIEW_MODE_FINAL;
+    let extractFireLineSource = EXTRACT_FIRE_LINE_SOURCE_FINAL;
+    let extractFireSymbolSource = EXTRACT_FIRE_SYMBOL_SOURCE_PANEL;
+    let extractFireStagePageKey = '';
+    let extractFireLastManualAnnotationSignature = '';
+    let extractFireLastSymbolAnnotationSignature = '';
+    const extractFireOverlayVisibility = {
+        line: true,
+        text: true,
+        symbol: true,
+        merge: true
+    };
+    const extractFireStageJobs = {
+        [EXTRACT_FIRE_STAGE_LINE]: { running: false, requestId: 0, controller: null, pageKey: '' },
+        [EXTRACT_FIRE_STAGE_TEXT]: { running: false, requestId: 0, controller: null, pageKey: '' },
+        [EXTRACT_FIRE_STAGE_SYMBOL]: { running: false, requestId: 0, controller: null, pageKey: '' },
+        [EXTRACT_FIRE_STAGE_MERGE]: { running: false, requestId: 0, controller: null, pageKey: '' }
+    };
+
+    function extractFireGetStageJob(stageKey) {
+        return extractFireStageJobs[stageKey] || null;
+    }
+
+    function extractFireIsStageRunning(stageKey) {
+        return Boolean(extractFireGetStageJob(stageKey)?.running);
+    }
+
+    function extractFireHasAnyRunningJobs() {
+        return Object.keys(extractFireStageJobs).some(stageKey => extractFireIsStageRunning(stageKey));
+    }
+
+    function extractFireListRunningStageKeys() {
+        return Object.keys(extractFireStageJobs).filter(stageKey => extractFireIsStageRunning(stageKey));
+    }
+
+    function extractFireCreateAbortError(stageKey, reason = 'cancelled') {
+        let error = null;
+        if (typeof DOMException === 'function') {
+            error = new DOMException(String(reason || 'cancelled'), 'AbortError');
+        } else {
+            error = new Error(String(reason || 'cancelled'));
+            error.name = 'AbortError';
+        }
+        error.stageKey = stageKey;
+        error.cancelReason = reason;
+        return error;
+    }
+
+    function extractFireIsAbortError(error) {
+        return error?.name === 'AbortError'
+            || error?.code === 20
+            || /abort|cancel/i.test(String(error?.message || error?.cancelReason || ''));
+    }
+
+    function extractFireStartStageJob(stageKey) {
+        const stageJob = extractFireGetStageJob(stageKey);
+        if (!stageJob) {
+            throw new Error(`Unknown Extract_FIRE stage: ${stageKey}`);
+        }
+        stageJob.requestId += 1;
+        stageJob.running = true;
+        stageJob.controller = typeof AbortController === 'function' ? new AbortController() : null;
+        stageJob.pageKey = extractFireGetPageKey();
+        updateDetectionExtractUI();
+        return {
+            requestId: stageJob.requestId,
+            signal: stageJob.controller?.signal || null,
+            pageKey: stageJob.pageKey
+        };
+    }
+
+    function extractFireFinishStageJob(stageKey, requestId) {
+        const stageJob = extractFireGetStageJob(stageKey);
+        if (!stageJob || stageJob.requestId !== requestId) {
+            return false;
+        }
+        stageJob.running = false;
+        stageJob.controller = null;
+        stageJob.pageKey = '';
+        updateDetectionExtractUI();
+        return true;
+    }
+
+    function extractFireAssertStageJobCurrent(stageKey, requestId, pageKey = extractFireGetPageKey()) {
+        const stageJob = extractFireGetStageJob(stageKey);
+        const isCurrentRequest = Boolean(stageJob)
+            && stageJob.running
+            && stageJob.requestId === requestId
+            && (!stageJob.pageKey || !pageKey || stageJob.pageKey === pageKey);
+        if (!isCurrentRequest) {
+            throw extractFireCreateAbortError(stageKey, 'stale');
+        }
+    }
+
+    function extractFireCancelStageJob(stageKey, reason = 'cancelled', options = {}) {
+        const stageJob = extractFireGetStageJob(stageKey);
+        if (!stageJob || (!stageJob.running && !stageJob.controller)) {
+            return false;
+        }
+        const controller = stageJob.controller;
+        stageJob.requestId += 1;
+        stageJob.running = false;
+        stageJob.controller = null;
+        stageJob.pageKey = '';
+        if (controller && typeof controller.abort === 'function') {
+            try {
+                controller.abort(reason);
+            } catch (error) {}
+        }
+        if (options.updateUi !== false) {
+            updateDetectionExtractUI();
+        }
+        return true;
+    }
+
+    function cancelDetectionExtractJobs(options = {}) {
+        const reason = String(options.reason || 'cancelled');
+        const cancelledStages = extractFireListRunningStageKeys().filter(stageKey => extractFireCancelStageJob(stageKey, reason, { updateUi: false }));
+        if (cancelledStages.length && options.keepStatus !== true) {
+            setDetectionExtractStatus(`Da huy ${cancelledStages.join(', ')}.`, 'info');
+        }
+        updateDetectionExtractUI();
+        return cancelledStages;
+    }
 
     function detectionClone(value) {
         if (typeof structuredClone === 'function') {
@@ -99,6 +257,43 @@
         detectionExtractImageCache = null;
     }
 
+    function extractFireNormalizeDocumentName(name) {
+        const rawName = String(name || '').trim();
+        if (!rawName) return '';
+        const normalizedPath = rawName.replace(/\\/g, '/').split('?')[0].split('#')[0];
+        return String(normalizedPath.split('/').pop() || rawName).trim();
+    }
+
+    function extractFireGetDocumentKey() {
+        const source = currentPdfFile || currentJsonSourceFile || null;
+        const sourceName = extractFireNormalizeDocumentName(
+            (currentPdfFile && currentPdfFile.name)
+            || (currentJsonSourceFile && (currentJsonSourceFile.name || currentJsonSourceFile))
+            || ''
+        );
+        if (!sourceName) return '';
+        if (source && typeof source === 'object') {
+            const size = Number.isFinite(Number(source.size)) ? Number(source.size) : 0;
+            const lastModified = Number.isFinite(Number(source.lastModified)) ? Number(source.lastModified) : 0;
+            return `${sourceName}::${size}::${lastModified}`;
+        }
+        return sourceName;
+    }
+
+    function extractFireGetPageKey(pageNum = currentPageNum) {
+        const documentKey = extractFireGetDocumentKey();
+        const resolvedPageNum = Number(pageNum);
+        if (!documentKey || !Number.isFinite(resolvedPageNum) || resolvedPageNum < 1) {
+            return '';
+        }
+        return `${documentKey}::${resolvedPageNum}`;
+    }
+
+    function extractFireBindStageResultsToCurrentPage() {
+        extractFireStagePageKey = extractFireGetPageKey();
+        return extractFireStagePageKey;
+    }
+
     function detectionIsConnectClass(value) {
         return detectionNormalizeClassName(value).toLowerCase() === 'connect';
     }
@@ -150,6 +345,58 @@
         };
     }
 
+    function extractFireBuildBackendOverlayContext(result) {
+        const backendContext = result?.context || {};
+        const rawBounds = backendContext.render_bounds || backendContext.renderBounds || null;
+        const normalizedBounds = extractFireNormalizeBBox(rawBounds)
+            || (allShapesBounds
+                ? {
+                    minX: Number(allShapesBounds.minX),
+                    minY: Number(allShapesBounds.minY),
+                    maxX: Number(allShapesBounds.maxX),
+                    maxY: Number(allShapesBounds.maxY)
+                }
+                : null);
+        if (!normalizedBounds) return null;
+
+        const bounds = {
+            minX: Number(normalizedBounds.minX),
+            minY: Number(normalizedBounds.minY),
+            maxX: Number(normalizedBounds.maxX),
+            maxY: Number(normalizedBounds.maxY)
+        };
+        bounds.width = detectionSafeNumber(rawBounds?.width) ?? Math.max(1, bounds.maxX - bounds.minX);
+        bounds.height = detectionSafeNumber(rawBounds?.height) ?? Math.max(1, bounds.maxY - bounds.minY);
+
+        const fallbackImageSize = result?.raw?.image_size || result?.processed?.image_size || result?.image_size || {};
+        const renderScale = detectionSafeNumber(backendContext.render_scale ?? backendContext.renderScale);
+        const imageWidth = detectionSafeNumber(
+            backendContext.rendered_image_width
+            ?? backendContext.renderedImageWidth
+            ?? backendContext.image_width
+            ?? backendContext.imageWidth
+            ?? fallbackImageSize.width
+        ) ?? (renderScale !== null ? Math.max(1, Math.round(bounds.width * renderScale)) : null);
+        const imageHeight = detectionSafeNumber(
+            backendContext.rendered_image_height
+            ?? backendContext.renderedImageHeight
+            ?? backendContext.image_height
+            ?? backendContext.imageHeight
+            ?? fallbackImageSize.height
+        ) ?? (renderScale !== null ? Math.max(1, Math.round(bounds.height * renderScale)) : null);
+
+        if (!Number.isFinite(imageWidth) || imageWidth <= 0 || !Number.isFinite(imageHeight) || imageHeight <= 0) {
+            return null;
+        }
+
+        return {
+            bounds,
+            imageWidth,
+            imageHeight,
+            renderScale
+        };
+    }
+
     function setDetectionExtractStatus(message, tone = 'info') {
         if (!detectExtractStatus) return;
         detectExtractStatus.classList.remove('is-error', 'is-success');
@@ -174,9 +421,308 @@
     }
 
     function detectionGetFinalResultCount() {
-        return Array.isArray(detectionAutoAcceptResults?.manual_annotations)
-            ? detectionAutoAcceptResults.manual_annotations.length
-            : 0;
+        return extractFireGetSharedFinalAnnotations().length;
+    }
+
+    function detectionIsCompactLineResult(result) {
+        return Boolean(result && typeof result === 'object' && Array.isArray(result.detections) && !result.raw && !result.processed && !result.auto_accept);
+    }
+
+    function detectionNormalizeLinePoint(point, fallbackLayerName = '') {
+        if (!point || typeof point !== 'object') return null;
+        const pointX = detectionSafeNumber(point.x ?? point[0]);
+        const pointY = detectionSafeNumber(point.y ?? point[1]);
+        if (pointX === null || pointY === null) return null;
+        return {
+            x: detectionRound(pointX, 6),
+            y: detectionRound(pointY, 6),
+            layerName: String(point.layerName || point.layer_name || fallbackLayerName || '').trim()
+        };
+    }
+
+    function detectionLineDetectionToAnnotation(detection, index = 0) {
+        if (!detection || typeof detection !== 'object') return null;
+        const rawType = String(detection.type || detection.class_name || '').trim().toLowerCase();
+        const type = detectionIsJunctionClass(rawType) ? 'junction' : (detectionIsConnectClass(rawType) ? 'connect' : '');
+        if (!type) return null;
+        const layerName = String(detection.layerName || detection.layer_name || detection.postprocess?.layer_name || '').trim();
+        const rawPoints = detection.points || detection.manual_points || detection.postprocess?.manual_points || [];
+        const points = (Array.isArray(rawPoints) ? rawPoints : [])
+            .map(point => detectionNormalizeLinePoint(point, layerName))
+            .filter(Boolean);
+        const rawSegments = detection.segments || detection.manual_segments || detection.postprocess?.manual_segments || [];
+        const segments = (Array.isArray(rawSegments) ? rawSegments : [])
+            .map(segment => (Array.isArray(segment) ? segment : [])
+                .map(point => detectionNormalizeLinePoint(point, layerName))
+                .filter(Boolean))
+            .filter(segment => segment.length >= 2);
+        if (type === 'connect' && points.length < 2 && !segments.length) return null;
+        if (type === 'junction' && !points.length) return null;
+        return {
+            id: detection.id ?? `extract-line:${index + 1}`,
+            type,
+            layerName: layerName || points[0]?.layerName || segments[0]?.[0]?.layerName || '',
+            source: detection.source || 'extract_fire_api',
+            autoManaged: false,
+            points,
+            lineKeys: Array.from(new Set((detection.lineKeys || detection.line_keys || detection.postprocess?.matched_line_keys || [])
+                .map(lineKey => String(lineKey))
+                .filter(Boolean))).sort(),
+            segments
+        };
+    }
+
+    function detectionBuildManualAnnotationsFromLineResult(result) {
+        if (Array.isArray(result?.manual_annotations)) {
+            return detectionClone(result.manual_annotations);
+        }
+        return (Array.isArray(result?.detections) ? result.detections : [])
+            .map((detection, index) => detectionLineDetectionToAnnotation(detection, index))
+            .filter(Boolean);
+    }
+
+    function detectionAnnotationToLineDetection(annotation, index = 0) {
+        if (!annotation || typeof annotation !== 'object') return null;
+        const type = String(annotation.type || '').trim().toLowerCase();
+        if (type !== 'connect' && type !== 'junction') return null;
+        const layerName = String(annotation.layerName || annotation.layer_name || '').trim();
+        const points = (Array.isArray(annotation.points) ? annotation.points : [])
+            .map(point => detectionNormalizeLinePoint(point, layerName))
+            .filter(Boolean);
+        const segments = (Array.isArray(annotation.segments) ? annotation.segments : [])
+            .map(segment => (Array.isArray(segment) ? segment : [])
+                .map(point => detectionNormalizeLinePoint(point, layerName))
+                .filter(Boolean))
+            .filter(segment => segment.length >= 2);
+        if (type === 'connect' && points.length < 2 && !segments.length) return null;
+        if (type === 'junction' && !points.length) return null;
+        return {
+            id: annotation.id ?? `manual-line:${index + 1}`,
+            class_name: type,
+            layer_name: layerName || points[0]?.layerName || segments[0]?.[0]?.layerName || '',
+            source: annotation.source || 'manual',
+            points,
+            segments,
+            line_keys: Array.from(new Set((annotation.lineKeys || annotation.line_keys || [])
+                .map(lineKey => String(lineKey))
+                .filter(Boolean))).sort()
+        };
+    }
+
+    function extractFireBuildTextItemsFromResult(textResult) {
+        if (!textResult || typeof textResult !== 'object') return [];
+        if (Array.isArray(textResult.items)) {
+            return textResult.items
+                .map((item, index) => ({
+                    ...item,
+                    id: item?.id || index + 1,
+                    text: String(item?.text || ''),
+                    bbox: detectionClone(item?.bbox || []),
+                    orientation: item?.orientation ?? item?.angle ?? null,
+                    seqnos: Array.isArray(item?.seqnos) ? detectionClone(item.seqnos) : (Array.isArray(item?.list_seqno) ? detectionClone(item.list_seqno) : [])
+                }))
+                .filter(item => item && item.bbox.length >= 4);
+        }
+        const texts = Array.isArray(textResult.rec_texts) ? textResult.rec_texts : [];
+        const boxes = Array.isArray(textResult.rec_boxes) ? textResult.rec_boxes : [];
+        const orientations = Array.isArray(textResult.textline_orientation_angles) ? textResult.textline_orientation_angles : [];
+        const seqnoLists = Array.isArray(textResult.list_seqno) ? textResult.list_seqno : [];
+        return texts
+            .map((text, index) => ({
+                id: index + 1,
+                text: String(text || ''),
+                bbox: detectionClone(boxes[index] || []),
+                orientation: orientations[index] ?? null,
+                seqnos: Array.isArray(seqnoLists[index]) ? detectionClone(seqnoLists[index]) : []
+            }))
+            .filter(item => item.bbox.length >= 4);
+    }
+
+    function extractFireGetTextItems() {
+        return extractFireBuildTextItemsFromResult(extractFireTextResults);
+    }
+
+    function extractFireSetTextItems(items) {
+        if (!extractFireTextResults || typeof extractFireTextResults !== 'object') {
+            extractFireTextResults = {};
+        }
+        const normalizedItems = (Array.isArray(items) ? items : [])
+            .map((item, index) => ({
+                ...item,
+                id: index + 1,
+                text: String(item?.text || ''),
+                bbox: detectionClone(item?.bbox || []),
+                orientation: item?.orientation ?? null,
+                seqnos: Array.isArray(item?.seqnos) ? detectionClone(item.seqnos) : []
+            }))
+            .filter(item => item.bbox.length >= 4);
+        delete extractFireTextResults.items;
+        extractFireTextResults.rec_texts = normalizedItems.map(item => item.text);
+        extractFireTextResults.rec_boxes = normalizedItems.map(item => detectionClone(item.bbox));
+        extractFireTextResults.textline_orientation_angles = normalizedItems.map(item => item.orientation ?? null);
+        extractFireTextResults.list_seqno = normalizedItems.map(item => detectionClone(item.seqnos));
+        if (extractFireTextResults.summary && typeof extractFireTextResults.summary === 'object') {
+            extractFireTextResults.summary.text_count = normalizedItems.length;
+        }
+        if (extractFireTextResults.sources?.merged && typeof extractFireTextResults.sources.merged === 'object') {
+            delete extractFireTextResults.sources.merged.items;
+            extractFireTextResults.sources.merged.rec_texts = detectionClone(extractFireTextResults.rec_texts);
+            extractFireTextResults.sources.merged.rec_boxes = detectionClone(extractFireTextResults.rec_boxes);
+            extractFireTextResults.sources.merged.textline_orientation_angles = detectionClone(extractFireTextResults.textline_orientation_angles);
+            extractFireTextResults.sources.merged.list_seqno = detectionClone(extractFireTextResults.list_seqno);
+        }
+    }
+
+    function extractFireGetSymbolItemsFromResult(symbolResult) {
+        const rawItems = Array.isArray(symbolResult)
+            ? symbolResult
+            : (Array.isArray(symbolResult?.items) ? symbolResult.items : []);
+        return rawItems
+            .map((item, index) => {
+                const bbox = extractFireNormalizeBBox(item?.bbox || item?.world_bbox || item?.worldBBox || item?.rect);
+                if (!bbox) return null;
+                const labelName = String(item?.shape_name || item?.label_name || item?.labelName || 'Sprinkler').trim() || 'Sprinkler';
+                return {
+                    ...item,
+                    id: item?.id || item?.annotation_id || `symbol:${index + 1}`,
+                    shape_name: labelName,
+                    label_name: labelName,
+                    source: item?.source || item?.method || 'extract_fire_api',
+                    bbox: [bbox.minX, bbox.minY, bbox.maxX, bbox.maxY]
+                };
+            })
+            .filter(Boolean);
+    }
+
+    function extractFireGetTextCount() {
+        return extractFireGetTextItems().length;
+    }
+
+    function extractFireGetSymbolCount() {
+        return extractFireGetSymbolItemsFromResult(extractFireSymbolResults).length;
+    }
+
+    function extractFireGetMergedCount() {
+        return Array.isArray(extractFireMergeResults?.json_objects) ? extractFireMergeResults.json_objects.length : 0;
+    }
+
+    function extractFireGetPanelLineCount() {
+        return getExtractFireManualAnnotationPayload().length;
+    }
+
+    function extractFireGetPanelSymbolCount() {
+        return getExtractFireSymbolAnnotationsPayload().length;
+    }
+
+    function setExtractFireToggleButton(button, active, disabled = false) {
+        if (!button) return;
+        button.classList.toggle('is-active', Boolean(active));
+        button.setAttribute('aria-pressed', String(Boolean(active)));
+        button.disabled = Boolean(disabled);
+    }
+
+    function setExtractFireLoadingButton(button, isLoading) {
+        if (!button) return;
+        const nextLoading = Boolean(isLoading);
+        button.classList.toggle('is-loading', nextLoading);
+        button.setAttribute('aria-busy', String(nextLoading));
+        const stageElement = button.closest('.detect-extract-stage');
+        if (stageElement) {
+            stageElement.classList.toggle('is-loading', nextLoading);
+        }
+    }
+
+    function setExtractFireLoadingBadge(badge, isLoading) {
+        if (!badge) return;
+        badge.classList.toggle('is-loading', Boolean(isLoading));
+    }
+
+    function extractFireBatchSetOverlayVisibility(nextVisibility, options = {}) {
+        let didChange = false;
+        Object.entries(nextVisibility || {}).forEach(([key, value]) => {
+            if (!Object.prototype.hasOwnProperty.call(extractFireOverlayVisibility, key)) return;
+            const nextValue = Boolean(value);
+            if (extractFireOverlayVisibility[key] === nextValue) return;
+            extractFireOverlayVisibility[key] = nextValue;
+            didChange = true;
+        });
+        if (!didChange) return false;
+        if (options.refreshUi !== false) {
+            updateDetectionExtractUI();
+        }
+        if (options.redraw !== false && typeof scheduleDraw === 'function') {
+            scheduleDraw();
+        }
+        return true;
+    }
+
+    function extractFireHandleLineOverlayDisabled() {
+        const isAnnotationEditingActive = typeof annotationMode !== 'undefined' && Boolean(annotationMode);
+        if (isAnnotationEditingActive && typeof deactivateManualLabelMode === 'function') {
+            deactivateManualLabelMode();
+        }
+    }
+
+    function extractFireHandleSymbolOverlayDisabled() {
+        if (typeof deactivateSymbolFindArming === 'function') {
+            deactivateSymbolFindArming();
+        }
+        if (typeof deactivateSymbolDeleteArming === 'function') {
+            deactivateSymbolDeleteArming();
+        }
+    }
+
+    function extractFireHandleLinkedPanelForOverlay(key, isVisible) {
+        if (key === 'line' && typeof applyManualLabelPanelState === 'function' && typeof isManualLabelPanelCollapsed !== 'undefined') {
+            const shouldCollapse = !Boolean(isVisible);
+            if (isManualLabelPanelCollapsed !== shouldCollapse) {
+                applyManualLabelPanelState(shouldCollapse);
+            }
+        }
+        if (key === 'symbol' && typeof applySymbolAnnotationPanelState === 'function' && typeof isSymbolAnnotationPanelCollapsed !== 'undefined') {
+            const shouldCollapse = !Boolean(isVisible);
+            if (isSymbolAnnotationPanelCollapsed !== shouldCollapse) {
+                applySymbolAnnotationPanelState(shouldCollapse);
+            }
+        }
+    }
+
+    function handleExtractLinePanelStateChange(collapsed) {
+        if (collapsed) {
+            if (!extractFireOverlayVisibility.line) return;
+            extractFireOverlayVisibility.line = false;
+            extractFireHandleLineOverlayDisabled();
+        } else if (!extractFireOverlayVisibility.line) {
+            extractFireOverlayVisibility.line = true;
+        } else {
+            return;
+        }
+        updateDetectionExtractUI();
+        if (typeof scheduleDraw === 'function') {
+            scheduleDraw();
+        }
+    }
+
+    function handleExtractSymbolPanelStateChange(collapsed) {
+        if (collapsed) {
+            if (!extractFireOverlayVisibility.symbol) return;
+            extractFireOverlayVisibility.symbol = false;
+            extractFireHandleSymbolOverlayDisabled();
+        } else if (!extractFireOverlayVisibility.symbol) {
+            extractFireOverlayVisibility.symbol = true;
+        } else {
+            return;
+        }
+        updateDetectionExtractUI();
+        if (typeof scheduleDraw === 'function') {
+            scheduleDraw();
+        }
+    }
+
+    function extractFireHasSelectedLineData() {
+        return extractFireLineSource === EXTRACT_FIRE_LINE_SOURCE_PANEL
+            ? extractFireGetPanelLineCount() > 0
+            : detectionGetFinalResultCount() > 0;
     }
 
     function detectionGetResultCountForViewMode(viewMode = detectionResultViewMode) {
@@ -194,6 +740,13 @@
             return detectionRawResults;
         }
         if (viewMode === DETECTION_VIEW_MODE_FINAL) {
+            const finalAnnotations = extractFireGetSharedFinalAnnotations();
+            if (finalAnnotations.length || detectionAutoAcceptResults) {
+                return {
+                    ...(detectionAutoAcceptResults || {}),
+                    manual_annotations: finalAnnotations
+                };
+            }
             return detectionAutoAcceptResults;
         }
         return detectionAdjustedResults;
@@ -220,7 +773,9 @@
 
     function updateDetectionExtractSummary() {
         if (!detectExtractSummary) return;
-        detectExtractSummary.textContent = `Raw ${detectionGetRawResultCount()} | Process ${detectionGetProcessedResultCount()} | Final ${detectionGetFinalResultCount()} | Verify >= ${detectionFormatCoverageThreshold()}`;
+        const runningStages = extractFireListRunningStageKeys();
+        const runningSuffix = runningStages.length ? ` | Running ${runningStages.join(', ')}` : '';
+        detectExtractSummary.textContent = `Line ${detectionGetFinalResultCount()} | Text ${extractFireGetTextCount()} | Symbol ${extractFireGetPanelSymbolCount() || extractFireGetSymbolCount()} | Merge ${extractFireGetMergedCount()} | Verify >= ${detectionFormatCoverageThreshold()}${runningSuffix}`;
     }
 
     function refreshDetectionVisualizationForCurrentView() {
@@ -239,7 +794,10 @@
         }
         detectionResultViewMode = nextMode;
         detectionEnsureAvailableViewMode();
-        if (options.refreshVisualization !== false && !isDetectionExtractRunning) {
+        if (detectionResultViewMode !== DETECTION_VIEW_MODE_FINAL && typeof deactivateManualLabelMode === 'function' && annotationMode) {
+            deactivateManualLabelMode();
+        }
+        if (options.refreshVisualization !== false) {
             refreshDetectionVisualizationForCurrentView();
         }
         updateDetectionExtractUI();
@@ -251,36 +809,91 @@
         const rawCount = detectionGetRawResultCount();
         const processedCount = detectionGetProcessedResultCount();
         const finalCount = detectionGetFinalResultCount();
+        const textCount = extractFireGetTextCount();
+        const symbolCount = extractFireGetSymbolCount();
+        const mergeCount = extractFireGetMergedCount();
+        const panelLineCount = extractFireGetPanelLineCount();
+        const panelSymbolCount = extractFireGetPanelSymbolCount();
         if (detectExtractCountBadge) {
             detectExtractCountBadge.textContent = String(detectionCount);
+        }
+        if (detectExtractPanel) {
+            detectExtractPanel.classList.toggle('has-running-jobs', extractFireHasAnyRunningJobs());
+        }
+        setExtractFireLoadingBadge(detectExtractCountBadge, extractFireHasAnyRunningJobs());
+        if (extractLineStageCount) {
+            extractLineStageCount.textContent = String(finalCount || processedCount || rawCount);
+            extractLineStageCount.title = `Final ${finalCount}, labels ${panelLineCount}`;
+        }
+        if (extractTextStageCount) {
+            extractTextStageCount.textContent = String(textCount);
+        }
+        if (extractSymbolStageCount) {
+            extractSymbolStageCount.textContent = String(panelSymbolCount || symbolCount);
+            extractSymbolStageCount.title = `API ${symbolCount}, labels ${panelSymbolCount}`;
+        }
+        if (extractMergeStageCount) {
+            extractMergeStageCount.textContent = String(mergeCount);
         }
         updateDetectionExtractSummary();
         if (btnDetectViewProcessed) {
             const isActive = detectionResultViewMode === DETECTION_VIEW_MODE_PROCESSED;
             btnDetectViewProcessed.classList.toggle('is-active', isActive);
             btnDetectViewProcessed.setAttribute('aria-pressed', String(isActive));
-            btnDetectViewProcessed.disabled = isDetectionExtractRunning || processedCount === 0;
+            btnDetectViewProcessed.disabled = processedCount === 0;
         }
         if (btnDetectViewRaw) {
             const isActive = detectionResultViewMode === DETECTION_VIEW_MODE_RAW;
             btnDetectViewRaw.classList.toggle('is-active', isActive);
             btnDetectViewRaw.setAttribute('aria-pressed', String(isActive));
-            btnDetectViewRaw.disabled = isDetectionExtractRunning || rawCount === 0;
+            btnDetectViewRaw.disabled = rawCount === 0;
         }
         if (btnDetectViewFinal) {
             const isActive = detectionResultViewMode === DETECTION_VIEW_MODE_FINAL;
             btnDetectViewFinal.classList.toggle('is-active', isActive);
             btnDetectViewFinal.setAttribute('aria-pressed', String(isActive));
-            btnDetectViewFinal.disabled = isDetectionExtractRunning || finalCount === 0;
+            btnDetectViewFinal.disabled = finalCount === 0;
         }
+        setExtractFireToggleButton(btnExtractOverlayLine, extractFireOverlayVisibility.line, !rawCount && !processedCount && !finalCount && !panelLineCount);
+        setExtractFireToggleButton(btnExtractOverlayText, extractFireOverlayVisibility.text, textCount === 0);
+        setExtractFireToggleButton(btnExtractOverlaySymbol, extractFireOverlayVisibility.symbol, !symbolCount && !panelSymbolCount);
+        setExtractFireToggleButton(btnExtractOverlayMerge, extractFireOverlayVisibility.merge, mergeCount === 0);
+        setExtractFireToggleButton(btnExtractLineSourceFinal, extractFireLineSource === EXTRACT_FIRE_LINE_SOURCE_FINAL, finalCount === 0);
+        setExtractFireToggleButton(btnExtractLineSourcePanel, extractFireLineSource === EXTRACT_FIRE_LINE_SOURCE_PANEL, panelLineCount === 0);
+        setExtractFireToggleButton(btnExtractSymbolSourcePanel, extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_PANEL, panelSymbolCount === 0);
+        setExtractFireToggleButton(btnExtractSymbolSourceApi, extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_API, symbolCount === 0);
+        setExtractFireToggleButton(btnExtractSymbolSourceBoth, extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_BOTH, !symbolCount && !panelSymbolCount);
         if (btnRunDetectExtract) {
-            btnRunDetectExtract.disabled = isDetectionExtractRunning || !hasRenderableDocument();
-            btnRunDetectExtract.textContent = isDetectionExtractRunning ? 'Running...' : 'Detect';
+            btnRunDetectExtract.disabled = !hasRenderableDocument();
+            btnRunDetectExtract.textContent = extractFireIsStageRunning(EXTRACT_FIRE_STAGE_LINE) ? 'Cancel Line' : 'Extract Line';
+            setExtractFireLoadingButton(btnRunDetectExtract, extractFireIsStageRunning(EXTRACT_FIRE_STAGE_LINE));
+        }
+        if (btnPromoteExtractLineToLabels) {
+            btnPromoteExtractLineToLabels.disabled = finalCount === 0;
+        }
+        if (btnRunExtractFireText) {
+            btnRunExtractFireText.disabled = !hasRenderableDocument();
+            btnRunExtractFireText.textContent = extractFireIsStageRunning(EXTRACT_FIRE_STAGE_TEXT) ? 'Cancel Text' : 'Extract Text';
+            setExtractFireLoadingButton(btnRunExtractFireText, extractFireIsStageRunning(EXTRACT_FIRE_STAGE_TEXT));
+        }
+        if (btnRunExtractFireSymbol) {
+            btnRunExtractFireSymbol.disabled = !hasRenderableDocument();
+            btnRunExtractFireSymbol.textContent = extractFireIsStageRunning(EXTRACT_FIRE_STAGE_SYMBOL) ? 'Cancel Symbol' : 'Extract Symbol';
+            setExtractFireLoadingButton(btnRunExtractFireSymbol, extractFireIsStageRunning(EXTRACT_FIRE_STAGE_SYMBOL));
+        }
+        if (btnRunExtractFireMerge) {
+            btnRunExtractFireMerge.disabled = !extractFireIsStageRunning(EXTRACT_FIRE_STAGE_MERGE) && !extractFireHasSelectedLineData();
+            btnRunExtractFireMerge.textContent = extractFireIsStageRunning(EXTRACT_FIRE_STAGE_MERGE) ? 'Cancel Merge' : 'Merge';
+            setExtractFireLoadingButton(btnRunExtractFireMerge, extractFireIsStageRunning(EXTRACT_FIRE_STAGE_MERGE));
+        }
+        if (btnExportExtractFireJson) {
+            btnExportExtractFireJson.disabled = !mergeCount;
         }
         if (btnClearDetectExtract) {
-            btnClearDetectExtract.disabled = isDetectionExtractRunning || (!rawCount && !processedCount && !finalCount);
+            btnClearDetectExtract.disabled = !extractFireHasAnyRunningJobs() && !rawCount && !processedCount && !finalCount && !textCount && !symbolCount && !mergeCount;
+            btnClearDetectExtract.textContent = extractFireHasAnyRunningJobs() ? 'Cancel + Clear' : 'Clear';
         }
-        if (!rawCount && !processedCount && !finalCount && detectExtractStatus && !isDetectionExtractRunning) {
+        if (!rawCount && !processedCount && !finalCount && !textCount && !symbolCount && !mergeCount && detectExtractStatus && !extractFireHasAnyRunningJobs()) {
             setDetectionExtractStatus('No detection results yet.');
         }
     }
@@ -297,6 +910,20 @@
         try {
             localStorage.setItem(DETECTION_PANEL_STORAGE_KEY, collapsed ? '1' : '0');
         } catch (error) {}
+        if (collapsed) {
+            extractFireBatchSetOverlayVisibility({
+                line: false,
+                text: false,
+                symbol: false,
+                merge: false
+            }, {
+                refreshUi: false,
+                redraw: false
+            });
+            extractFireHandleLineOverlayDisabled();
+            extractFireHandleSymbolOverlayDisabled();
+        }
+        updateDetectionExtractUI();
         if (typeof scheduleDraw === 'function') {
             scheduleDraw();
         }
@@ -336,7 +963,16 @@
             detectionRawResults = null;
             detectionAdjustedResults = null;
             detectionAutoAcceptResults = null;
+            extractFireLineResults = null;
             detectionOverlayContext = null;
+            if (options.clearStageResults !== false) {
+                extractFireTextResults = null;
+                extractFireSymbolResults = null;
+                extractFireMergeResults = null;
+                extractFireBindStageResultsToCurrentPage();
+            } else {
+                extractFireMergeResults = null;
+            }
         }
 
         if (options.refresh !== false) {
@@ -1559,13 +2195,13 @@
     function detectionBuildProcessedOverlayEntry(detection, context) {
         const className = detectionNormalizeClassName(detection?.class_name);
         const postprocess = detection?.postprocess || {};
-        const fallbackLayerName = String(postprocess.layer_name || detection?.layer_name || '').trim();
+        const fallbackLayerName = String(postprocess.layer_name || detection?.layer_name || detection?.layerName || '').trim();
         if (detectionIsConnectClass(className)) {
             const connectEntry = detectionCreateAnnotationOverlayEntry({
                 type: 'connect',
                 layerName: fallbackLayerName,
-                points: postprocess.manual_points,
-                segments: postprocess.manual_segments
+                points: postprocess.manual_points || detection?.points,
+                segments: postprocess.manual_segments || detection?.segments
             });
             if (connectEntry) return connectEntry;
         }
@@ -1573,7 +2209,7 @@
             const junctionEntry = detectionCreateAnnotationOverlayEntry({
                 type: 'junction',
                 layerName: fallbackLayerName,
-                points: postprocess.manual_points
+                points: postprocess.manual_points || detection?.points
             });
             if (junctionEntry) return junctionEntry;
         }
@@ -1595,8 +2231,8 @@
                 : [];
         }
         if (viewMode === DETECTION_VIEW_MODE_FINAL) {
-            return Array.isArray(detectionAutoAcceptResults?.manual_annotations)
-                ? detectionAutoAcceptResults.manual_annotations
+            return extractFireGetSharedFinalAnnotations().length
+                ? extractFireGetSharedFinalAnnotations()
                     .map(annotation => detectionCreateAnnotationOverlayEntry(annotation))
                     .filter(Boolean)
                 : [];
@@ -1605,6 +2241,11 @@
             ? detectionAdjustedResults.detections
                 .map(detection => detectionBuildProcessedOverlayEntry(detection, context))
                 .filter(Boolean)
+                .sort((left, right) => {
+                    const leftPriority = left?.annotationType === 'connect' ? 0 : 1;
+                    const rightPriority = right?.annotationType === 'connect' ? 0 : 1;
+                    return leftPriority - rightPriority;
+                })
             : [];
     }
 
@@ -1634,65 +2275,316 @@
         targetCtx.fillText(labelText, labelX + paddingX, labelY + paddingY);
     }
 
+    function extractFireColorWithAlpha(hexColor, alpha) {
+        const hex = String(hexColor || '').replace('#', '');
+        if (hex.length !== 6) return `rgba(15, 23, 42, ${alpha})`;
+        const red = parseInt(hex.slice(0, 2), 16);
+        const green = parseInt(hex.slice(2, 4), 16);
+        const blue = parseInt(hex.slice(4, 6), 16);
+        return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+    }
+
+    function extractFireNormalizeBBox(value) {
+        if (Array.isArray(value) && value.length >= 4) {
+            const polygonBounds = detectionBoundsFromPointPairs(value);
+            if (polygonBounds) {
+                return {
+                    minX: polygonBounds.minX,
+                    minY: polygonBounds.minY,
+                    maxX: polygonBounds.maxX,
+                    maxY: polygonBounds.maxY
+                };
+            }
+            const x0 = detectionSafeNumber(value[0]);
+            const y0 = detectionSafeNumber(value[1]);
+            const x1 = detectionSafeNumber(value[2]);
+            const y1 = detectionSafeNumber(value[3]);
+            if ([x0, y0, x1, y1].some(item => item === null)) return null;
+            return { minX: Math.min(x0, x1), minY: Math.min(y0, y1), maxX: Math.max(x0, x1), maxY: Math.max(y0, y1) };
+        }
+        if (value && typeof value === 'object') {
+            if ([value.minX, value.minY, value.maxX, value.maxY].every(item => detectionSafeNumber(item) !== null)) {
+                return {
+                    minX: Number(value.minX),
+                    minY: Number(value.minY),
+                    maxX: Number(value.maxX),
+                    maxY: Number(value.maxY)
+                };
+            }
+            const x = detectionSafeNumber(value.x);
+            const y = detectionSafeNumber(value.y);
+            const width = detectionSafeNumber(value.width);
+            const height = detectionSafeNumber(value.height);
+            if ([x, y, width, height].every(item => item !== null)) {
+                return { minX: x, minY: y, maxX: x + width, maxY: y + height };
+            }
+        }
+        return null;
+    }
+
+    function extractFireBboxToPolygon(bbox) {
+        return [
+            { x: bbox.minX, y: bbox.minY },
+            { x: bbox.maxX, y: bbox.minY },
+            { x: bbox.maxX, y: bbox.maxY },
+            { x: bbox.minX, y: bbox.maxY }
+        ];
+    }
+
+    function extractFireGetDrawContextBounds(entryBounds = null) {
+        const sourceBounds = allShapesBounds || detectionOverlayContext?.bounds || entryBounds;
+        if (!sourceBounds) {
+            return entryBounds || { minX: 0, minY: 0, maxX: 1, maxY: 1, width: 1, height: 1 };
+        }
+        return {
+            minX: Number(sourceBounds.minX),
+            minY: Number(sourceBounds.minY),
+            maxX: Number(sourceBounds.maxX),
+            maxY: Number(sourceBounds.maxY),
+            width: Number(sourceBounds.width || Math.max(1, sourceBounds.maxX - sourceBounds.minX)),
+            height: Number(sourceBounds.height || Math.max(1, sourceBounds.maxY - sourceBounds.minY))
+        };
+    }
+
+    function extractFireDrawBboxOverlay(targetCtx, bbox, color, labelText, options = {}) {
+        if (!bbox) return;
+        const zoomSafe = Math.max(zoom, 0.01);
+        const polygon = extractFireBboxToPolygon(bbox);
+        const entryBounds = detectionBoundsFromPointPairs(polygon);
+        const context = { bounds: extractFireGetDrawContextBounds(entryBounds) };
+        const overlayStyle = {
+            fill: extractFireColorWithAlpha(color, options.fillAlpha ?? 0.12),
+            stroke: color,
+            labelFill: extractFireColorWithAlpha(color, 0.92)
+        };
+
+        targetCtx.fillStyle = overlayStyle.fill;
+        targetCtx.strokeStyle = overlayStyle.stroke;
+        targetCtx.lineWidth = (options.lineWidth || 1.8) / zoomSafe;
+        targetCtx.setLineDash(options.dashed ? [5 / zoomSafe, 4 / zoomSafe] : []);
+        detectionDrawWorldPolygonPath(targetCtx, polygon);
+        targetCtx.fill();
+        detectionDrawWorldPolygonPath(targetCtx, polygon);
+        targetCtx.stroke();
+        targetCtx.setLineDash([]);
+        detectionDrawOverlayLabel(targetCtx, labelText, entryBounds, context, overlayStyle, {
+            fontSize: (options.fontSize || 10) / zoomSafe,
+            paddingX: 4 / zoomSafe,
+            paddingY: 3 / zoomSafe,
+            labelGap: 2 / zoomSafe
+        });
+    }
+
+    function extractFireGetPanelSymbolItems() {
+        return getExtractFireSymbolAnnotationsPayload()
+            .map((annotation, index) => {
+                const worldBbox = annotation?.world_bbox || annotation?.worldBBox;
+                const bbox = extractFireNormalizeBBox(worldBbox || annotation?.bbox || annotation?.rect);
+                if (!bbox) return null;
+                return {
+                    id: annotation.annotation_id || annotation.id || `panel:${index + 1}`,
+                    shape_name: annotation.label_name || annotation.shape_name || annotation.name || 'Symbol',
+                    bbox: [bbox.minX, bbox.minY, bbox.maxX, bbox.maxY],
+                    source: 'panel'
+                };
+            })
+            .filter(Boolean);
+    }
+
+    function extractFireDeduplicateSymbolItems(items) {
+        const dedupedItems = [];
+        const seenKeys = new Set();
+        (Array.isArray(items) ? items : []).forEach((item, index) => {
+            const bbox = extractFireNormalizeBBox(item?.bbox || item?.world_bbox || item?.worldBBox || item?.rect);
+            if (!bbox) return;
+            const key = [
+                String(item?.shape_name || item?.label_name || 'symbol').trim().toLowerCase(),
+                detectionRound(bbox.minX, 2),
+                detectionRound(bbox.minY, 2),
+                detectionRound(bbox.maxX, 2),
+                detectionRound(bbox.maxY, 2)
+            ].join('|');
+            if (seenKeys.has(key)) return;
+            seenKeys.add(key);
+            dedupedItems.push({
+                ...item,
+                id: item?.id || item?.annotation_id || `symbol:${index + 1}`,
+                bbox: [bbox.minX, bbox.minY, bbox.maxX, bbox.maxY]
+            });
+        });
+        return dedupedItems;
+    }
+
+    function extractFireGetSelectedSymbolItems() {
+        const apiItems = extractFireGetSymbolItemsFromResult(extractFireSymbolResults);
+        const panelItems = extractFireGetPanelSymbolItems();
+        if (extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_PANEL) return panelItems;
+        if (extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_API) return apiItems;
+        return extractFireDeduplicateSymbolItems([...panelItems, ...apiItems]);
+    }
+
+    function extractFireDrawTextOverlays(targetCtx) {
+        if (!extractFireOverlayVisibility.text) return;
+        extractFireGetTextItems().forEach(item => {
+            const bbox = extractFireNormalizeBBox(item?.bbox);
+            if (!bbox) return;
+            const label = String(item?.text || '').trim().slice(0, 32) || 'text';
+            extractFireDrawBboxOverlay(targetCtx, bbox, EXTRACT_FIRE_OVERLAY_COLORS.text, label, { dashed: true, fillAlpha: 0.08 });
+        });
+    }
+
+    function extractFireDrawSymbolOverlays(targetCtx) {
+        if (!extractFireOverlayVisibility.symbol) return;
+        extractFireGetSelectedSymbolItems().forEach(item => {
+            const bbox = extractFireNormalizeBBox(item?.bbox);
+            if (!bbox) return;
+            const label = String(item?.shape_name || item?.label_name || 'symbol').slice(0, 28);
+            extractFireDrawBboxOverlay(targetCtx, bbox, EXTRACT_FIRE_OVERLAY_COLORS.symbol, label, { fillAlpha: 0.1 });
+        });
+    }
+
+    function extractFireNormalizeVertices(vertices) {
+        if (!Array.isArray(vertices)) return [];
+        return vertices
+            .map(point => {
+                const pointX = detectionSafeNumber(point?.[0] ?? point?.x);
+                const pointY = detectionSafeNumber(point?.[1] ?? point?.y);
+                return pointX === null || pointY === null ? null : { x: pointX, y: pointY };
+            })
+            .filter(Boolean);
+    }
+
+    function extractFireDrawMergedObject(targetCtx, item) {
+        const zoomSafe = Math.max(zoom, 0.01);
+        const shapeName = String(item?.shape_name || item?.type || '').trim() || 'Object';
+        const vertices = extractFireNormalizeVertices(item?.vertices);
+        if (shapeName.toLowerCase() === 'line' && vertices.length >= 2) {
+            targetCtx.save();
+            targetCtx.strokeStyle = EXTRACT_FIRE_OVERLAY_COLORS.mergeLine;
+            targetCtx.lineWidth = 2.4 / zoomSafe;
+            targetCtx.setLineDash([]);
+            targetCtx.beginPath();
+            targetCtx.moveTo(vertices[0].x, vertices[0].y);
+            for (let index = 1; index < vertices.length; index += 1) {
+                targetCtx.lineTo(vertices[index].x, vertices[index].y);
+            }
+            targetCtx.stroke();
+            targetCtx.restore();
+            return;
+        }
+        if (vertices.length === 1) {
+            const color = shapeName.toLowerCase().includes('tee') || shapeName.toLowerCase().includes('elbow') || shapeName.toLowerCase().includes('cross')
+                ? EXTRACT_FIRE_OVERLAY_COLORS.mergeNode
+                : EXTRACT_FIRE_OVERLAY_COLORS.mergeSymbol;
+            detectionDrawWorldPointMarker(targetCtx, vertices[0], color, Math.max(4 / zoomSafe, 1.2 / zoomSafe));
+            const pointBounds = detectionBoundsFromPointPairs(vertices);
+            detectionDrawOverlayLabel(targetCtx, shapeName, pointBounds, { bounds: extractFireGetDrawContextBounds(pointBounds) }, {
+                labelFill: extractFireColorWithAlpha(color, 0.92)
+            }, {
+                fontSize: 10 / zoomSafe,
+                paddingX: 4 / zoomSafe,
+                paddingY: 3 / zoomSafe,
+                labelGap: 2 / zoomSafe
+            });
+            return;
+        }
+        const bbox = extractFireNormalizeBBox(item?.bbox);
+        if (bbox) {
+            extractFireDrawBboxOverlay(targetCtx, bbox, EXTRACT_FIRE_OVERLAY_COLORS.mergeSymbol, shapeName, { lineWidth: 2.2, fillAlpha: 0.1 });
+        }
+    }
+
+    function extractFireDrawMergeOverlays(targetCtx) {
+        if (!extractFireOverlayVisibility.merge || !Array.isArray(extractFireMergeResults?.json_objects)) return;
+        extractFireMergeResults.json_objects.forEach(item => extractFireDrawMergedObject(targetCtx, item));
+    }
+
     function drawDetectionExtractOverlays(targetCtx) {
         const activeResult = detectionGetResultForViewMode();
-        if (!activeResult) return;
-
-        const contextSource = detectionResultViewMode === DETECTION_VIEW_MODE_FINAL
-            ? (detectionAdjustedResults || detectionRawResults || activeResult)
-            : activeResult;
-        const context = detectionBuildOverlayRenderContext(contextSource);
-        if (!context) return;
-
-        const overlayEntries = detectionBuildOverlayEntriesForViewMode(detectionResultViewMode, context);
-        if (!overlayEntries.length) return;
-
-        const zoomSafe = Math.max(zoom, 0.01);
-        const fontSize = 11 / zoomSafe;
-        const paddingX = 4 / zoomSafe;
-        const paddingY = 3 / zoomSafe;
-        const labelGap = 2 / zoomSafe;
-        const pointRadiusWorld = Math.max(3 / zoomSafe, 1 / zoomSafe);
-
+        const isAnnotationEditingActive = typeof annotationMode !== 'undefined' && Boolean(annotationMode);
+        const hasPendingManualPoint = typeof pendingConnectPoint !== 'undefined' && Boolean(pendingConnectPoint);
+        const hasHoveredManualSnap = typeof hoveredSnapPoint !== 'undefined' && Boolean(hoveredSnapPoint);
+        const shouldUseManualOverlayForFinalView = detectionResultViewMode === DETECTION_VIEW_MODE_FINAL
+            && extractFireOverlayVisibility.line
+            && (
+                isAnnotationEditingActive
+                || hasPendingManualPoint
+                || hasHoveredManualSnap
+                || (typeof hasSuggestedConnectAnnotations === 'function' && hasSuggestedConnectAnnotations())
+            );
         targetCtx.save();
         targetCtx.lineJoin = 'round';
         targetCtx.textBaseline = 'top';
-        targetCtx.font = `700 ${fontSize}px Arial`;
 
-        overlayEntries.forEach(entry => {
-            if (!detectionShouldDrawOverlayEntry(entry)) return;
-            const overlayStyle = detectionGetOverlayStyle(entry);
+        if (activeResult && extractFireOverlayVisibility.line && !shouldUseManualOverlayForFinalView) {
+            const contextSource = detectionResultViewMode === DETECTION_VIEW_MODE_FINAL
+                ? (detectionAdjustedResults || detectionRawResults || activeResult)
+                : activeResult;
+            const context = detectionBuildOverlayRenderContext(contextSource);
+            if (context) {
+                const overlayEntries = detectionBuildOverlayEntriesForViewMode(detectionResultViewMode, context);
+                const zoomSafe = Math.max(zoom, 0.01);
+                const fontSize = 11 / zoomSafe;
+                const paddingX = 4 / zoomSafe;
+                const paddingY = 3 / zoomSafe;
+                const labelGap = 2 / zoomSafe;
+                const pointRadiusWorld = Math.max(3 / zoomSafe, 1 / zoomSafe);
+                targetCtx.font = `700 ${fontSize}px Arial`;
 
-            targetCtx.fillStyle = overlayStyle.fill;
-            targetCtx.strokeStyle = overlayStyle.stroke;
-            targetCtx.lineWidth = 2 / zoomSafe;
-            targetCtx.setLineDash([]);
-            detectionDrawWorldPolygonPath(targetCtx, entry.polygon);
-            targetCtx.fill();
-            detectionDrawWorldPolygonPath(targetCtx, entry.polygon);
-            targetCtx.stroke();
+                overlayEntries.forEach(entry => {
+                    if (!detectionShouldDrawOverlayEntry(entry)) return;
+                    const overlayStyle = detectionGetOverlayStyle(entry);
+                    const isProcessedView = detectionResultViewMode === DETECTION_VIEW_MODE_PROCESSED;
+                    const polygonStrokeWidth = isProcessedView ? (1.85 / zoomSafe) : (2 / zoomSafe);
 
-            (entry.segments || []).forEach(segment => {
-                if (!Array.isArray(segment) || segment.length < 2) return;
-                targetCtx.beginPath();
-                targetCtx.moveTo(segment[0].x, segment[0].y);
-                targetCtx.lineTo(segment[1].x, segment[1].y);
-                targetCtx.stroke();
-            });
+                    targetCtx.fillStyle = overlayStyle.fill;
+                    targetCtx.strokeStyle = overlayStyle.stroke;
+                    targetCtx.lineWidth = polygonStrokeWidth;
+                    targetCtx.setLineDash([]);
+                    detectionDrawWorldPolygonPath(targetCtx, entry.polygon);
+                    targetCtx.fill();
+                    detectionDrawWorldPolygonPath(targetCtx, entry.polygon);
+                    targetCtx.stroke();
 
-            (entry.points || []).forEach(point => {
-                detectionDrawWorldPointMarker(targetCtx, point, overlayStyle.point, pointRadiusWorld * (entry.pointScale || 1));
-            });
+                    (entry.segments || []).forEach(segment => {
+                        if (!Array.isArray(segment) || segment.length < 2) return;
+                        targetCtx.lineWidth = polygonStrokeWidth;
+                        targetCtx.beginPath();
+                        targetCtx.moveTo(segment[0].x, segment[0].y);
+                        targetCtx.lineTo(segment[1].x, segment[1].y);
+                        targetCtx.stroke();
+                    });
 
-            detectionDrawOverlayLabel(targetCtx, entry.labelText, entry.labelBounds, context, overlayStyle, {
-                fontSize,
-                paddingX,
-                paddingY,
-                labelGap
-            });
-        });
+                    (entry.points || []).forEach(point => {
+                        detectionDrawWorldPointMarker(targetCtx, point, overlayStyle.point, pointRadiusWorld * (entry.pointScale || 1));
+                    });
+
+                    detectionDrawOverlayLabel(targetCtx, entry.labelText, entry.labelBounds, context, overlayStyle, {
+                        fontSize,
+                        paddingX,
+                        paddingY,
+                        labelGap
+                    });
+                });
+            }
+        }
+
+        targetCtx.font = `700 ${10 / Math.max(zoom, 0.01)}px Arial`;
+        extractFireDrawTextOverlays(targetCtx);
+        extractFireDrawSymbolOverlays(targetCtx);
+        extractFireDrawMergeOverlays(targetCtx);
 
         targetCtx.restore();
+    }
+
+    function extractFireGetSharedFinalAnnotations() {
+        const panelAnnotations = getExtractFireManualAnnotationPayload();
+        if (panelAnnotations.length) {
+            return panelAnnotations;
+        }
+        return Array.isArray(detectionAutoAcceptResults?.manual_annotations)
+            ? detectionAutoAcceptResults.manual_annotations
+            : [];
     }
 
     function applyDetectionResultsToLayers(adjustedDetectionJson, exportContext) {
@@ -1931,7 +2823,7 @@
         };
     }
 
-    async function buildDetectionRequestPayload(imagePayload) {
+    async function buildDetectionRequestPayload() {
         let gzipData = currentPageNum
             ? (getPageGzipCacheValue(cachedPages, currentPageNum, { touch: false })
                 || getPageGzipCacheValue(stagedCachedPages, currentPageNum, { touch: false }))
@@ -1962,8 +2854,6 @@
 
         return {
             payload: {
-                image_b64: imagePayload.imageB64,
-                image_name: imagePayload.imageName,
                 gzip_data: preferServerPageCache ? '' : gzipData,
                 pdf_name: pdfName,
                 page_num: pageNum,
@@ -1971,13 +2861,716 @@
                 prefer_server_page_cache: preferServerPageCache,
                 visible_layers: visibleLayers,
                 layer_visibility: { ...(layerVisibility || {}) },
-                render_bounds: imagePayload?.bounds ? { ...imagePayload.bounds } : null,
                 manual_annotations: manualAnnotationPayload,
                 use_sahi: true
             },
             fallbackGzipData: gzipData,
             preferServerPageCache
         };
+    }
+
+    async function buildExtractFirePageRequestPayload(options = {}) {
+        let gzipData = currentPageNum
+            ? (getPageGzipCacheValue(cachedPages, currentPageNum, { touch: false })
+                || getPageGzipCacheValue(stagedCachedPages, currentPageNum, { touch: false }))
+            : null;
+
+        if (!gzipData && typeof ensurePipelineCacheForCurrentDocument === 'function') {
+            gzipData = await ensurePipelineCacheForCurrentDocument();
+        }
+        if (!gzipData) {
+            throw new Error('Khong co gzip_data cua trang hien tai de gui len backend.');
+        }
+
+        const pageNum = Number.isInteger(Number(currentPageNum)) && Number(currentPageNum) >= 1 ? Number(currentPageNum) : 1;
+        const pdfName = (currentPdfFile && currentPdfFile.name)
+            || (currentJsonSourceFile && (currentJsonSourceFile.name || String(currentJsonSourceFile)))
+            || 'visual_layers';
+        const preferServerPageCache = Boolean(currentPdfFile && pageNum);
+        const documentKey = typeof getCurrentMainLayerDocumentKey === 'function'
+            ? getCurrentMainLayerDocumentKey()
+            : pdfName;
+
+        let uploadSessionId = null;
+        if (options.includePdf) {
+            uploadSessionId = currentPdfUploadSession?.sessionId || null;
+        }
+        if (options.includePdf && currentPdfFile && typeof ensurePdfUploadSession === 'function') {
+            const session = await ensurePdfUploadSession(currentPdfFile);
+            uploadSessionId = session?.sessionId || uploadSessionId;
+        }
+
+        return {
+            payload: {
+                gzip_data: preferServerPageCache ? '' : gzipData,
+                pdf_name: pdfName,
+                page_num: pageNum,
+                document_key: documentKey,
+                prefer_server_page_cache: preferServerPageCache,
+                upload_session_id: uploadSessionId
+            },
+            fallbackGzipData: gzipData,
+            preferServerPageCache
+        };
+    }
+
+    async function callExtractFireBackend(routeName, requestBundle, payloadPatch = {}, options = {}) {
+        const callBackend = async payload => {
+            const response = await fetch(`${ENV.API_BASE_URL}/${routeName}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: options.signal
+            });
+            if (!response.ok) {
+                throw new Error(await parseHttpErrorResponse(response));
+            }
+            return response.json();
+        };
+
+        const requestPayload = { ...requestBundle.payload, ...payloadPatch };
+        try {
+            return await callBackend(requestPayload);
+        } catch (error) {
+            if (!requestBundle.preferServerPageCache || !requestBundle.fallbackGzipData || requestPayload.gzip_data) {
+                throw error;
+            }
+            return callBackend({
+                ...requestPayload,
+                gzip_data: requestBundle.fallbackGzipData,
+                prefer_server_page_cache: false
+            });
+        }
+    }
+
+    function extractFireShouldRetryTextWithPdfUpload(error) {
+        const message = String(error?.message || error || '').toLowerCase();
+        return message.includes('pdf not found')
+            || message.includes('upload once')
+            || message.includes('send upload_session_id')
+            || message.includes('pdf_path is required');
+    }
+
+    function getExtractFireSymbolAnnotationsPayload() {
+        if (typeof buildSymbolAnnotationPagePayload !== 'function') return [];
+        const payload = buildSymbolAnnotationPagePayload();
+        return Array.isArray(payload?.annotations) ? payload.annotations : [];
+    }
+
+    function getExtractFireManualAnnotationPayload() {
+        return Array.isArray(manualAnnotations)
+            ? manualAnnotations.map(detectionCloneManualAnnotationForRequest).filter(Boolean)
+            : [];
+    }
+
+    function getExtractFireTextSeqnosForMerge() {
+        const seqnos = new Set();
+        const addSeqno = value => {
+            const numericValue = Number(value);
+            if (Number.isFinite(numericValue)) {
+                seqnos.add(Math.trunc(numericValue));
+            }
+        };
+        const addSeqnoList = values => {
+            if (Array.isArray(values)) {
+                values.forEach(addSeqno);
+            }
+        };
+
+        const textResult = extractFireTextResults || {};
+        extractFireGetTextItems().forEach(item => addSeqnoList(item?.seqnos || item?.list_seqno));
+        if (Array.isArray(textResult.list_seqno)) {
+            textResult.list_seqno.forEach(addSeqnoList);
+        }
+
+        const mergedSource = textResult.sources?.merged;
+        if (mergedSource && Array.isArray(mergedSource.list_seqno)) {
+            mergedSource.list_seqno.forEach(addSeqnoList);
+        }
+        return seqnos;
+    }
+
+    function getExtractFireTextSeqnoShapePayload() {
+        const seqnos = getExtractFireTextSeqnosForMerge();
+        const sourceShapes = Array.isArray(jsonShapes) ? jsonShapes : [];
+        if (!seqnos.size || !sourceShapes.length) return [];
+
+        return sourceShapes
+            .map(shape => {
+                const seqnoValue = Number(shape?.seqno);
+                if (!Number.isFinite(seqnoValue) || !seqnos.has(Math.trunc(seqnoValue))) return null;
+                const items = Array.isArray(shape?.items_bl)
+                    ? shape.items_bl
+                    : (Array.isArray(shape?.items) ? shape.items : []);
+                const drawingItems = items.filter(item => Array.isArray(item) && (item[0] === 'l' || item[0] === 'c'));
+                if (!drawingItems.length) return null;
+                return {
+                    seqno: shape.seqno,
+                    items: drawingItems
+                };
+            })
+            .filter(Boolean);
+    }
+
+    function extractFireBuildAnnotationSignatureEntry(annotation) {
+        return {
+            id: annotation?.id ?? null,
+            type: annotation?.type || '',
+            layerName: annotation?.layerName || '',
+            autoManaged: Boolean(annotation?.autoManaged),
+            source: annotation?.source || '',
+            points: Array.isArray(annotation?.points)
+                ? annotation.points.map(point => [detectionRound(point?.x ?? 0, 3), detectionRound(point?.y ?? 0, 3), point?.layerName || ''])
+                : [],
+            lineKeys: Array.isArray(annotation?.lineKeys) ? annotation.lineKeys.map(String).sort() : [],
+            segments: Array.isArray(annotation?.segments)
+                ? annotation.segments.map(segment => Array.isArray(segment)
+                    ? segment.slice(0, 2).map(point => [detectionRound(point?.x ?? 0, 3), detectionRound(point?.y ?? 0, 3), point?.layerName || ''])
+                    : []
+                )
+                : []
+        };
+    }
+
+    function extractFireGetManualAnnotationSignature() {
+        try {
+            return JSON.stringify(getExtractFireManualAnnotationPayload().map(extractFireBuildAnnotationSignatureEntry));
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function extractFireGetSymbolAnnotationSignature() {
+        try {
+            return JSON.stringify(getExtractFireSymbolAnnotationsPayload().map(annotation => {
+                const bbox = extractFireNormalizeBBox(annotation?.world_bbox || annotation?.worldBBox || annotation?.bbox || annotation?.rect);
+                return {
+                    id: annotation?.annotation_id || annotation?.id || null,
+                    labelId: annotation?.label_id || annotation?.labelId || null,
+                    labelName: annotation?.label_name || annotation?.labelName || '',
+                    bbox: bbox
+                        ? [
+                            detectionRound(bbox.minX, 3),
+                            detectionRound(bbox.minY, 3),
+                            detectionRound(bbox.maxX, 3),
+                            detectionRound(bbox.maxY, 3)
+                        ]
+                        : null
+                };
+            }));
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function extractFireSyncEditableStateSignatures() {
+        extractFireLastManualAnnotationSignature = extractFireGetManualAnnotationSignature();
+        extractFireLastSymbolAnnotationSignature = extractFireGetSymbolAnnotationSignature();
+    }
+
+    function refreshDetectionExtractFromEditableState() {
+        const nextManualSignature = extractFireGetManualAnnotationSignature();
+        const nextSymbolSignature = extractFireGetSymbolAnnotationSignature();
+        const didManualChange = nextManualSignature !== extractFireLastManualAnnotationSignature;
+        const didSymbolChange = nextSymbolSignature !== extractFireLastSymbolAnnotationSignature;
+
+        extractFireLastManualAnnotationSignature = nextManualSignature;
+        extractFireLastSymbolAnnotationSignature = nextSymbolSignature;
+
+        if (didManualChange || didSymbolChange) {
+            extractFireMergeResults = null;
+        }
+
+        updateDetectionExtractUI();
+        if ((didManualChange || didSymbolChange) && typeof scheduleDraw === 'function') {
+            scheduleDraw();
+        }
+    }
+
+    function handleDetectionExtractDocumentLoaded() {
+        const nextPageKey = extractFireGetPageKey();
+        const didPageChange = Boolean(nextPageKey && extractFireStagePageKey && nextPageKey !== extractFireStagePageKey);
+        const hasPageContext = Boolean(nextPageKey);
+
+        if (!hasPageContext || didPageChange) {
+            cancelDetectionExtractJobs({ reason: 'page-changed', keepStatus: true });
+        }
+
+        if (!hasPageContext || didPageChange) {
+            extractFireLineResults = null;
+            extractFireTextResults = null;
+            extractFireSymbolResults = null;
+            extractFireMergeResults = null;
+        }
+
+        extractFireStagePageKey = nextPageKey;
+        extractFireSyncEditableStateSignatures();
+        updateDetectionExtractUI();
+        if (typeof scheduleDraw === 'function') {
+            scheduleDraw();
+        }
+    }
+
+    function isDetectionExtractManualEditingAllowed() {
+        return detectionResultViewMode === DETECTION_VIEW_MODE_FINAL;
+    }
+
+    function getExtractFireLineResultPayload() {
+        const panelAnnotations = getExtractFireManualAnnotationPayload();
+        const finalAnnotations = extractFireGetSharedFinalAnnotations();
+        if (extractFireLineSource === EXTRACT_FIRE_LINE_SOURCE_PANEL) {
+            const panelDetections = panelAnnotations
+                .map((annotation, index) => detectionAnnotationToLineDetection(annotation, index))
+                .filter(Boolean);
+            return {
+                status: panelDetections.length ? 'ok' : 'empty',
+                backend_owned: false,
+                package: 'API.Extract_FIRE',
+                detections: panelDetections,
+                num_detections: panelDetections.length,
+                summary: {
+                    source: 'manual_labels_panel',
+                    line_detection_count: panelDetections.length
+                }
+            };
+        }
+        if (detectionIsCompactLineResult(extractFireLineResults)) {
+            const compactDetections = finalAnnotations.length
+                ? finalAnnotations.map((annotation, index) => detectionAnnotationToLineDetection(annotation, index)).filter(Boolean)
+                : detectionClone(extractFireLineResults.detections || []);
+            return {
+                ...detectionClone(extractFireLineResults),
+                detections: compactDetections,
+                num_detections: compactDetections.length
+            };
+        }
+        const finalDetections = finalAnnotations
+            .map((annotation, index) => detectionAnnotationToLineDetection(annotation, index))
+            .filter(Boolean);
+        return {
+            status: finalDetections.length ? 'ok' : 'empty',
+            backend_owned: true,
+            package: 'API.Extract_FIRE',
+            detections: finalDetections,
+            num_detections: finalDetections.length,
+            summary: {
+                source: 'extract_final',
+                line_detection_count: finalDetections.length
+            }
+        };
+    }
+
+    function getExtractFireSymbolResultForMerge() {
+        if (extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_PANEL) {
+            return {};
+        }
+        return extractFireSymbolResults || {};
+    }
+
+    function getExtractFireSymbolAnnotationsForMerge() {
+        if (extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_API) {
+            return [];
+        }
+        return getExtractFireSymbolAnnotationsPayload();
+    }
+
+    function setExtractFireOverlayVisibility(key, value) {
+        if (!Object.prototype.hasOwnProperty.call(extractFireOverlayVisibility, key)) return;
+        const nextValue = Boolean(value);
+        extractFireOverlayVisibility[key] = nextValue;
+        if (!nextValue && key === 'line') {
+            extractFireHandleLineOverlayDisabled();
+        }
+        if (!nextValue && key === 'symbol') {
+            extractFireHandleSymbolOverlayDisabled();
+        }
+        extractFireHandleLinkedPanelForOverlay(key, nextValue);
+        updateDetectionExtractUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+    }
+
+    function setExtractFireLineSource(source) {
+        if (source !== EXTRACT_FIRE_LINE_SOURCE_FINAL && source !== EXTRACT_FIRE_LINE_SOURCE_PANEL) return;
+        extractFireLineSource = source;
+        extractFireMergeResults = null;
+        updateDetectionExtractUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+    }
+
+    function setExtractFireSymbolSource(source) {
+        if (![EXTRACT_FIRE_SYMBOL_SOURCE_PANEL, EXTRACT_FIRE_SYMBOL_SOURCE_API, EXTRACT_FIRE_SYMBOL_SOURCE_BOTH].includes(source)) return;
+        extractFireSymbolSource = source;
+        extractFireMergeResults = null;
+        updateDetectionExtractUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+    }
+
+    function createManualAnnotationFromExtractFinal(annotation) {
+        const payload = detectionCloneManualAnnotationForRequest(annotation);
+        if (!payload) return null;
+        manualAnnotationId += 1;
+        return {
+            ...payload,
+            id: manualAnnotationId,
+            source: 'extract-final',
+            autoManaged: Boolean(payload.autoManaged)
+        };
+    }
+
+    function promoteExtractFinalLinesToManualPanel() {
+        const panelAnnotations = getExtractFireManualAnnotationPayload();
+        const finalAnnotations = extractFireGetSharedFinalAnnotations();
+        if (!finalAnnotations.length) {
+            setDetectionExtractStatus('Chua co line final de dua sang Labels.', 'error');
+            return;
+        }
+        if (panelAnnotations.length) {
+            if (typeof applyManualLabelPanelState === 'function') {
+                applyManualLabelPanelState(false);
+            }
+            setDetectionExtractStatus('Line final dang dung chung voi panel Labels. Hay sua truc tiep trong Labels roi bam Merge.', 'success');
+            updateDetectionExtractUI();
+            if (typeof scheduleDraw === 'function') scheduleDraw();
+            return;
+        }
+        const normalizedAnnotations = finalAnnotations
+            .map(createManualAnnotationFromExtractFinal)
+            .filter(Boolean);
+        if (!normalizedAnnotations.length) {
+            setDetectionExtractStatus('Line final khong co annotation hop le de chinh sua.', 'error');
+            return;
+        }
+
+        const addedAnnotations = typeof addAnnotations === 'function'
+            ? addAnnotations(normalizedAnnotations, { record: true, updateUi: true })
+            : [];
+        if (typeof applyManualLabelPanelState === 'function') {
+            applyManualLabelPanelState(false);
+        }
+        extractFireLineSource = EXTRACT_FIRE_LINE_SOURCE_PANEL;
+        extractFireMergeResults = null;
+        const addedCount = Array.isArray(addedAnnotations) ? addedAnnotations.length : normalizedAnnotations.length;
+        setDetectionExtractStatus(`Da dua ${addedCount} line final sang Labels. Hay sua trong panel Labels roi bam Merge.`, addedCount ? 'success' : 'info');
+        updateDetectionExtractUI();
+        if (typeof scheduleDraw === 'function') scheduleDraw();
+    }
+
+    function extractFireEnsureImportedSymbolLabel() {
+        if (typeof addSymbolLabel !== 'function') return null;
+        return addSymbolLabel(EXTRACT_FIRE_IMPORTED_SYMBOL_LABEL_NAME, {
+            silent: true,
+            color: EXTRACT_FIRE_IMPORTED_SYMBOL_COLOR,
+            persist: false
+        });
+    }
+
+    function extractFireImportApiSymbolsToPanel(symbolResult, options = {}) {
+        const persistedDocumentSummary = symbolResult?.persisted_document_summary;
+        const persistedPagePayload = symbolResult?.persisted_page_payload;
+        if (persistedDocumentSummary && typeof cacheSymbolAnnotationDocumentSummaryPayload === 'function') {
+            cacheSymbolAnnotationDocumentSummaryPayload(persistedDocumentSummary);
+        }
+        if (persistedPagePayload && typeof applyLoadedSymbolAnnotationPayload === 'function' && options.preferPersistedPayload !== false) {
+            const previousCount = extractFireGetPanelSymbolCount();
+            applyLoadedSymbolAnnotationPayload(persistedPagePayload, { dirty: false });
+            return {
+                label: extractFireEnsureImportedSymbolLabel(),
+                addedCount: Math.max(0, extractFireGetPanelSymbolCount() - previousCount),
+                syncedCount: extractFireGetPanelSymbolCount(),
+                persisted: true
+            };
+        }
+
+        const label = extractFireEnsureImportedSymbolLabel();
+        const apiItems = extractFireGetSymbolItemsFromResult(symbolResult);
+        if (!label) {
+            return { label: null, addedCount: 0 };
+        }
+        if (!apiItems.length) {
+            return { label, addedCount: 0, syncedCount: extractFireGetPanelSymbolCount(), persisted: false };
+        }
+        if (typeof createSymbolAnnotation !== 'function' || typeof mergeSymbolAnnotations !== 'function') {
+            return { label, addedCount: 0, syncedCount: extractFireGetPanelSymbolCount(), persisted: false };
+        }
+
+        const incomingAnnotations = apiItems
+            .map(item => {
+                const bbox = extractFireNormalizeBBox(item?.bbox || item?.world_bbox || item?.worldBBox || item?.rect);
+                if (!bbox) return null;
+                const rect = typeof normalizeWorldRect === 'function'
+                    ? normalizeWorldRect({
+                        x: bbox.minX,
+                        y: bbox.minY,
+                        width: bbox.maxX - bbox.minX,
+                        height: bbox.maxY - bbox.minY
+                    })
+                    : {
+                        x: bbox.minX,
+                        y: bbox.minY,
+                        width: bbox.maxX - bbox.minX,
+                        height: bbox.maxY - bbox.minY
+                    };
+                if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+                return createSymbolAnnotation(label, rect, {
+                    source: item?.source || 'extract_fire_api'
+                });
+            })
+            .filter(Boolean);
+
+        if (!incomingAnnotations.length) {
+            return { label, addedCount: 0, syncedCount: extractFireGetPanelSymbolCount(), persisted: false };
+        }
+
+        const addedCount = mergeSymbolAnnotations(incomingAnnotations);
+        return {
+            label,
+            addedCount,
+            syncedCount: extractFireGetPanelSymbolCount(),
+            persisted: false
+        };
+    }
+
+    function extractFireRebuildTextResultPayload(itemsOverride = null) {
+        const items = Array.isArray(itemsOverride)
+            ? itemsOverride.filter(item => item && typeof item === 'object')
+            : extractFireGetTextItems();
+        extractFireSetTextItems(items);
+        extractFireBindStageResultsToCurrentPage();
+    }
+
+    function extractFireFindTextItemAtPoint(worldX, worldY) {
+        const items = extractFireGetTextItems();
+        if (!extractFireOverlayVisibility.text || !items.length) {
+            return null;
+        }
+        const candidates = items
+            .map((item, index) => {
+                const bbox = extractFireNormalizeBBox(item?.bbox);
+                if (!bbox) return null;
+                if (worldX < bbox.minX || worldX > bbox.maxX || worldY < bbox.minY || worldY > bbox.maxY) {
+                    return null;
+                }
+                return {
+                    item,
+                    index,
+                    items,
+                    bbox,
+                    area: Math.max((bbox.maxX - bbox.minX) * (bbox.maxY - bbox.minY), 0)
+                };
+            })
+            .filter(Boolean)
+            .sort((left, right) => left.area - right.area || left.index - right.index);
+        return candidates[0] || null;
+    }
+
+    function handleDetectionExtractCanvasClick(worldX, worldY) {
+        const hit = extractFireFindTextItemAtPoint(worldX, worldY);
+        if (!hit) return false;
+
+        const currentText = String(hit.item?.text || '').trim();
+        const nextText = window.prompt('Sua text. De trong de xoa bbox text nay. Cancel de bo qua.', currentText);
+        if (nextText === null) {
+            return true;
+        }
+
+        if (!String(nextText).trim()) {
+            const nextItems = hit.items.slice();
+            nextItems.splice(hit.index, 1);
+            extractFireRebuildTextResultPayload(nextItems);
+            extractFireMergeResults = null;
+            setDetectionExtractStatus('Da xoa 1 bbox text khoi ket qua extract.', 'success');
+        } else {
+            const nextItems = hit.items.slice();
+            nextItems[hit.index] = {
+                ...hit.item,
+                text: String(nextText).trim()
+            };
+            extractFireRebuildTextResultPayload(nextItems);
+            extractFireMergeResults = null;
+            setDetectionExtractStatus('Da cap nhat noi dung text tren FE. Merge se dung text vua sua.', 'success');
+        }
+
+        updateDetectionExtractUI();
+        if (typeof scheduleDraw === 'function') {
+            scheduleDraw();
+        }
+        return true;
+    }
+
+    async function runExtractFireText() {
+        if (extractFireIsStageRunning(EXTRACT_FIRE_STAGE_TEXT)) {
+            extractFireCancelStageJob(EXTRACT_FIRE_STAGE_TEXT, 'user-cancelled');
+            setDetectionExtractStatus('Da huy extract text.', 'info');
+            return;
+        }
+        if (!hasRenderableDocument()) {
+            setDetectionExtractStatus('Khong co du lieu de extract text.', 'error');
+            return;
+        }
+
+        const stageRun = extractFireStartStageJob(EXTRACT_FIRE_STAGE_TEXT);
+        setDetectionExtractStatus('Dang trich xuat text...');
+        try {
+            const textPayload = {
+                filter_text: 'dn',
+                use_ocr: true,
+                use_words: true,
+                use_annotations: true,
+                scale: 3,
+                max_workers: 16,
+                max_avg_length: 8
+            };
+            const requestBundle = await buildExtractFirePageRequestPayload({ includePdf: false });
+            extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_TEXT, stageRun.requestId, stageRun.pageKey);
+            let result;
+            try {
+                result = await callExtractFireBackend('extract_fire_text', requestBundle, textPayload, { signal: stageRun.signal });
+            } catch (error) {
+                if (extractFireIsAbortError(error)) {
+                    throw error;
+                }
+                if (!currentPdfFile || !extractFireShouldRetryTextWithPdfUpload(error)) {
+                    throw error;
+                }
+                setDetectionExtractStatus('PDF chua co trong DB, dang upload mot lan roi retry extract text...');
+                const retryBundle = await buildExtractFirePageRequestPayload({ includePdf: true });
+                extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_TEXT, stageRun.requestId, stageRun.pageKey);
+                result = await callExtractFireBackend('extract_fire_text', retryBundle, textPayload, { signal: stageRun.signal });
+            }
+            extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_TEXT, stageRun.requestId, stageRun.pageKey);
+            extractFireTextResults = result;
+            extractFireBindStageResultsToCurrentPage();
+            extractFireMergeResults = null;
+            setDetectionExtractStatus(`Text ${extractFireGetTextCount()} item(s) ready.`, 'success');
+        } catch (error) {
+            if (extractFireIsAbortError(error)) {
+                setDetectionExtractStatus('Da huy extract text.', 'info');
+                return;
+            }
+            console.error('Extract_FIRE text failed:', error);
+            setDetectionExtractStatus(`Loi extract text: ${error.message}`, 'error');
+        } finally {
+            extractFireFinishStageJob(EXTRACT_FIRE_STAGE_TEXT, stageRun.requestId);
+        }
+    }
+
+    async function runExtractFireSymbol() {
+        if (extractFireIsStageRunning(EXTRACT_FIRE_STAGE_SYMBOL)) {
+            extractFireCancelStageJob(EXTRACT_FIRE_STAGE_SYMBOL, 'user-cancelled');
+            setDetectionExtractStatus('Da huy extract symbol.', 'info');
+            return;
+        }
+        if (!hasRenderableDocument()) {
+            setDetectionExtractStatus('Khong co du lieu de extract symbol.', 'error');
+            return;
+        }
+
+        const stageRun = extractFireStartStageJob(EXTRACT_FIRE_STAGE_SYMBOL);
+        const symbolSignatureBeforeRun = extractFireGetSymbolAnnotationSignature();
+        setDetectionExtractStatus('Dang trich xuat symbol...');
+        try {
+            const requestBundle = await buildExtractFirePageRequestPayload({ includePdf: false });
+            extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_SYMBOL, stageRun.requestId, stageRun.pageKey);
+            const result = await callExtractFireBackend('extract_fire_symbol', requestBundle, {}, { signal: stageRun.signal });
+            extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_SYMBOL, stageRun.requestId, stageRun.pageKey);
+            extractFireSymbolResults = result;
+            extractFireBindStageResultsToCurrentPage();
+            const shouldApplyPersistedPayload = extractFireGetSymbolAnnotationSignature() === symbolSignatureBeforeRun;
+            const importResult = extractFireImportApiSymbolsToPanel(result, {
+                preferPersistedPayload: shouldApplyPersistedPayload
+            });
+            extractFireSyncEditableStateSignatures();
+            if (importResult.label) {
+                extractFireSymbolSource = EXTRACT_FIRE_SYMBOL_SOURCE_PANEL;
+                if (typeof applySymbolAnnotationPanelState === 'function') {
+                    applySymbolAnnotationPanelState(false);
+                }
+            }
+            extractFireMergeResults = null;
+            setDetectionExtractStatus(
+                importResult.label
+                    ? `Symbol API ${extractFireGetSymbolCount()} item(s) ready. Dong bo ${importResult.syncedCount ?? extractFireGetPanelSymbolCount()} bbox vao label ${EXTRACT_FIRE_IMPORTED_SYMBOL_LABEL_NAME}${importResult.persisted ? ' va da luu DB' : ''}.`
+                    : `Symbol ${extractFireGetSymbolCount()} item(s) ready.`,
+                'success'
+            );
+        } catch (error) {
+            if (extractFireIsAbortError(error)) {
+                setDetectionExtractStatus('Da huy extract symbol.', 'info');
+                return;
+            }
+            console.error('Extract_FIRE symbol failed:', error);
+            setDetectionExtractStatus(`Loi extract symbol: ${error.message}`, 'error');
+        } finally {
+            extractFireFinishStageJob(EXTRACT_FIRE_STAGE_SYMBOL, stageRun.requestId);
+        }
+    }
+
+    async function runExtractFireMerge() {
+        if (extractFireIsStageRunning(EXTRACT_FIRE_STAGE_MERGE)) {
+            extractFireCancelStageJob(EXTRACT_FIRE_STAGE_MERGE, 'user-cancelled');
+            setDetectionExtractStatus('Da huy merge Extract_FIRE.', 'info');
+            return;
+        }
+        if (!extractFireHasSelectedLineData()) {
+            setDetectionExtractStatus(extractFireLineSource === EXTRACT_FIRE_LINE_SOURCE_PANEL
+                ? 'Chua co line trong panel Labels. Hay ve/sua Labels truoc khi merge.'
+                : 'Chua co line final. Hay bam Extract Line truoc khi merge.', 'error');
+            return;
+        }
+
+        const stageRun = extractFireStartStageJob(EXTRACT_FIRE_STAGE_MERGE);
+        setDetectionExtractStatus('Dang merge line/text/symbol...');
+        try {
+            const response = await fetch(`${ENV.API_BASE_URL}/merge_extract_fire`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: stageRun.signal,
+                body: JSON.stringify({
+                    line_result: getExtractFireLineResultPayload(),
+                    text_result: extractFireTextResults || {},
+                    symbol_result: getExtractFireSymbolResultForMerge(),
+                    input_data: getExtractFireTextSeqnoShapePayload(),
+                    manual_annotations: getExtractFireManualAnnotationPayload(),
+                    symbol_annotations: getExtractFireSymbolAnnotationsForMerge(),
+                    sprinkler_bbox_padding: 10,
+                    gen_uuid: true
+                })
+            });
+            if (!response.ok) {
+                throw new Error(await parseHttpErrorResponse(response));
+            }
+            const result = await response.json();
+            extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_MERGE, stageRun.requestId, stageRun.pageKey);
+            extractFireMergeResults = result;
+            extractFireBindStageResultsToCurrentPage();
+            pipelineRawResults = Array.isArray(result?.json_objects) ? result.json_objects : [];
+            setDetectionExtractStatus(`Merge ${extractFireGetMergedCount()} object(s) ready. Line=${extractFireLineSource}, Symbol=${extractFireSymbolSource}.`, 'success');
+        } catch (error) {
+            if (extractFireIsAbortError(error)) {
+                setDetectionExtractStatus('Da huy merge Extract_FIRE.', 'info');
+                return;
+            }
+            console.error('Extract_FIRE merge failed:', error);
+            setDetectionExtractStatus(`Loi merge: ${error.message}`, 'error');
+        } finally {
+            extractFireFinishStageJob(EXTRACT_FIRE_STAGE_MERGE, stageRun.requestId);
+        }
+    }
+
+    function exportExtractFireMergedJson() {
+        const objects = Array.isArray(extractFireMergeResults?.json_objects) ? extractFireMergeResults.json_objects : [];
+        if (!objects.length) {
+            setDetectionExtractStatus('Chua co merged Extract_FIRE JSON de export. Hay bam Merge truoc.', 'error');
+            return;
+        }
+        const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(objects, null, 2));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute('href', dataStr);
+        downloadAnchorNode.setAttribute('download', `extract_fire_merged_page_${currentPageNum || 1}.json`);
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+        window.open('visual_pipeline_fire.html', '_blank');
     }
 
     function detectionSummaryMessage(rawResult, adjustedResult, autoAcceptResult = null, summary = null) {
@@ -2019,36 +3612,36 @@
     }
 
     async function runDetectionExtract() {
-        if (isDetectionExtractRunning) return;
+        if (extractFireIsStageRunning(EXTRACT_FIRE_STAGE_LINE)) {
+            extractFireCancelStageJob(EXTRACT_FIRE_STAGE_LINE, 'user-cancelled');
+            setDetectionExtractStatus('Da huy extract line.', 'info');
+            return;
+        }
         if (!hasRenderableDocument()) {
-            alert('Khong co du lieu de detect.');
+            setDetectionExtractStatus('Khong co du lieu de detect.', 'error');
             return;
         }
 
-        isDetectionExtractRunning = true;
-        updateDetectionExtractUI();
-        setDetectionExtractStatus('Dang tao anh layer x3...');
-        showLoadingPopup('Detecting line-fire objects...', 'Rendering visible layers at x3.');
+        const stageRun = extractFireStartStageJob(EXTRACT_FIRE_STAGE_LINE);
+        const manualSignatureBeforeRun = extractFireGetManualAnnotationSignature();
+        setDetectionExtractStatus('Dang chuan bi page JSON de backend tao anh layer x3...');
 
         try {
-            clearDetectionVisualization({ refresh: true });
-            const imagePayload = await createDetectionExtractImagePayload();
-            updateLoadingPopup('Detecting line-fire objects...', 'Preparing page JSON + visible layer bundle...');
-            setDetectionExtractStatus('Dang dong goi anh + page JSON de gui backend...');
-            const requestBundle = await buildDetectionRequestPayload(imagePayload);
+            clearDetectionVisualization({ refresh: true, preserveResults: true, clearStageResults: false });
+            extractFireMergeResults = null;
+            const requestBundle = await buildDetectionRequestPayload();
             const requestPayload = requestBundle.payload;
+            extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_LINE, stageRun.requestId, stageRun.pageKey);
 
-            updateLoadingPopup('Detecting line-fire objects...', 'Calling backend bundle route...');
-            setDetectionExtractStatus(imagePayload.fromCache || imagePayload.fromRasterCache
-                ? 'Dang goi bundle detect tu anh cache...'
-                : 'Dang goi bundle detect...');
+            setDetectionExtractStatus('Dang goi bundle detect...');
 
             const startTime = performance.now();
             const callDetectExtractBackend = async payload => {
                 const response = await fetch(`${ENV.API_BASE_URL}/detect_extract_line_fire`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(payload),
+                    signal: stageRun.signal
                 });
                 if (!response.ok) {
                     throw new Error(await parseHttpErrorResponse(response));
@@ -2063,7 +3656,6 @@
                 if (!requestBundle.preferServerPageCache || !requestBundle.fallbackGzipData || requestPayload.gzip_data) {
                     throw error;
                 }
-                updateLoadingPopup('Detecting line-fire objects...', 'Retrying with page JSON payload...');
                 setDetectionExtractStatus('Cache page JSON o backend bi miss, dang gui gzip_data fallback...');
                 bundleResult = await callDetectExtractBackend({
                     ...requestPayload,
@@ -2071,19 +3663,53 @@
                     prefer_server_page_cache: false
                 });
             }
+            extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_LINE, stageRun.requestId, stageRun.pageKey);
             const roundTripSeconds = (performance.now() - startTime) / 1000;
-            const rawResult = bundleResult?.raw || null;
-            const adjustedResult = bundleResult?.processed || null;
-            const autoAcceptResult = bundleResult?.auto_accept || null;
+            const isCompactLineResult = detectionIsCompactLineResult(bundleResult);
+            const compactLineResult = isCompactLineResult ? bundleResult : null;
+            const rawResult = isCompactLineResult ? null : (bundleResult?.raw || null);
+            const adjustedResult = isCompactLineResult
+                ? {
+                    status: compactLineResult.status || 'ok',
+                    detections: detectionClone(compactLineResult.detections || []),
+                    num_detections: Number(compactLineResult.num_detections ?? compactLineResult.detections?.length ?? 0),
+                    summary: detectionClone(compactLineResult.summary || {})
+                }
+                : (bundleResult?.processed || null);
+            const autoAcceptResult = isCompactLineResult
+                ? {
+                    manual_annotations: detectionBuildManualAnnotationsFromLineResult(compactLineResult),
+                    source: 'compact_line_result'
+                }
+                : (bundleResult?.auto_accept || null);
 
+            extractFireLineResults = compactLineResult;
             detectionRawResults = rawResult;
             detectionAdjustedResults = adjustedResult;
             detectionAutoAcceptResults = autoAcceptResult;
-            detectionOverlayContext = imagePayload;
-            setDetectionResultViewMode(DETECTION_VIEW_MODE_FINAL, { refreshVisualization: false });
+            detectionOverlayContext = extractFireBuildBackendOverlayContext(bundleResult);
+            const shouldHydrateManualAnnotations = extractFireGetManualAnnotationSignature() === manualSignatureBeforeRun
+                || getExtractFireManualAnnotationPayload().length === 0;
+            if (shouldHydrateManualAnnotations && typeof hydrateManualAnnotationsFromBackend === 'function' && autoAcceptResult) {
+                hydrateManualAnnotationsFromBackend(autoAcceptResult, {
+                    openPanel: false,
+                    redraw: false
+                });
+                detectionAutoAcceptResults = {
+                    ...(autoAcceptResult || {}),
+                    manual_annotations: getExtractFireManualAnnotationPayload()
+                };
+            } else if (autoAcceptResult) {
+                detectionAutoAcceptResults = {
+                    ...(autoAcceptResult || {}),
+                    manual_annotations: extractFireGetSharedFinalAnnotations()
+                };
+            }
+            extractFireBindStageResultsToCurrentPage();
+            extractFireSyncEditableStateSignatures();
+            detectionEnsureAvailableViewMode();
             refreshDetectionVisualizationForCurrentView();
 
-            updateLoadingPopup('Detecting line-fire objects...', 'Preparing raw / processed / final results...');
             setDetectionExtractStatus('Dang dong bo ket qua raw / process / final cho extract panel...');
 
             const summary = detectionSummaryMessage(rawResult, adjustedResult, autoAcceptResult, bundleResult?.summary);
@@ -2099,13 +3725,14 @@
                 'success'
             );
         } catch (error) {
+            if (extractFireIsAbortError(error)) {
+                setDetectionExtractStatus('Da huy extract line.', 'info');
+                return;
+            }
             console.error('Line-fire detection failed:', error);
             setDetectionExtractStatus(`Loi detect: ${error.message}`, 'error');
-            alert(`Line-fire detect failed: ${error.message}`);
         } finally {
-            isDetectionExtractRunning = false;
-            hideLoadingPopup();
-            updateDetectionExtractUI();
+            extractFireFinishStageJob(EXTRACT_FIRE_STAGE_LINE, stageRun.requestId);
         }
     }
 
@@ -2114,6 +3741,13 @@
         applyDetectionExtractPanelState(storedCollapsed !== '0');
     } catch (error) {
         applyDetectionExtractPanelState(true);
+    }
+
+    if (typeof isSymbolAnnotationPanelCollapsed !== 'undefined') {
+        handleExtractSymbolPanelStateChange(isSymbolAnnotationPanelCollapsed);
+    }
+    if (typeof isManualLabelPanelCollapsed !== 'undefined') {
+        handleExtractLinePanelStateChange(isManualLabelPanelCollapsed);
     }
 
     if (btnToggleDetectExtractPanel) {
@@ -2126,6 +3760,64 @@
         btnRunDetectExtract.addEventListener('click', () => {
             void runDetectionExtract();
         });
+    }
+
+    if (btnPromoteExtractLineToLabels) {
+        btnPromoteExtractLineToLabels.addEventListener('click', promoteExtractFinalLinesToManualPanel);
+    }
+
+    if (btnRunExtractFireText) {
+        btnRunExtractFireText.addEventListener('click', () => {
+            void runExtractFireText();
+        });
+    }
+
+    if (btnRunExtractFireSymbol) {
+        btnRunExtractFireSymbol.addEventListener('click', () => {
+            void runExtractFireSymbol();
+        });
+    }
+
+    if (btnRunExtractFireMerge) {
+        btnRunExtractFireMerge.addEventListener('click', () => {
+            void runExtractFireMerge();
+        });
+    }
+
+    if (btnExportExtractFireJson) {
+        btnExportExtractFireJson.addEventListener('click', exportExtractFireMergedJson);
+    }
+
+    [
+        [btnExtractOverlayLine, 'line'],
+        [btnExtractOverlayText, 'text'],
+        [btnExtractOverlaySymbol, 'symbol'],
+        [btnExtractOverlayMerge, 'merge']
+    ].forEach(([button, key]) => {
+        if (!button) return;
+        button.addEventListener('click', () => {
+            setExtractFireOverlayVisibility(key, !extractFireOverlayVisibility[key]);
+        });
+    });
+
+    if (btnExtractLineSourceFinal) {
+        btnExtractLineSourceFinal.addEventListener('click', () => setExtractFireLineSource(EXTRACT_FIRE_LINE_SOURCE_FINAL));
+    }
+
+    if (btnExtractLineSourcePanel) {
+        btnExtractLineSourcePanel.addEventListener('click', () => setExtractFireLineSource(EXTRACT_FIRE_LINE_SOURCE_PANEL));
+    }
+
+    if (btnExtractSymbolSourcePanel) {
+        btnExtractSymbolSourcePanel.addEventListener('click', () => setExtractFireSymbolSource(EXTRACT_FIRE_SYMBOL_SOURCE_PANEL));
+    }
+
+    if (btnExtractSymbolSourceApi) {
+        btnExtractSymbolSourceApi.addEventListener('click', () => setExtractFireSymbolSource(EXTRACT_FIRE_SYMBOL_SOURCE_API));
+    }
+
+    if (btnExtractSymbolSourceBoth) {
+        btnExtractSymbolSourceBoth.addEventListener('click', () => setExtractFireSymbolSource(EXTRACT_FIRE_SYMBOL_SOURCE_BOTH));
     }
 
     if (btnDetectViewProcessed) {
@@ -2148,8 +3840,10 @@
 
     if (btnClearDetectExtract) {
         btnClearDetectExtract.addEventListener('click', () => {
+            cancelDetectionExtractJobs({ reason: 'clear-panel', keepStatus: true });
             clearDetectionVisualization();
             setDetectionExtractStatus('Da xoa ket qua detect.');
+            updateDetectionExtractUI();
         });
     }
 
@@ -2167,8 +3861,53 @@
     updateDetectionExtractUI();
     window.applyDetectionExtractPanelState = applyDetectionExtractPanelState;
     window.updateDetectionExtractUI = updateDetectionExtractUI;
+    window.refreshDetectionExtractUI = refreshDetectionExtractFromEditableState;
     window.clearDetectionVisualization = clearDetectionVisualization;
     window.drawDetectionExtractOverlays = drawDetectionExtractOverlays;
     window.invalidateDetectionExtractImageCache = detectionInvalidateExtractImageCache;
+    window.handleDetectionExtractCanvasClick = handleDetectionExtractCanvasClick;
+    window.handleDetectionExtractDocumentLoaded = handleDetectionExtractDocumentLoaded;
+    window.cancelDetectionExtractJobs = cancelDetectionExtractJobs;
+    window.isDetectionExtractManualEditingAllowed = isDetectionExtractManualEditingAllowed;
+    window.handleExtractLinePanelStateChange = handleExtractLinePanelStateChange;
+    window.handleExtractSymbolPanelStateChange = handleExtractSymbolPanelStateChange;
+    window.shouldHideManualAnnotationOverlay = function () {
+        const isAnnotationEditingActive = typeof annotationMode !== 'undefined' && Boolean(annotationMode);
+        const hasPendingManualPoint = typeof pendingConnectPoint !== 'undefined' && Boolean(pendingConnectPoint);
+        const hasHoveredManualSnap = typeof hoveredSnapPoint !== 'undefined' && Boolean(hoveredSnapPoint);
+        const hasSuggestions = typeof hasSuggestedConnectAnnotations === 'function' && hasSuggestedConnectAnnotations();
+        return !extractFireOverlayVisibility.line
+            && !isAnnotationEditingActive
+            && !hasPendingManualPoint
+            && !hasHoveredManualSnap
+            && !hasSuggestions;
+    };
+    window.shouldSuppressManualAnnotationOverlay = function () {
+        if (detectionResultViewMode !== DETECTION_VIEW_MODE_FINAL) {
+            return detectionGetResultCountForViewMode() > 0;
+        }
+        const isAnnotationEditingActive = typeof annotationMode !== 'undefined' && Boolean(annotationMode);
+        const hasPendingManualPoint = typeof pendingConnectPoint !== 'undefined' && Boolean(pendingConnectPoint);
+        const hasHoveredManualSnap = typeof hoveredSnapPoint !== 'undefined' && Boolean(hoveredSnapPoint);
+        return extractFireOverlayVisibility.line
+            && detectionGetFinalResultCount() > 0
+            && !isAnnotationEditingActive
+            && !hasPendingManualPoint
+            && !hasHoveredManualSnap
+            && !(typeof hasSuggestedConnectAnnotations === 'function' && hasSuggestedConnectAnnotations());
+    };
+    window.shouldSuppressSymbolAnnotationOverlay = function () {
+        return extractFireOverlayVisibility.symbol
+            && extractFireSymbolSource !== EXTRACT_FIRE_SYMBOL_SOURCE_API
+            && extractFireGetSelectedSymbolItems().length > 0;
+    };
+    window.shouldHideSymbolAnnotationOverlay = function () {
+        const isSymbolFindActive = typeof isSymbolFindArmed !== 'undefined' && Boolean(isSymbolFindArmed);
+        const isSymbolDeleteActive = typeof isSymbolDeleteArmed !== 'undefined' && Boolean(isSymbolDeleteArmed);
+        return !extractFireOverlayVisibility.symbol && !isSymbolFindActive && !isSymbolDeleteActive;
+    };
     window.runDetectionExtract = runDetectionExtract;
+    window.runExtractFireText = runExtractFireText;
+    window.runExtractFireSymbol = runExtractFireSymbol;
+    window.runExtractFireMerge = runExtractFireMerge;
 })();

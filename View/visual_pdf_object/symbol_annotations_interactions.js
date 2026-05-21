@@ -107,6 +107,9 @@ function updateSymbolAnnotationUI() {
         symbolLabelNameInput.disabled = isLocked;
     }
     syncSymbolFindButton();
+    if (typeof window.refreshDetectionExtractUI === 'function') {
+        window.refreshDetectionExtractUI();
+    }
 }
 
 function deactivateSymbolFindArming() {
@@ -471,6 +474,8 @@ function getSymbolDeleteSelectionOptions() {
 function drawSymbolAnnotationOverlays(targetCtx) {
     if (isSymbolAnnotationPanelCollapsed) return;
     if (!Array.isArray(symbolAnnotations) || !symbolAnnotations.length) return;
+    if (typeof window.shouldHideSymbolAnnotationOverlay === 'function' && window.shouldHideSymbolAnnotationOverlay()) return;
+    if (typeof window.shouldSuppressSymbolAnnotationOverlay === 'function' && window.shouldSuppressSymbolAnnotationOverlay()) return;
 
     targetCtx.save();
     targetCtx.lineJoin = 'round';

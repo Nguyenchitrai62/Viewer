@@ -117,7 +117,7 @@ function addSymbolLabel(name, options = {}) {
     updateSymbolAnnotationUI();
 
     const hasDocumentContext = Boolean(getCurrentSymbolDocumentName());
-    if (hasDocumentContext) {
+    if (hasDocumentContext && options.persist !== false) {
         if (!options.silent) {
             setSymbolAnnotationFeedback(`Đã tạo nhãn ${label.name}. Đang lưu DB label PDF...`, 'info');
         }
@@ -358,8 +358,15 @@ function applySymbolAnnotationPanelState(collapsed) {
         console.warn('Failed to persist symbol annotation panel state:', error);
     }
 
+    if (typeof window.handleExtractSymbolPanelStateChange === 'function') {
+        window.handleExtractSymbolPanelStateChange(isSymbolAnnotationPanelCollapsed);
+    }
+
     if (isSymbolAnnotationPanelCollapsed) {
         cancelSymbolAnnotationPageLoad();
         suspendVisibleSymbolAnnotations({ clearLabels: false });
+    }
+    if (typeof scheduleDraw === 'function') {
+        scheduleDraw();
     }
 }

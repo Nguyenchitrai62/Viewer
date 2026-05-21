@@ -265,6 +265,10 @@ function loadNormalizedDocument({ shapes, metadata = null, svg = null, sourceFil
         void handleSymbolDocumentLoaded();
     }
 
+    if (typeof handleDetectionExtractDocumentLoaded === 'function') {
+        handleDetectionExtractDocumentLoaded();
+    }
+
     if (initialRasterPreview?.canvas && initialRasterPreview?.bounds) {
         scheduleDraw();
     }

@@ -37,6 +37,9 @@ function setupVisualization() {
 }
 
 function releaseVisualizationMemoryForPageSwitch() {
+    if (typeof cancelDetectionExtractJobs === 'function') {
+        cancelDetectionExtractJobs({ reason: 'page-switch', keepStatus: true });
+    }
     if (typeof interactionTimer !== 'undefined' && interactionTimer) {
         clearTimeout(interactionTimer);
         interactionTimer = null;
@@ -72,6 +75,7 @@ function releaseVisualizationMemoryForPageSwitch() {
     detectionAdjustedResults = null;
     detectionAutoAcceptResults = null;
     detectionLayerNames = [];
+    extractFireLineResults = null;
     if (typeof invalidateDetectionExtractImageCache === 'function') {
         invalidateDetectionExtractImageCache();
     }

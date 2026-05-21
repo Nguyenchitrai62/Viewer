@@ -9,7 +9,7 @@
     <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
     <link rel="icon" type="image/png" href="./Image/LOGO.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./Image/LOGO.png">
-    <link rel="stylesheet" href="./visual_pdf_object/styles.css?v=20260518-backend-thumbnails-1">
+    <link rel="stylesheet" href="./visual_pdf_object/styles.css?v=20260521-extract-fire-stage-ui-5">
 </head>
 
 <body>
@@ -112,17 +112,64 @@
                 <div id="detect-extract-panel-body" class="detect-extract-panel-body">
                     <div id="detect-extract-status" class="detect-extract-status">No detection results yet.</div>
                     <div id="detect-extract-summary" class="detect-extract-summary">Raw 0 | Process 0 | Final 0 | Verify &gt;= 40%</div>
-                    <div class="detect-extract-view-row">
-                        <span class="detect-extract-view-label">View</span>
-                        <div class="detect-extract-view-switch" role="tablist" aria-label="Detection view mode">
-                            <button id="btn-detect-view-raw" class="detect-extract-view-btn" type="button" aria-pressed="false">Raw</button>
-                            <button id="btn-detect-view-processed" class="detect-extract-view-btn" type="button" aria-pressed="false">Process</button>
-                            <button id="btn-detect-view-final" class="detect-extract-view-btn is-active" type="button" aria-pressed="true">Final</button>
-                        </div>
-                    </div>
-                    <div class="detect-extract-actions">
-                        <button id="btn-run-detect-extract" class="detect-extract-btn detect-extract-btn-primary" type="button">Detect</button>
-                        <button id="btn-clear-detect-extract" class="detect-extract-btn" type="button">Clear</button>
+                    <div class="detect-extract-stage-list">
+                        <section class="detect-extract-stage">
+                            <div class="detect-extract-stage-header">
+                                <span class="detect-extract-stage-step">1</span>
+                                <span class="detect-extract-stage-title">Line</span>
+                                <span id="extract-line-stage-count" class="detect-extract-stage-count">0</span>
+                            </div>
+                            <div class="detect-extract-control-row">
+                                <span class="detect-extract-view-label">View</span>
+                                <div class="detect-extract-view-switch" role="tablist" aria-label="Detection line view mode">
+                                    <button id="btn-detect-view-raw" class="detect-extract-view-btn" type="button" aria-pressed="false">Raw</button>
+                                    <button id="btn-detect-view-processed" class="detect-extract-view-btn" type="button" aria-pressed="false">Process</button>
+                                    <button id="btn-detect-view-final" class="detect-extract-view-btn is-active" type="button" aria-pressed="true">Final</button>
+                                </div>
+                            </div>
+                            <div class="detect-extract-stage-actions">
+                                <button id="btn-run-detect-extract" class="detect-extract-btn detect-extract-btn-primary" type="button">Extract Line</button>
+                                <button id="btn-extract-overlay-line" class="detect-extract-btn detect-extract-btn-toggle is-active" type="button" aria-pressed="true">View Line</button>
+                            </div>
+                        </section>
+
+                        <section class="detect-extract-stage">
+                            <div class="detect-extract-stage-header">
+                                <span class="detect-extract-stage-step">2</span>
+                                <span class="detect-extract-stage-title">Text</span>
+                                <span id="extract-text-stage-count" class="detect-extract-stage-count">0</span>
+                            </div>
+                            <div class="detect-extract-stage-actions">
+                                <button id="btn-run-extract-fire-text" class="detect-extract-btn detect-extract-btn-primary" type="button">Extract Text</button>
+                                <button id="btn-extract-overlay-text" class="detect-extract-btn detect-extract-btn-toggle is-active" type="button" aria-pressed="true">View Text</button>
+                            </div>
+                        </section>
+
+                        <section class="detect-extract-stage">
+                            <div class="detect-extract-stage-header">
+                                <span class="detect-extract-stage-step">3</span>
+                                <span class="detect-extract-stage-title">Symbol</span>
+                                <span id="extract-symbol-stage-count" class="detect-extract-stage-count">0</span>
+                            </div>
+                            <div class="detect-extract-stage-actions">
+                                <button id="btn-run-extract-fire-symbol" class="detect-extract-btn detect-extract-btn-primary" type="button">Extract Symbol</button>
+                                <button id="btn-extract-overlay-symbol" class="detect-extract-btn detect-extract-btn-toggle is-active" type="button" aria-pressed="true">View Symbol</button>
+                            </div>
+                        </section>
+
+                        <section class="detect-extract-stage detect-extract-stage-final">
+                            <div class="detect-extract-stage-header">
+                                <span class="detect-extract-stage-step">4</span>
+                                <span class="detect-extract-stage-title">Merge</span>
+                                <span id="extract-merge-stage-count" class="detect-extract-stage-count">0</span>
+                            </div>
+                            <div class="detect-extract-stage-actions">
+                                <button id="btn-run-extract-fire-merge" class="detect-extract-btn detect-extract-btn-primary" type="button">Merge</button>
+                                <button id="btn-export-extract-fire-json" class="detect-extract-btn" type="button">Export JSON</button>
+                                <button id="btn-extract-overlay-merge" class="detect-extract-btn detect-extract-btn-toggle is-active" type="button" aria-pressed="true">View Merge</button>
+                                <button id="btn-clear-detect-extract" class="detect-extract-btn" type="button">Clear</button>
+                            </div>
+                        </section>
                     </div>
                 </div>
             </div>
@@ -355,11 +402,11 @@
     <script src="./visual_pdf_object/streaming_parser.js?v=20260519-page-switch-memory-1"></script>
     <script src="./visual_pdf_object/quadtree_rebuild.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/manual_annotations_helpers.js?v=20260519-solid-first-suggest-1"></script>
-    <script src="./visual_pdf_object/manual_annotations_controller.js?v=20260519-frontier-auto-accept-1"></script>
+    <script src="./visual_pdf_object/manual_annotations_controller.js?v=20260521-extract-fire-ui-2"></script>
     <script src="./visual_pdf_object/symbol_annotations_core.js?v=20260508-script-split-1"></script>
-    <script src="./visual_pdf_object/symbol_annotations_panel.js?v=20260508-script-split-1"></script>
+    <script src="./visual_pdf_object/symbol_annotations_panel.js?v=20260521-extract-fire-ui-2"></script>
     <script src="./visual_pdf_object/symbol_annotations_persistence.js?v=20260508-script-split-1"></script>
-    <script src="./visual_pdf_object/symbol_annotations_interactions.js?v=20260508-script-split-1"></script>
+    <script src="./visual_pdf_object/symbol_annotations_interactions.js?v=20260521-extract-fire-ui-2"></script>
     <script src="./visual_pdf_object/drawing.js?v=20260519-page-switch-memory-1"></script>
     <script src="./visual_pdf_object/layer_controls.js?v=20260519-page-switch-memory-2"></script>
     <script src="./visual_pdf_object/view_controls.js?v=20260519-page-switch-memory-1"></script>
@@ -367,9 +414,9 @@
     <script src="./visual_pdf_object/export.js?v=20260515-layer-export-pages-3"></script>
     <script src="./visual_pdf_object/pdf_handling.js?v=20260519-page-switch-memory-1"></script>
     <script src="./visual_pdf_object/pipeline.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/detection_extract.js?v=20260520-extract-final-default-1"></script>
+    <script src="./visual_pdf_object/detection_extract.js?v=20260521-extract-fire-stage-ui-4"></script>
     <script src="./visual_pdf_object/vlm.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/events.js?v=20260518-backend-thumbnails-2"></script>
+    <script src="./visual_pdf_object/events.js?v=20260521-extract-fire-ui-2"></script>
     <script src="./visual_pdf_object/patterns.js?v=20260507-hardening-1"></script>
 </body>
 

@@ -112,6 +112,9 @@ function getActionHistoryDepth() {
 
 function updateManualLabelUI() {
     syncPairCheckState();
+    const manualEditingAllowed = typeof window.isDetectionExtractManualEditingAllowed === 'function'
+        ? window.isDetectionExtractManualEditingAllowed()
+        : true;
     const pairCheckSelectionAnnotations = getPairCheckSelectionAnnotations();
     const pairCheckSelectionCount = pairCheckSelectionAnnotations.length;
     let pairCheckConnectCount = 0;
@@ -124,20 +127,30 @@ function updateManualLabelUI() {
         }
     });
 
-    if (btnLabelJunction) btnLabelJunction.classList.toggle('active', annotationMode === 'junction');
-    if (btnLabelConnect) btnLabelConnect.classList.toggle('active', annotationMode === 'connect');
+    if (btnLabelJunction) {
+        btnLabelJunction.classList.toggle('active', annotationMode === 'junction');
+        btnLabelJunction.disabled = !manualEditingAllowed;
+    }
+    if (btnLabelConnect) {
+        btnLabelConnect.classList.toggle('active', annotationMode === 'connect');
+        btnLabelConnect.disabled = !manualEditingAllowed;
+    }
     if (btnCheckConnectPair) {
         btnCheckConnectPair.classList.toggle('active', annotationMode === 'pair-check');
-        btnCheckConnectPair.disabled = pairCheckConnectCount < 2;
+        btnCheckConnectPair.disabled = !manualEditingAllowed || pairCheckConnectCount < 2;
     }
     if (btnClearLabels) {
         btnClearLabels.classList.toggle('active', annotationMode === 'delete');
-        btnClearLabels.disabled = manualAnnotations.length === 0;
+        btnClearLabels.disabled = !manualEditingAllowed || manualAnnotations.length === 0;
     }
-    if (btnUndoLabel) btnUndoLabel.disabled = getActionHistoryDepth() === 0;
+    if (btnUndoLabel) btnUndoLabel.disabled = !manualEditingAllowed || getActionHistoryDepth() === 0;
     if (btnExportLabelPackage) btnExportLabelPackage.disabled = manualAnnotations.length === 0;
     if (manualLabelCountBadge) {
         manualLabelCountBadge.textContent = String(manualAnnotations.length);
+    }
+
+    if (typeof window.refreshDetectionExtractUI === 'function') {
+        window.refreshDetectionExtractUI();
     }
 
     if (!manualLabelStatus) return;
@@ -156,15 +169,19 @@ function updateManualLabelUI() {
         `<div><strong>${counts.total}</strong> total • J ${counts.junction} • C ${counts.connect} • auto ${autoJunctionCount}</div>`
     ];
 
-    if (annotationMode === 'junction') {
+    if (!manualEditingAllowed) {
+        statusLines.push('<div>mode: review only • chuyển Extract view sang Final để sửa label</div>');
+    }
+
+    if (manualEditingAllowed && annotationMode === 'junction') {
         statusLines.push('<div>mode: junction</div>');
-    } else if (annotationMode === 'connect') {
+    } else if (manualEditingAllowed && annotationMode === 'connect') {
         if (pendingConnectPoint) {
             statusLines.push(`<div>mode: connect • point 1 locked • ${escapeHtml(pendingConnectPoint.layerName)}</div>`);
         } else {
             statusLines.push('<div>mode: connect</div>');
         }
-    } else if (annotationMode === 'pair-check') {
+    } else if (manualEditingAllowed && annotationMode === 'pair-check') {
         if (pairCheckSelectionCount === 0) {
             statusLines.push('<div>mode: pair-check • chọn connect 1</div>');
         } else if (pairCheckSelectionCount === 1) {
@@ -172,7 +189,7 @@ function updateManualLabelUI() {
         } else {
             statusLines.push('<div>mode: pair-check • đã chọn 2 connect</div>');
         }
-    } else if (annotationMode === 'delete') {
+    } else if (manualEditingAllowed && annotationMode === 'delete') {
         statusLines.push('<div>mode: delete</div>');
     } else {
         statusLines.push('<div>mode: off</div>');
@@ -2365,6 +2382,10 @@ function deactivateManualLabelMode(options = {}) {
 }
 
 async function setAnnotationMode(mode) {
+    if (typeof window.isDetectionExtractManualEditingAllowed === 'function' && !window.isDetectionExtractManualEditingAllowed()) {
+        setAnnotationFeedback('Raw/Process chi de review. Chuyen Extract view sang Final de sua label.', 'info');
+        return;
+    }
     if (!jsonShapes || !jsonShapes.length) {
         setAnnotationFeedback('Chưa có dữ liệu để gán nhãn.', 'error');
         return;
@@ -2752,6 +2773,8 @@ function drawWorldPolygon(targetCtx, polygon) {
 function drawManualAnnotationOverlays(targetCtx) {
     if ((!manualAnnotations || !manualAnnotations.length) && !pendingConnectPoint && !hoveredSnapPoint && !hasSuggestedConnectAnnotations()) return;
     if (isManualLabelPanelCollapsed) return;
+    if (typeof window.shouldHideManualAnnotationOverlay === 'function' && window.shouldHideManualAnnotationOverlay()) return;
+    if (typeof window.shouldSuppressManualAnnotationOverlay === 'function' && window.shouldSuppressManualAnnotationOverlay()) return;
     const radiusWorld = Math.max(3 / Math.max(zoom, 0.01), 1 / Math.max(zoom, 0.01));
     targetCtx.save();
     targetCtx.lineJoin = 'round';
