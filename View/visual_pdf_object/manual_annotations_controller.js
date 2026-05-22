@@ -2383,8 +2383,13 @@ function deactivateManualLabelMode(options = {}) {
 
 async function setAnnotationMode(mode) {
     if (typeof window.isDetectionExtractManualEditingAllowed === 'function' && !window.isDetectionExtractManualEditingAllowed()) {
-        setAnnotationFeedback('Raw/Process chi de review. Chuyen Extract view sang Final de sua label.', 'info');
-        return;
+        if (typeof window.setDetectionExtractResultViewMode === 'function') {
+            window.setDetectionExtractResultViewMode('final');
+        }
+        if (typeof window.isDetectionExtractManualEditingAllowed === 'function' && !window.isDetectionExtractManualEditingAllowed()) {
+            setAnnotationFeedback('Raw/Process chi de review. Chua co Final de sua label.', 'info');
+            return;
+        }
     }
     if (!jsonShapes || !jsonShapes.length) {
         setAnnotationFeedback('Chưa có dữ liệu để gán nhãn.', 'error');

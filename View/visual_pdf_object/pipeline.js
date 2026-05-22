@@ -185,7 +185,7 @@ async function detectPipeline() {
         console.log(`Pipeline Detection API Call took ${apiTime.toFixed(3)} seconds`);
         console.log('Result received:', result);
 
-        const pipelineObjects = Array.isArray(result) ? result : (result.json_objects || []);
+        const pipelineObjects = Array.isArray(result) ? result : [];
         clearPipelineVisualization();
         pipelineRawResults = pipelineObjects; // Store explicitly the array for export
 

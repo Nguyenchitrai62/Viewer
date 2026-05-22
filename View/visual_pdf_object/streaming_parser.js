@@ -38,6 +38,109 @@ function normalizeShapesArray(rawShapes) {
     return shapes;
 }
 
+function isPipelineImportObject(rawValue) {
+    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+        return false;
+    }
+
+    if (!Array.isArray(rawValue.vertices) || rawValue.vertices.length === 0) {
+        return false;
+    }
+
+    return typeof rawValue.shape_name === 'string' || rawValue.pipe_id !== undefined;
+}
+
+function getPipelineImportObjects(parsed) {
+    if (Array.isArray(parsed)) {
+        if (!parsed.length) return null;
+        return isPipelineImportObject(parsed[0]) ? parsed : null;
+    }
+
+    return null;
+}
+
+function buildPipelineImportMetadata(pipelineObjects) {
+    if (!Array.isArray(pipelineObjects) || !pipelineObjects.length) {
+        return null;
+    }
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    pipelineObjects.forEach(obj => {
+        if (!Array.isArray(obj?.vertices)) return;
+        obj.vertices.forEach(vertex => {
+            const pointX = Number(vertex?.[0]);
+            const pointY = Number(vertex?.[1]);
+            if (!Number.isFinite(pointX) || !Number.isFinite(pointY)) return;
+            minX = Math.min(minX, pointX);
+            minY = Math.min(minY, pointY);
+            maxX = Math.max(maxX, pointX);
+            maxY = Math.max(maxY, pointY);
+        });
+    });
+
+    if (minX === Infinity) {
+        return null;
+    }
+
+    return {
+        bbox_all: [minX, minY, maxX, maxY],
+        import_format: 'visual_pipeline_fire',
+        pipeline_object_count: pipelineObjects.length
+    };
+}
+
+function convertPipelineImportToNormalizedDocument(pipelineObjects) {
+    const sourceObjects = Array.isArray(pipelineObjects)
+        ? pipelineObjects.filter(isPipelineImportObject)
+        : [];
+    const convertedShapes = typeof convertPipelineToShapes === 'function'
+        ? convertPipelineToShapes(sourceObjects)
+        : [];
+
+    const shapes = convertedShapes.map((rawShape, index) => {
+        const sourceObject = sourceObjects[index] || {};
+        const layerName = String(sourceObject.shape_name || 'Pipeline').trim() || 'Pipeline';
+        return normalizeShapeForViewer({
+            type: sourceObject.shape_name || null,
+            layer: layerName,
+            layer_1: layerName,
+            items: Array.isArray(rawShape?.items) ? rawShape.items : [],
+            color: rawShape?.color ?? null,
+            width: rawShape?.width,
+            fill: rawShape?.fill ?? null,
+            rect: Array.isArray(rawShape?.rect) ? rawShape.rect : null,
+            seqno: index + 1
+        }, index);
+    });
+
+    return {
+        shapes,
+        metadata: buildPipelineImportMetadata(sourceObjects),
+        svg: null,
+        pipelineRawResults: Array.isArray(pipelineObjects) ? pipelineObjects : []
+    };
+}
+
+function sniffJsonImportKindFromText(text) {
+    const startIndex = skipJsonWhitespace(String(text || ''), 0);
+    if (startIndex >= text.length) {
+        return 'unknown';
+    }
+
+    const firstChar = text[startIndex];
+    const snippet = text.slice(startIndex, Math.min(text.length, startIndex + (128 * 1024))).toLowerCase();
+    if (firstChar === '[') {
+        return snippet.includes('"vertices"') && snippet.includes('"shape_name"')
+            ? 'visual_pipeline_fire'
+            : 'unknown';
+    }
+    return 'unknown';
+}
+
 function getRasterPreviewBoundsFromMetadata(metadata) {
     if (!metadata || !Array.isArray(metadata.bbox_all) || metadata.bbox_all.length !== 4) {
         return null;
@@ -244,7 +347,14 @@ async function buildInitialShapeRasterPreview(shapes, metadata = null, svg = nul
     return builder.buildPreview();
 }
 
-function loadNormalizedDocument({ shapes, metadata = null, svg = null, sourceFile = null, pageNum = 1, initialRasterPreview = null }) {
+function loadNormalizedDocument({ shapes, metadata = null, svg = null, sourceFile = null, pageNum = 1, initialRasterPreview = null, pipelineRawResults: importedPipelineRawResults = null }) {
+    if (Array.isArray(importedPipelineRawResults)) {
+        currentLayerField = 'layer';
+        if (btnToggleLayerMode) {
+            btnToggleLayerMode.textContent = 'Mode: Layer';
+        }
+    }
+
     jsonShapes = shapes || [];
     documentMetadata = metadata || null;
     svgData = svg || {};
@@ -252,6 +362,8 @@ function loadNormalizedDocument({ shapes, metadata = null, svg = null, sourceFil
     currentJsonSourceFile = sourceFile || null;
     currentJsonGzipPromise = null;
     currentPageNum = pageNum;
+    pipelineLayerNames = [];
+    pipelineRawResults = Array.isArray(importedPipelineRawResults) ? importedPipelineRawResults : null;
 
     if (initialRasterPreview?.canvas && initialRasterPreview?.bounds) {
         shapeRasterCache = initialRasterPreview;
@@ -275,11 +387,17 @@ function loadNormalizedDocument({ shapes, metadata = null, svg = null, sourceFil
 }
 
 function convertParsedToNormalizedDocument(parsed) {
+    const pipelineObjects = getPipelineImportObjects(parsed);
+    if (pipelineObjects) {
+        return convertPipelineImportToNormalizedDocument(pipelineObjects);
+    }
+
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         return {
             shapes: normalizeShapesArray(Array.isArray(parsed.shapes) ? parsed.shapes : []),
             metadata: parsed.metadata || null,
-            svg: parsed.svg || null
+            svg: parsed.svg || null,
+            pipelineRawResults: null
         };
     }
 
@@ -287,7 +405,8 @@ function convertParsedToNormalizedDocument(parsed) {
         return {
             shapes: normalizeShapesArray(parsed),
             metadata: null,
-            svg: null
+            svg: null,
+            pipelineRawResults: null
         };
     }
 
@@ -819,7 +938,19 @@ async function loadJsonFileStreaming(file) {
     showLoadingPopup('Loading JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${formatBytes(file.size)}`);
 
     try {
-        if (typeof file.text === 'function' && shouldPreferFastFullJsonParse(file.size)) {
+        const importPrefix = typeof file.slice === 'function' && typeof file.slice(0, 1).text === 'function'
+            ? await file.slice(0, 128 * 1024).text()
+            : '';
+        const importKind = sniffJsonImportKindFromText(importPrefix);
+
+        if (importKind !== 'unknown' && typeof file.text === 'function') {
+            updateLoadingPopup('Reading JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${formatBytes(file.size)}${UI_TEXT.BULLET_SEPARATOR}${importKind}`);
+            await yieldToBrowser();
+            const text = await file.text();
+            updateLoadingPopup('Parsing JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${importKind}`);
+            await yieldToBrowser();
+            await loadParsedJsonDocument(JSON.parse(text), { sourceFile: file, pageNum: 1, buildRasterPreview: false });
+        } else if (typeof file.text === 'function' && shouldPreferFastFullJsonParse(file.size)) {
             updateLoadingPopup('Reading JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${formatBytes(file.size)}${UI_TEXT.BULLET_SEPARATOR}native parse`);
             await yieldToBrowser();
             const text = await file.text();

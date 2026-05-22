@@ -603,15 +603,32 @@
     }
 
     function extractFireGetMergedCount() {
-        return Array.isArray(extractFireMergeResults?.json_objects) ? extractFireMergeResults.json_objects.length : 0;
+        return Array.isArray(extractFireMergeResults) ? extractFireMergeResults.length : 0;
     }
 
     function extractFireGetPanelLineCount() {
         return getExtractFireManualAnnotationPayload().length;
     }
 
+    function getExtractFireSymbolPagePayload() {
+        const livePayload = typeof buildSymbolAnnotationPagePayload === 'function'
+            ? buildSymbolAnnotationPagePayload()
+            : null;
+        if (Array.isArray(livePayload?.annotations) && livePayload.annotations.length) {
+            return livePayload;
+        }
+        if (typeof getCachedSymbolAnnotationPagePayload === 'function' && typeof getSymbolPageKey === 'function') {
+            const cachedPayload = getCachedSymbolAnnotationPagePayload(getSymbolPageKey());
+            if (cachedPayload) {
+                return cachedPayload;
+            }
+        }
+        return livePayload;
+    }
+
     function extractFireGetPanelSymbolCount() {
-        return getExtractFireSymbolAnnotationsPayload().length;
+        const payload = getExtractFireSymbolPagePayload();
+        return Array.isArray(payload?.annotations) ? payload.annotations.length : 0;
     }
 
     function setExtractFireToggleButton(button, active, disabled = false) {
@@ -664,6 +681,9 @@
         if (!Object.prototype.hasOwnProperty.call(extractFireOverlayVisibility, key)) {
             return false;
         }
+        if (key === 'symbol' && typeof isSymbolAnnotationPanelCollapsed !== 'undefined') {
+            return extractFireIsPanelExpanded() && !isSymbolAnnotationPanelCollapsed;
+        }
         return extractFireIsPanelExpanded() && Boolean(extractFireOverlayVisibility[key]);
     }
 
@@ -690,7 +710,14 @@
                 applyManualLabelPanelState(shouldCollapse);
             }
         }
-        if (key === 'symbol' && typeof applySymbolAnnotationPanelState === 'function' && typeof isSymbolAnnotationPanelCollapsed !== 'undefined') {
+        if (key === 'symbol' && typeof isSymbolAnnotationPanelCollapsed !== 'undefined') {
+            if (typeof window.setSymbolAnnotationPanelExpanded === 'function') {
+                void window.setSymbolAnnotationPanelExpanded(Boolean(isVisible));
+                return;
+            }
+            if (typeof applySymbolAnnotationPanelState !== 'function') {
+                return;
+            }
             const shouldCollapse = !Boolean(isVisible);
             if (isSymbolAnnotationPanelCollapsed !== shouldCollapse) {
                 applySymbolAnnotationPanelState(shouldCollapse);
@@ -825,6 +852,9 @@
         const mergeCount = extractFireGetMergedCount();
         const panelLineCount = extractFireGetPanelLineCount();
         const panelSymbolCount = extractFireGetPanelSymbolCount();
+        const isSymbolOverlayRequested = typeof isSymbolAnnotationPanelCollapsed !== 'undefined'
+            ? !isSymbolAnnotationPanelCollapsed
+            : extractFireOverlayVisibility.symbol;
         if (detectExtractCountBadge) {
             detectExtractCountBadge.textContent = String(detectionCount);
         }
@@ -867,7 +897,7 @@
         }
         setExtractFireToggleButton(btnExtractOverlayLine, extractFireOverlayVisibility.line, !rawCount && !processedCount && !finalCount && !panelLineCount);
         setExtractFireToggleButton(btnExtractOverlayText, extractFireOverlayVisibility.text, textCount === 0);
-        setExtractFireToggleButton(btnExtractOverlaySymbol, extractFireOverlayVisibility.symbol, !symbolCount && !panelSymbolCount);
+        setExtractFireToggleButton(btnExtractOverlaySymbol, isSymbolOverlayRequested, !symbolCount && !panelSymbolCount);
         setExtractFireToggleButton(btnExtractOverlayMerge, extractFireOverlayVisibility.merge, mergeCount === 0);
         setExtractFireToggleButton(btnExtractLineSourceFinal, extractFireLineSource === EXTRACT_FIRE_LINE_SOURCE_FINAL, finalCount === 0);
         setExtractFireToggleButton(btnExtractLineSourcePanel, extractFireLineSource === EXTRACT_FIRE_LINE_SOURCE_PANEL, panelLineCount === 0);
@@ -2511,8 +2541,8 @@
     }
 
     function extractFireDrawMergeOverlays(targetCtx) {
-        if (!extractFireIsOverlayEffectivelyVisible('merge') || !Array.isArray(extractFireMergeResults?.json_objects)) return;
-        extractFireMergeResults.json_objects.forEach(item => extractFireDrawMergedObject(targetCtx, item));
+        if (!extractFireIsOverlayEffectivelyVisible('merge') || !Array.isArray(extractFireMergeResults)) return;
+        extractFireMergeResults.forEach(item => extractFireDrawMergedObject(targetCtx, item));
     }
 
     function drawDetectionExtractOverlays(targetCtx) {
@@ -2969,8 +2999,7 @@
     }
 
     function getExtractFireSymbolAnnotationsPayload() {
-        if (typeof buildSymbolAnnotationPagePayload !== 'function') return [];
-        const payload = buildSymbolAnnotationPagePayload();
+        const payload = getExtractFireSymbolPagePayload();
         return Array.isArray(payload?.annotations) ? payload.annotations : [];
     }
 
@@ -3580,9 +3609,9 @@
             }
             const result = await response.json();
             extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_MERGE, stageRun.requestId, stageRun.pageKey);
-            extractFireMergeResults = result;
+            extractFireMergeResults = Array.isArray(result) ? result : [];
             extractFireBindStageResultsToCurrentPage();
-            pipelineRawResults = Array.isArray(result?.json_objects) ? result.json_objects : [];
+            pipelineRawResults = Array.isArray(result) ? result : [];
             setDetectionExtractStatus(`Merge ${extractFireGetMergedCount()} object(s) ready. Line=${extractFireLineSource}, Symbol=${extractFireSymbolSource}.`, 'success');
         } catch (error) {
             if (extractFireIsAbortError(error)) {
@@ -3597,7 +3626,7 @@
     }
 
     function exportExtractFireMergedJson() {
-        const objects = Array.isArray(extractFireMergeResults?.json_objects) ? extractFireMergeResults.json_objects : [];
+        const objects = Array.isArray(extractFireMergeResults) ? extractFireMergeResults : [];
         if (!objects.length) {
             setDetectionExtractStatus('Chua co merged Extract_FIRE JSON de export. Hay bam Merge truoc.', 'error');
             return;
@@ -3835,6 +3864,10 @@
     ].forEach(([button, key]) => {
         if (!button) return;
         button.addEventListener('click', () => {
+            if (key === 'symbol' && typeof isSymbolAnnotationPanelCollapsed !== 'undefined') {
+                setExtractFireOverlayVisibility(key, isSymbolAnnotationPanelCollapsed);
+                return;
+            }
             setExtractFireOverlayVisibility(key, !extractFireOverlayVisibility[key]);
         });
     });
@@ -3908,6 +3941,7 @@
     window.handleDetectionExtractDocumentLoaded = handleDetectionExtractDocumentLoaded;
     window.cancelDetectionExtractJobs = cancelDetectionExtractJobs;
     window.isDetectionExtractManualEditingAllowed = isDetectionExtractManualEditingAllowed;
+    window.setDetectionExtractResultViewMode = setDetectionResultViewMode;
     window.handleExtractLinePanelStateChange = handleExtractLinePanelStateChange;
     window.handleExtractSymbolPanelStateChange = handleExtractSymbolPanelStateChange;
     window.shouldHideManualAnnotationOverlay = function () {

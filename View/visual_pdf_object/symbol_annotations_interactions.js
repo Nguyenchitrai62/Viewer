@@ -638,20 +638,39 @@ if (symbolSimilarityThresholdInput) {
     });
 }
 
+async function setSymbolAnnotationPanelExpanded(expanded, options = {}) {
+    const shouldExpand = Boolean(expanded);
+    const nextCollapsed = !shouldExpand;
+    const wasCollapsed = isSymbolAnnotationPanelCollapsed;
+
+    applySymbolAnnotationPanelState(nextCollapsed);
+    if (!shouldExpand) {
+        return false;
+    }
+    if (!wasCollapsed && options.forceReload !== true) {
+        return true;
+    }
+
+    try {
+        await loadSymbolAnnotationDocumentSummary({ silent: true });
+        await loadSymbolAnnotationsForCurrentPage({
+            silent: true,
+            keepLabels: true,
+            forceRefresh: Boolean(options.forceReload)
+        });
+        return true;
+    } catch (error) {
+        console.error('Failed to load symbol annotations after expanding panel:', error);
+        setSymbolAnnotationFeedback(`Tải annotation thất bại: ${error.message}`, 'error');
+        return false;
+    }
+}
+
+window.setSymbolAnnotationPanelExpanded = setSymbolAnnotationPanelExpanded;
+
 if (btnToggleSymbolAnnotationPanel) {
-    btnToggleSymbolAnnotationPanel.addEventListener('click', async () => {
-        const nextCollapsed = !isSymbolAnnotationPanelCollapsed;
-        applySymbolAnnotationPanelState(nextCollapsed);
-        if (nextCollapsed) {
-            return;
-        }
-        try {
-            await loadSymbolAnnotationDocumentSummary({ silent: true });
-            await loadSymbolAnnotationsForCurrentPage({ silent: true, keepLabels: true });
-        } catch (error) {
-            console.error('Failed to load symbol annotations after expanding panel:', error);
-            setSymbolAnnotationFeedback(`Tải annotation thất bại: ${error.message}`, 'error');
-        }
+    btnToggleSymbolAnnotationPanel.addEventListener('click', () => {
+        void setSymbolAnnotationPanelExpanded(isSymbolAnnotationPanelCollapsed);
     });
 }
 
