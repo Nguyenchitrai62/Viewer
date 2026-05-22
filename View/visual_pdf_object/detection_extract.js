@@ -656,6 +656,17 @@
         return true;
     }
 
+    function extractFireIsPanelExpanded() {
+        return !isDetectionExtractPanelCollapsed;
+    }
+
+    function extractFireIsOverlayEffectivelyVisible(key) {
+        if (!Object.prototype.hasOwnProperty.call(extractFireOverlayVisibility, key)) {
+            return false;
+        }
+        return extractFireIsPanelExpanded() && Boolean(extractFireOverlayVisibility[key]);
+    }
+
     function extractFireHandleLineOverlayDisabled() {
         const isAnnotationEditingActive = typeof annotationMode !== 'undefined' && Boolean(annotationMode);
         if (isAnnotationEditingActive && typeof deactivateManualLabelMode === 'function') {
@@ -911,15 +922,6 @@
             localStorage.setItem(DETECTION_PANEL_STORAGE_KEY, collapsed ? '1' : '0');
         } catch (error) {}
         if (collapsed) {
-            extractFireBatchSetOverlayVisibility({
-                line: false,
-                text: false,
-                symbol: false,
-                merge: false
-            }, {
-                refreshUi: false,
-                redraw: false
-            });
             extractFireHandleLineOverlayDisabled();
             extractFireHandleSymbolOverlayDisabled();
         }
@@ -2385,10 +2387,24 @@
                     id: annotation.annotation_id || annotation.id || `panel:${index + 1}`,
                     shape_name: annotation.label_name || annotation.shape_name || annotation.name || 'Symbol',
                     bbox: [bbox.minX, bbox.minY, bbox.maxX, bbox.maxY],
+                    color: annotation?.color || null,
                     source: 'panel'
                 };
             })
             .filter(Boolean);
+    }
+
+    function extractFireResolveSymbolOverlayColor(item) {
+        const candidateColor = typeof item?.color === 'string' ? item.color.trim() : '';
+        if (candidateColor) {
+            const isValidColor = typeof isSupportedSymbolColor === 'function'
+                ? isSupportedSymbolColor(candidateColor)
+                : /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(candidateColor);
+            if (isValidColor) {
+                return candidateColor;
+            }
+        }
+        return EXTRACT_FIRE_OVERLAY_COLORS.symbol;
     }
 
     function extractFireDeduplicateSymbolItems(items) {
@@ -2424,7 +2440,7 @@
     }
 
     function extractFireDrawTextOverlays(targetCtx) {
-        if (!extractFireOverlayVisibility.text) return;
+        if (!extractFireIsOverlayEffectivelyVisible('text')) return;
         extractFireGetTextItems().forEach(item => {
             const bbox = extractFireNormalizeBBox(item?.bbox);
             if (!bbox) return;
@@ -2434,12 +2450,12 @@
     }
 
     function extractFireDrawSymbolOverlays(targetCtx) {
-        if (!extractFireOverlayVisibility.symbol) return;
+        if (!extractFireIsOverlayEffectivelyVisible('symbol')) return;
         extractFireGetSelectedSymbolItems().forEach(item => {
             const bbox = extractFireNormalizeBBox(item?.bbox);
             if (!bbox) return;
             const label = String(item?.shape_name || item?.label_name || 'symbol').slice(0, 28);
-            extractFireDrawBboxOverlay(targetCtx, bbox, EXTRACT_FIRE_OVERLAY_COLORS.symbol, label, { fillAlpha: 0.1 });
+            extractFireDrawBboxOverlay(targetCtx, bbox, extractFireResolveSymbolOverlayColor(item), label, { fillAlpha: 0.1 });
         });
     }
 
@@ -2495,17 +2511,18 @@
     }
 
     function extractFireDrawMergeOverlays(targetCtx) {
-        if (!extractFireOverlayVisibility.merge || !Array.isArray(extractFireMergeResults?.json_objects)) return;
+        if (!extractFireIsOverlayEffectivelyVisible('merge') || !Array.isArray(extractFireMergeResults?.json_objects)) return;
         extractFireMergeResults.json_objects.forEach(item => extractFireDrawMergedObject(targetCtx, item));
     }
 
     function drawDetectionExtractOverlays(targetCtx) {
         const activeResult = detectionGetResultForViewMode();
+        const isLineOverlayVisible = extractFireIsOverlayEffectivelyVisible('line');
         const isAnnotationEditingActive = typeof annotationMode !== 'undefined' && Boolean(annotationMode);
         const hasPendingManualPoint = typeof pendingConnectPoint !== 'undefined' && Boolean(pendingConnectPoint);
         const hasHoveredManualSnap = typeof hoveredSnapPoint !== 'undefined' && Boolean(hoveredSnapPoint);
         const shouldUseManualOverlayForFinalView = detectionResultViewMode === DETECTION_VIEW_MODE_FINAL
-            && extractFireOverlayVisibility.line
+            && isLineOverlayVisible
             && (
                 isAnnotationEditingActive
                 || hasPendingManualPoint
@@ -2516,7 +2533,7 @@
         targetCtx.lineJoin = 'round';
         targetCtx.textBaseline = 'top';
 
-        if (activeResult && extractFireOverlayVisibility.line && !shouldUseManualOverlayForFinalView) {
+        if (activeResult && isLineOverlayVisible && !shouldUseManualOverlayForFinalView) {
             const contextSource = detectionResultViewMode === DETECTION_VIEW_MODE_FINAL
                 ? (detectionAdjustedResults || detectionRawResults || activeResult)
                 : activeResult;
@@ -3264,14 +3281,15 @@
         });
     }
 
-    function extractFireImportApiSymbolsToPanel(symbolResult, options = {}) {
+    async function extractFireImportApiSymbolsToPanel(symbolResult, options = {}) {
         const persistedDocumentSummary = symbolResult?.persisted_document_summary;
         const persistedPagePayload = symbolResult?.persisted_page_payload;
+        const shouldPreferPersistedPayload = options.preferPersistedPayload !== false;
+        const previousCount = extractFireGetPanelSymbolCount();
         if (persistedDocumentSummary && typeof cacheSymbolAnnotationDocumentSummaryPayload === 'function') {
             cacheSymbolAnnotationDocumentSummaryPayload(persistedDocumentSummary);
         }
-        if (persistedPagePayload && typeof applyLoadedSymbolAnnotationPayload === 'function' && options.preferPersistedPayload !== false) {
-            const previousCount = extractFireGetPanelSymbolCount();
+        if (persistedPagePayload && typeof applyLoadedSymbolAnnotationPayload === 'function' && shouldPreferPersistedPayload) {
             applyLoadedSymbolAnnotationPayload(persistedPagePayload, { dirty: false });
             return {
                 label: extractFireEnsureImportedSymbolLabel(),
@@ -3279,6 +3297,27 @@
                 syncedCount: extractFireGetPanelSymbolCount(),
                 persisted: true
             };
+        }
+
+        if (!persistedPagePayload && shouldPreferPersistedPayload && typeof loadSymbolAnnotationsForCurrentPage === 'function') {
+            try {
+                const reloadedPayload = await loadSymbolAnnotationsForCurrentPage({
+                    forceRefresh: true,
+                    forceRefreshDocument: true,
+                    silent: true,
+                    allowWhileCollapsed: true
+                });
+                if (reloadedPayload) {
+                    return {
+                        label: extractFireEnsureImportedSymbolLabel(),
+                        addedCount: Math.max(0, extractFireGetPanelSymbolCount() - previousCount),
+                        syncedCount: extractFireGetPanelSymbolCount(),
+                        persisted: true
+                    };
+                }
+            } catch (error) {
+                console.warn('Extract_FIRE symbol persisted reload failed:', error);
+            }
         }
 
         const label = extractFireEnsureImportedSymbolLabel();
@@ -3340,7 +3379,7 @@
 
     function extractFireFindTextItemAtPoint(worldX, worldY) {
         const items = extractFireGetTextItems();
-        if (!extractFireOverlayVisibility.text || !items.length) {
+        if (!extractFireIsOverlayEffectivelyVisible('text') || !items.length) {
             return null;
         }
         const candidates = items
@@ -3476,7 +3515,7 @@
             extractFireSymbolResults = result;
             extractFireBindStageResultsToCurrentPage();
             const shouldApplyPersistedPayload = extractFireGetSymbolAnnotationSignature() === symbolSignatureBeforeRun;
-            const importResult = extractFireImportApiSymbolsToPanel(result, {
+            const importResult = await extractFireImportApiSymbolsToPanel(result, {
                 preferPersistedPayload: shouldApplyPersistedPayload
             });
             extractFireSyncEditableStateSignatures();
@@ -3872,24 +3911,20 @@
     window.handleExtractLinePanelStateChange = handleExtractLinePanelStateChange;
     window.handleExtractSymbolPanelStateChange = handleExtractSymbolPanelStateChange;
     window.shouldHideManualAnnotationOverlay = function () {
-        const isAnnotationEditingActive = typeof annotationMode !== 'undefined' && Boolean(annotationMode);
-        const hasPendingManualPoint = typeof pendingConnectPoint !== 'undefined' && Boolean(pendingConnectPoint);
-        const hasHoveredManualSnap = typeof hoveredSnapPoint !== 'undefined' && Boolean(hoveredSnapPoint);
-        const hasSuggestions = typeof hasSuggestedConnectAnnotations === 'function' && hasSuggestedConnectAnnotations();
-        return !extractFireOverlayVisibility.line
-            && !isAnnotationEditingActive
-            && !hasPendingManualPoint
-            && !hasHoveredManualSnap
-            && !hasSuggestions;
+        return !extractFireIsOverlayEffectivelyVisible('line');
     };
     window.shouldSuppressManualAnnotationOverlay = function () {
+        const isLineOverlayVisible = extractFireIsOverlayEffectivelyVisible('line');
+        if (!isLineOverlayVisible) {
+            return false;
+        }
         if (detectionResultViewMode !== DETECTION_VIEW_MODE_FINAL) {
             return detectionGetResultCountForViewMode() > 0;
         }
         const isAnnotationEditingActive = typeof annotationMode !== 'undefined' && Boolean(annotationMode);
         const hasPendingManualPoint = typeof pendingConnectPoint !== 'undefined' && Boolean(pendingConnectPoint);
         const hasHoveredManualSnap = typeof hoveredSnapPoint !== 'undefined' && Boolean(hoveredSnapPoint);
-        return extractFireOverlayVisibility.line
+        return isLineOverlayVisible
             && detectionGetFinalResultCount() > 0
             && !isAnnotationEditingActive
             && !hasPendingManualPoint
@@ -3897,14 +3932,12 @@
             && !(typeof hasSuggestedConnectAnnotations === 'function' && hasSuggestedConnectAnnotations());
     };
     window.shouldSuppressSymbolAnnotationOverlay = function () {
-        return extractFireOverlayVisibility.symbol
+        return extractFireIsOverlayEffectivelyVisible('symbol')
             && extractFireSymbolSource !== EXTRACT_FIRE_SYMBOL_SOURCE_API
             && extractFireGetSelectedSymbolItems().length > 0;
     };
     window.shouldHideSymbolAnnotationOverlay = function () {
-        const isSymbolFindActive = typeof isSymbolFindArmed !== 'undefined' && Boolean(isSymbolFindArmed);
-        const isSymbolDeleteActive = typeof isSymbolDeleteArmed !== 'undefined' && Boolean(isSymbolDeleteArmed);
-        return !extractFireOverlayVisibility.symbol && !isSymbolFindActive && !isSymbolDeleteActive;
+        return !extractFireIsOverlayEffectivelyVisible('symbol');
     };
     window.runDetectionExtract = runDetectionExtract;
     window.runExtractFireText = runExtractFireText;
