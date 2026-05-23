@@ -842,11 +842,13 @@ body {
 #btn-label-junction.active {
     background: #ef4444;
     border-color: #ef4444;
+    color: #fff;
 }
 
 #btn-label-connect.active {
     background: #0ea5e9;
     border-color: #0ea5e9;
+    color: #fff;
 }
 
 #btn-check-connect-pair.active {
@@ -890,7 +892,7 @@ body {
     position: absolute;
     left: 18px;
     bottom: 18px;
-    width: 240px;
+    width: 284px;
     z-index: 72;
 }
 
@@ -927,7 +929,8 @@ body {
 }
 
 .detect-extract-count-badge {
-    background: #111827;
+    background: rgba(37, 99, 235, 0.12);
+    color: #1d4ed8;
 }
 
 .detect-extract-toggle {
@@ -980,12 +983,12 @@ body {
 
 .detect-extract-summary {
     margin-top: 6px;
-    padding: 7px 10px;
+    padding: 8px 10px;
     border-radius: 8px;
     border: 1px solid rgba(15, 23, 42, 0.08);
     background: rgba(248, 250, 252, 0.88);
     color: #475569;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.45;
 }
 
@@ -997,21 +1000,21 @@ body {
 }
 
 .detect-extract-stage {
-    padding: 6px;
-    border: 1px solid rgba(148, 163, 184, 0.32);
-    border-radius: 8px;
-    background: rgba(248, 250, 252, 0.8);
+    padding: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 10px;
+    background: rgba(248, 250, 252, 0.86);
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .detect-extract-stage-final {
-    border-color: rgba(148, 163, 184, 0.4);
-    background: rgba(248, 250, 252, 0.9);
+    border-color: rgba(148, 163, 184, 0.34);
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(241, 245, 249, 0.92) 100%);
 }
 
 .detect-extract-stage.is-loading {
-    border-color: rgba(15, 118, 110, 0.3);
-    box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.08), 0 10px 18px rgba(15, 118, 110, 0.08);
+    border-color: rgba(37, 99, 235, 0.28);
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.08), 0 10px 18px rgba(37, 99, 235, 0.08);
 }
 
 .detect-extract-stage-header {
@@ -1061,7 +1064,7 @@ body {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: 4px;
+    margin-top: 6px;
 }
 
 .detect-extract-view-label {
@@ -1077,6 +1080,7 @@ body {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
+    min-width: 0;
 }
 
 .detect-extract-view-switch-two {
@@ -1088,7 +1092,8 @@ body {
 }
 
 .detect-extract-view-btn {
-    padding: 7px 8px;
+    min-height: 30px;
+    padding: 7px 9px;
     border-radius: 8px;
     border: 1px solid rgba(15, 23, 42, 0.12);
     background: #fff;
@@ -1096,27 +1101,28 @@ body {
     cursor: pointer;
     font-size: 11px;
     font-weight: 700;
-    line-height: 1.15;
+    line-height: 1.1;
     text-align: center;
-    white-space: normal;
+    white-space: nowrap;
     transition: all 0.2s ease;
 }
 
 .detect-extract-view-btn:hover:not(:disabled) {
     background: #f8fafc;
+    border-color: rgba(148, 163, 184, 0.45);
     color: #0f172a;
 }
 
 .detect-extract-view-btn.is-active {
-    background: #0f172a;
-    border-color: #0f172a;
-    color: #fff;
+    background: rgba(37, 99, 235, 0.1);
+    border-color: rgba(37, 99, 235, 0.38);
+    color: #1d4ed8;
 }
 
 .detect-extract-view-btn.is-active:hover:not(:disabled) {
-    background: #0f172a;
-    border-color: #0f172a;
-    color: #fff;
+    background: rgba(37, 99, 235, 0.14);
+    border-color: rgba(37, 99, 235, 0.46);
+    color: #1d4ed8;
 }
 
 .detect-extract-view-btn:disabled {
@@ -1128,7 +1134,7 @@ body {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
-    margin-top: 6px;
+    margin-top: 8px;
 }
 
 .detect-extract-stage-actions .detect-extract-btn:only-child {
@@ -1136,7 +1142,8 @@ body {
 }
 
 .detect-extract-btn {
-    padding: 7px 10px;
+    min-height: 30px;
+    padding: 7px 9px;
     font-size: 11px;
     font-weight: 700;
     border-radius: 8px;
@@ -1144,20 +1151,21 @@ body {
     background: #fff;
     color: #0f172a;
     cursor: pointer;
-    line-height: 1.15;
+    line-height: 1.1;
     text-align: center;
-    white-space: normal;
+    white-space: nowrap;
     transition: all 0.2s ease;
 }
 
 .detect-extract-btn-toggle.is-active {
-    background: #0f172a;
-    border-color: #0f172a;
-    color: #fff;
+    background: rgba(14, 165, 233, 0.1);
+    border-color: rgba(14, 165, 233, 0.34);
+    color: #0369a1;
 }
 
 .detect-extract-btn:hover:not(:disabled) {
     background: #f8fafc;
+    border-color: rgba(148, 163, 184, 0.45);
     color: #0f172a;
 }
 
@@ -1181,9 +1189,9 @@ body {
 }
 
 .detect-extract-btn-toggle.is-active:hover:not(:disabled) {
-    background: #0f172a;
-    border-color: #0f172a;
-    color: #fff;
+    background: rgba(14, 165, 233, 0.14);
+    border-color: rgba(14, 165, 233, 0.42);
+    color: #0369a1;
 }
 
 .detect-extract-btn:disabled,
@@ -1193,20 +1201,20 @@ body {
 }
 
 .detect-extract-btn-primary {
-    background: #111827;
-    border-color: #111827;
-    color: #fff;
+    background: rgba(37, 99, 235, 0.1);
+    border-color: rgba(37, 99, 235, 0.36);
+    color: #1d4ed8;
 }
 
 .detect-extract-btn-primary:hover:not(:disabled) {
-    background: #1f2937;
-    border-color: #1f2937;
-    color: #fff;
+    background: rgba(37, 99, 235, 0.15);
+    border-color: rgba(37, 99, 235, 0.46);
+    color: #1d4ed8;
 }
 
 .detect-extract-panel.has-running-jobs .detect-extract-count-badge {
-    background: #111827;
-    box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.12);
+    background: #1d4ed8;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
     transform: translateY(-1px);
 }
 
@@ -1600,6 +1608,12 @@ body {
 }
 
 @media (max-width: 900px) {
+    .detect-extract-panel {
+        left: 12px;
+        bottom: 12px;
+        width: min(320px, calc(100vw - 24px));
+    }
+
     .symbol-annotation-panel {
         top: 12px;
         right: 12px;
