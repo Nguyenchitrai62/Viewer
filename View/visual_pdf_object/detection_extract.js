@@ -481,6 +481,64 @@
             .filter(Boolean);
     }
 
+    function extractFireGetVisibleRenderableLayersForDetect() {
+        if (typeof getVisibleRenderableLayers === 'function') {
+            const visibleLayers = getVisibleRenderableLayers();
+            return Array.isArray(visibleLayers) ? visibleLayers : [];
+        }
+        return Object.keys(layerVisibility || {}).filter(layerName =>
+            layerVisibility?.[layerName]
+            && Array.isArray(layerIndex?.[layerName])
+            && layerIndex[layerName].length > 0
+            && !String(layerName).startsWith('svg_')
+            && !pipelineLayerNames.includes(layerName)
+            && !detectionLayerNames.includes(layerName)
+        );
+    }
+
+    function extractFireHasVisibleRenderableLayers() {
+        return extractFireGetVisibleRenderableLayersForDetect().length > 0;
+    }
+
+    function buildEmptyDetectExtractLineBundleResult(reason = 'frontend_all_layers_hidden') {
+        return {
+            status: 'empty',
+            backend_owned: false,
+            package: 'View.visual_pdf_object',
+            detections: [],
+            num_detections: 0,
+            summary: {
+                stage: 'line_compact_v1',
+                backend_owned: false,
+                visible_layers: [],
+                shape_count: 0,
+                raw_detection_count: 0,
+                processed_detection_count: 0,
+                auto_accept_annotation_count: 0,
+                line_detection_count: 0,
+                raw_backend_cache_hit: false,
+                empty_reason: reason
+            },
+            timing: {
+                context_ms: 0,
+                render_ms: 0,
+                raw_ms: 0,
+                processed_ms: 0,
+                auto_accept_ms: 0,
+                total_ms: 0,
+                context_source: 'frontend'
+            },
+            context: {
+                visible_layer_count: 0,
+                render_bounds: null,
+                render_scale: null,
+                rendered_image_width: 0,
+                rendered_image_height: 0,
+                short_circuited: true
+            }
+        };
+    }
+
     function detectionAnnotationToLineDetection(annotation, index = 0) {
         if (!annotation || typeof annotation !== 'object') return null;
         const type = String(annotation.type || '').trim().toLowerCase();
@@ -905,8 +963,15 @@
         setExtractFireToggleButton(btnExtractSymbolSourceApi, extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_API, symbolCount === 0);
         setExtractFireToggleButton(btnExtractSymbolSourceBoth, extractFireSymbolSource === EXTRACT_FIRE_SYMBOL_SOURCE_BOTH, !symbolCount && !panelSymbolCount);
         if (btnRunDetectExtract) {
-            btnRunDetectExtract.disabled = !hasRenderableDocument();
+            const isRunningLineExtract = extractFireIsStageRunning(EXTRACT_FIRE_STAGE_LINE);
+            const canRunDetectExtract = hasRenderableDocument() && extractFireHasVisibleRenderableLayers();
+            btnRunDetectExtract.disabled = !isRunningLineExtract && !canRunDetectExtract;
             btnRunDetectExtract.textContent = extractFireIsStageRunning(EXTRACT_FIRE_STAGE_LINE) ? 'Cancel Line' : 'Extract Line';
+            btnRunDetectExtract.title = !hasRenderableDocument()
+                ? 'Khong co du lieu de detect.'
+                : (!isRunningLineExtract && !canRunDetectExtract
+                    ? 'Bat it nhat 1 layer truoc khi extract line.'
+                    : 'Extract line detections');
             setExtractFireLoadingButton(btnRunDetectExtract, extractFireIsStageRunning(EXTRACT_FIRE_STAGE_LINE));
         }
         if (btnPromoteExtractLineToLabels) {
@@ -2871,6 +2936,16 @@
     }
 
     async function buildDetectionRequestPayload() {
+        const visibleLayers = extractFireGetVisibleRenderableLayersForDetect();
+        if (!visibleLayers.length) {
+            return {
+                payload: null,
+                fallbackGzipData: null,
+                preferServerPageCache: false,
+                emptyBundleResult: buildEmptyDetectExtractLineBundleResult()
+            };
+        }
+
         let gzipData = currentPageNum
             ? (getPageGzipCacheValue(cachedPages, currentPageNum, { touch: false })
                 || getPageGzipCacheValue(stagedCachedPages, currentPageNum, { touch: false }))
@@ -2882,10 +2957,6 @@
         if (!gzipData) {
             throw new Error('Khong co gzip_data cua trang hien tai de gui len backend.');
         }
-
-        const visibleLayers = typeof getVisibleRenderableLayers === 'function'
-            ? getVisibleRenderableLayers()
-            : Object.keys(layerVisibility || {}).filter(layerName => layerVisibility?.[layerName]);
         const manualAnnotationPayload = Array.isArray(manualAnnotations)
             ? manualAnnotations.map(detectionCloneManualAnnotationForRequest).filter(Boolean)
             : [];
@@ -2912,7 +2983,8 @@
                 use_sahi: true
             },
             fallbackGzipData: gzipData,
-            preferServerPageCache
+            preferServerPageCache,
+            emptyBundleResult: null
         };
     }
 
@@ -3645,6 +3717,15 @@
         const rawCount = Number(summary?.raw_detection_count ?? rawResult?.num_detections ?? rawResult?.detections?.length ?? 0);
         const processedCount = Number(summary?.processed_detection_count ?? adjustedResult?.num_detections ?? adjustedResult?.detections?.length ?? 0);
         const finalCount = Number(summary?.auto_accept_annotation_count ?? autoAcceptResult?.manual_annotations?.length ?? 0);
+        const emptyReason = String(summary?.empty_reason || '').trim();
+        if (
+            rawCount === 0
+            && processedCount === 0
+            && finalCount === 0
+            && (emptyReason === 'frontend_all_layers_hidden' || emptyReason === 'explicit_empty_layer_selection')
+        ) {
+            return 'Khong co layer dang bat, bo qua extract line';
+        }
         const postprocess = adjustedResult?.postprocess || {};
         const totalConnect = Number(postprocess.total_connect_detections || 0);
         const validConnect = Number(postprocess.validated_connect_detections || 0);
@@ -3701,8 +3782,6 @@
             const requestPayload = requestBundle.payload;
             extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_LINE, stageRun.requestId, stageRun.pageKey);
 
-            setDetectionExtractStatus('Dang goi bundle detect...');
-
             const startTime = performance.now();
             const callDetectExtractBackend = async payload => {
                 const response = await fetch(`${ENV.API_BASE_URL}/detect_extract_line_fire`, {
@@ -3718,21 +3797,27 @@
             };
 
             let bundleResult;
-            try {
-                bundleResult = await callDetectExtractBackend(requestPayload);
-            } catch (error) {
-                if (!requestBundle.preferServerPageCache || !requestBundle.fallbackGzipData || requestPayload.gzip_data) {
-                    throw error;
+            if (requestBundle.emptyBundleResult) {
+                setDetectionExtractStatus('Tat ca layer dang tat, bo qua goi backend va tra ket qua rong...');
+                bundleResult = requestBundle.emptyBundleResult;
+            } else {
+                setDetectionExtractStatus('Dang goi bundle detect...');
+                try {
+                    bundleResult = await callDetectExtractBackend(requestPayload);
+                } catch (error) {
+                    if (!requestBundle.preferServerPageCache || !requestBundle.fallbackGzipData || requestPayload.gzip_data) {
+                        throw error;
+                    }
+                    setDetectionExtractStatus('Cache page JSON o backend bi miss, dang gui gzip_data fallback...');
+                    bundleResult = await callDetectExtractBackend({
+                        ...requestPayload,
+                        gzip_data: requestBundle.fallbackGzipData,
+                        prefer_server_page_cache: false
+                    });
                 }
-                setDetectionExtractStatus('Cache page JSON o backend bi miss, dang gui gzip_data fallback...');
-                bundleResult = await callDetectExtractBackend({
-                    ...requestPayload,
-                    gzip_data: requestBundle.fallbackGzipData,
-                    prefer_server_page_cache: false
-                });
             }
             extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_LINE, stageRun.requestId, stageRun.pageKey);
-            const roundTripSeconds = (performance.now() - startTime) / 1000;
+            const roundTripSeconds = requestBundle.emptyBundleResult ? 0 : ((performance.now() - startTime) / 1000);
             const isCompactLineResult = detectionIsCompactLineResult(bundleResult);
             const compactLineResult = isCompactLineResult ? bundleResult : null;
             const rawResult = isCompactLineResult ? null : (bundleResult?.raw || null);

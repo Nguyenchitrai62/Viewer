@@ -27,6 +27,9 @@ function applyLayerVisibilityUpdate(options = {}) {
     }
     scheduleDraw();
     applySvgTransform();
+    if (typeof updateDetectionExtractUI === 'function') {
+        updateDetectionExtractUI();
+    }
 }
 
 function getShapeLayerNamesForCurrentMode() {
