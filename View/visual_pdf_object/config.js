@@ -42,7 +42,7 @@ const CONFIG = {
     MANUAL_LABEL_PARALLEL_MAX_ANGLE_DEGREES: 5, // Góc lệch tối đa để vẫn coi là song song trong pair-check/gợi ý connect thẳng
     MANUAL_LABEL_MIN_SUGGEST_CONNECT_LENGTH: 8,
     MANUAL_LABEL_DASH_SEGMENT_MAX_LENGTH: 4, // Do dai toi da cua moi doan line de xem la net dut
-    MANUAL_LABEL_DASH_SEGMENT_LENGTH_TOLERANCE_RATIO: 1.5, // Cho phep doan net dut dai hon muc chuan mot chut o elbow/tee
+    MANUAL_LABEL_DASH_SEGMENT_LENGTH_TOLERANCE_RATIO: 2, // Cho phep doan net dut dai hon muc chuan mot chut o elbow/tee
     MANUAL_LABEL_DASH_MAX_ENDPOINT_GAP: 4, // Khoang cach toi da giua hai doan net dut lien tiep
     MANUAL_LABEL_DASH_MAX_OFFSET: 1, // Lech vuong goc toi da khi gom net dut thang hang
     MANUAL_LABEL_CLASSES: Object.freeze({ junction: 0, connect: 1 }),

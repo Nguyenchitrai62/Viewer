@@ -353,7 +353,7 @@ async function renderMainLayerCandidateImages(layerNames, pageKey = null, reques
         if (pageKey && requestToken === null && !isMainLayerClassificationStillCurrent(pageKey)) {
             throw createMainLayerAbortError();
         }
-        renderLayerOnExportCanvas(exportCtx, exportCanvas, layerName, bounds, scale);
+        await renderLayerOnExportCanvas(exportCtx, exportCanvas, layerName, bounds, scale);
         layers.push({
             layer_name: layerName,
             element_count: Number(totalCommands[layerName] || 0),

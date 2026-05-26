@@ -39,17 +39,94 @@ async function drawVisibleDocumentRaster(targetCtx, bounds, scale) {
         ? allShapesSorted
         : (Array.isArray(jsonShapes) ? jsonShapes : []);
 
-    targetCtx.save();
-    targetCtx.scale(scale, scale);
-    targetCtx.translate(-bounds.minX, -bounds.minY);
+    await drawShapesOnExportCanvas(targetCtx, null, shapesToRender, bounds, scale, {
+        clearCanvas: false,
+        fillBackground: false
+    });
+}
 
-    if (shapesToRender.length) {
+function prepareShapesForExportRaster(shapes) {
+    if (!Array.isArray(shapes) || !shapes.length) {
+        return [];
+    }
+
+    const preparedShapes = [];
+    shapes.forEach(shape => {
+        if (!shape || !Array.isArray(shape.items) || !shape.items.length) {
+            return;
+        }
+
+        const layerName = typeof getShapeLayerNameForField === 'function'
+            ? getShapeLayerNameForField(shape, currentLayerField)
+            : (shape.layer || null);
+        if (!layerName) {
+            return;
+        }
+
+        shape.layer = layerName;
+        if (typeof prepareShapeForDraw === 'function') {
+            prepareShapeForDraw(shape, shape._renderLayerPriority ?? 1, Boolean(shape._isPipelineLayer));
+        }
+        preparedShapes.push(shape);
+    });
+
+    if (typeof sortShapesForDraw === 'function') {
+        sortShapesForDraw(preparedShapes);
+    }
+
+    return preparedShapes;
+}
+
+async function drawShapesOnExportCanvas(targetCtx, targetCanvas, shapes, bounds, scale, {
+    clearCanvas = true,
+    fillBackground = true
+} = {}) {
+    if (!targetCtx || !bounds) {
+        return;
+    }
+
+    if (clearCanvas && targetCanvas) {
+        targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+    }
+    if (fillBackground && targetCanvas) {
+        targetCtx.fillStyle = '#ffffff';
+        targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+    }
+
+    const shapesToRender = prepareShapesForExportRaster(shapes);
+    if (!shapesToRender.length) {
+        return;
+    }
+
+    if (!layerVisibility || typeof layerVisibility !== 'object') {
+        layerVisibility = {};
+    }
+
+    const injectedVisibleLayers = [];
+    shapesToRender.forEach(shape => {
+        const layerName = shape?.layer;
+        if (!layerName) {
+            return;
+        }
+        if (!Object.prototype.hasOwnProperty.call(layerVisibility, layerName)) {
+            layerVisibility[layerName] = true;
+            injectedVisibleLayers.push(layerName);
+        }
+    });
+
+    try {
+        targetCtx.save();
+        targetCtx.scale(scale, scale);
+        targetCtx.translate(-bounds.minX, -bounds.minY);
         await renderShapesToContextBatched(targetCtx, shapesToRender, {
             yieldEvery: HIGH_ZOOM_VECTOR_RENDER_YIELD_EVERY
         });
+    } finally {
+        targetCtx.restore();
+        injectedVisibleLayers.forEach(layerName => {
+            delete layerVisibility[layerName];
+        });
     }
-
-    targetCtx.restore();
 }
 
 function canvasToBlobAsync(sourceCanvas, mimeType = 'image/png', quality) {
@@ -331,24 +408,9 @@ function drawExportItemsOnCanvas(ctx, items, strokeStyle, lineWidth, fillStyle, 
     });
 }
 
-function renderLayerOnExportCanvas(targetCtx, targetCanvas, layerName, bounds, scale) {
-    targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-    targetCtx.fillStyle = '#ffffff';
-    targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
-
+async function renderLayerOnExportCanvas(targetCtx, targetCanvas, layerName, bounds, scale) {
     const layerArr = layerIndex[layerName] || [];
-    layerArr.forEach(obj => {
-        if (!obj || obj.type === 'text') return;
-        drawExportItemsOnCanvas(
-            targetCtx,
-            obj.items || [],
-            getCanvasColor(obj.color),
-            getExportLineWidth(obj.width, scale),
-            obj.fill ? getCanvasColor(obj.fill) : null,
-            scale,
-            bounds
-        );
-    });
+    await drawShapesOnExportCanvas(targetCtx, targetCanvas, layerArr, bounds, scale);
 }
 
 function canvasToBase64(canvas, mimeType = 'image/png', quality) {
@@ -886,10 +948,21 @@ async function exportLayerImages() {
                 : (shape?.layer || null);
             if (!layerName || !Array.isArray(shape?.items) || !shape.items.length) return;
 
+            shape.layer = layerName;
+            if (typeof prepareShapeForDraw === 'function') {
+                prepareShapeForDraw(shape, shape._renderLayerPriority ?? 1, Boolean(shape._isPipelineLayer));
+            }
+
             localLayerIndex[layerName] ??= [];
             localLayerIndex[layerName].push(shape);
             localTotalCommands[layerName] = (localTotalCommands[layerName] || 0) + shape.items.length;
         });
+
+        if (typeof sortShapesForDraw === 'function') {
+            Object.values(localLayerIndex).forEach(layerShapes => {
+                sortShapesForDraw(layerShapes);
+            });
+        }
 
         return {
             layerIndex: localLayerIndex,
@@ -961,23 +1034,8 @@ async function exportLayerImages() {
         };
     }
 
-    function renderLayerShapesOnExportCanvas(targetCtx, targetCanvas, shapes, bounds, renderScale) {
-        targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-        targetCtx.fillStyle = '#ffffff';
-        targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
-
-        (shapes || []).forEach(shape => {
-            if (!shape || shape.type === 'text') return;
-            drawExportItemsOnCanvas(
-                targetCtx,
-                shape.items || [],
-                getCanvasColor(shape.color),
-                getExportLineWidth(shape.width, renderScale),
-                shape.fill ? getCanvasColor(shape.fill) : null,
-                renderScale,
-                bounds
-            );
-        });
+    async function renderLayerShapesOnExportCanvas(targetCtx, targetCanvas, shapes, bounds, renderScale) {
+        await drawShapesOnExportCanvas(targetCtx, targetCanvas, shapes, bounds, renderScale);
     }
 
     async function getDocumentDataForExportPage(pageNum) {
@@ -1070,14 +1128,14 @@ async function exportLayerImages() {
 
             const { canvas, ctx } = createCanvas(bounds.width * scale, bounds.height * scale);
 
-            visibleLayers.forEach(layerName => {
+            for (const layerName of visibleLayers) {
                 const layerShapes = layerState.layerIndex[layerName] || [];
-                if (!layerShapes.length) return;
-                renderLayerShapesOnExportCanvas(ctx, canvas, layerShapes, bounds, scale);
+                if (!layerShapes.length) continue;
+                await renderLayerShapesOnExportCanvas(ctx, canvas, layerShapes, bounds, scale);
                 const fileName = `${exportBaseName}_p${pageNum}_${getSafeLayerFileName(layerName)}.png`;
                 zip.file(fileName, canvasToBase64(canvas, 'image/png'), { base64: true });
                 exportedImageCount += 1;
-            });
+            }
         }
 
         if (!exportedImageCount) {

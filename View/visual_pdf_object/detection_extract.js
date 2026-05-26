@@ -3950,7 +3950,13 @@
         if (!button) return;
         button.addEventListener('click', () => {
             if (key === 'symbol' && typeof isSymbolAnnotationPanelCollapsed !== 'undefined') {
-                setExtractFireOverlayVisibility(key, isSymbolAnnotationPanelCollapsed);
+                if (typeof window.setSymbolAnnotationPanelExpanded === 'function') {
+                    void window.setSymbolAnnotationPanelExpanded(isSymbolAnnotationPanelCollapsed);
+                    return;
+                }
+                if (typeof applySymbolAnnotationPanelState === 'function') {
+                    applySymbolAnnotationPanelState(!isSymbolAnnotationPanelCollapsed);
+                }
                 return;
             }
             setExtractFireOverlayVisibility(key, !extractFireOverlayVisibility[key]);
