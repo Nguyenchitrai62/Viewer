@@ -27,6 +27,7 @@
     const btnRunExtractFireMerge = document.getElementById('btn-run-extract-fire-merge');
     const btnExportExtractFireJson = document.getElementById('btn-export-extract-fire-json');
     const btnClearDetectExtract = document.getElementById('btn-clear-detect-extract');
+    const detectAutoAcceptCheckbox = document.getElementById('detect-auto-accept-checkbox');
 
     const DETECTION_PANEL_STORAGE_KEY = 'visual_pdf_object.detect_extract_collapsed';
     const DETECTION_VIEW_MODE_RAW = 'raw';
@@ -2980,7 +2981,8 @@
                 visible_layers: visibleLayers,
                 layer_visibility: { ...(layerVisibility || {}) },
                 manual_annotations: manualAnnotationPayload,
-                use_sahi: true
+                use_sahi: true,
+                auto_accept: detectAutoAcceptCheckbox ? detectAutoAcceptCheckbox.checked : true
             },
             fallbackGzipData: gzipData,
             preferServerPageCache,
