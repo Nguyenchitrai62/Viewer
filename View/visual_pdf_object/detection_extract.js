@@ -2941,23 +2941,10 @@
         if (!visibleLayers.length) {
             return {
                 payload: null,
-                fallbackGzipData: null,
-                preferServerPageCache: false,
                 emptyBundleResult: buildEmptyDetectExtractLineBundleResult()
             };
         }
 
-        let gzipData = currentPageNum
-            ? (getPageGzipCacheValue(cachedPages, currentPageNum, { touch: false })
-                || getPageGzipCacheValue(stagedCachedPages, currentPageNum, { touch: false }))
-            : null;
-
-        if (!gzipData && typeof ensurePipelineCacheForCurrentDocument === 'function') {
-            gzipData = await ensurePipelineCacheForCurrentDocument();
-        }
-        if (!gzipData) {
-            throw new Error('Khong co gzip_data cua trang hien tai de gui len backend.');
-        }
         const manualAnnotationPayload = Array.isArray(manualAnnotations)
             ? manualAnnotations.map(detectionCloneManualAnnotationForRequest).filter(Boolean)
             : [];
@@ -2966,48 +2953,32 @@
         const pdfName = (currentPdfFile && currentPdfFile.name)
             || (currentJsonSourceFile && (currentJsonSourceFile.name || String(currentJsonSourceFile)))
             || 'visual_layers';
-        const preferServerPageCache = Boolean(currentPdfFile && pageNum);
         const documentKey = typeof getCurrentMainLayerDocumentKey === 'function'
             ? getCurrentMainLayerDocumentKey()
             : pdfName;
 
         return {
             payload: {
-                gzip_data: preferServerPageCache ? '' : gzipData,
                 pdf_name: pdfName,
                 page_num: pageNum,
                 document_key: documentKey,
-                prefer_server_page_cache: preferServerPageCache,
+                prefer_server_page_cache: true,
                 visible_layers: visibleLayers,
                 layer_visibility: { ...(layerVisibility || {}) },
                 manual_annotations: manualAnnotationPayload,
                 use_sahi: true,
-                auto_accept: detectAutoAcceptCheckbox ? detectAutoAcceptCheckbox.checked : true
+                auto_accept: detectAutoAcceptCheckbox ? detectAutoAcceptCheckbox.checked : true,
+                layer_field: currentLayerField
             },
-            fallbackGzipData: gzipData,
-            preferServerPageCache,
             emptyBundleResult: null
         };
     }
 
     async function buildExtractFirePageRequestPayload(options = {}) {
-        let gzipData = currentPageNum
-            ? (getPageGzipCacheValue(cachedPages, currentPageNum, { touch: false })
-                || getPageGzipCacheValue(stagedCachedPages, currentPageNum, { touch: false }))
-            : null;
-
-        if (!gzipData && typeof ensurePipelineCacheForCurrentDocument === 'function') {
-            gzipData = await ensurePipelineCacheForCurrentDocument();
-        }
-        if (!gzipData) {
-            throw new Error('Khong co gzip_data cua trang hien tai de gui len backend.');
-        }
-
         const pageNum = Number.isInteger(Number(currentPageNum)) && Number(currentPageNum) >= 1 ? Number(currentPageNum) : 1;
         const pdfName = (currentPdfFile && currentPdfFile.name)
             || (currentJsonSourceFile && (currentJsonSourceFile.name || String(currentJsonSourceFile)))
             || 'visual_layers';
-        const preferServerPageCache = Boolean(currentPdfFile && pageNum);
         const documentKey = typeof getCurrentMainLayerDocumentKey === 'function'
             ? getCurrentMainLayerDocumentKey()
             : pdfName;
@@ -3023,45 +2994,27 @@
 
         return {
             payload: {
-                gzip_data: preferServerPageCache ? '' : gzipData,
                 pdf_name: pdfName,
                 page_num: pageNum,
                 document_key: documentKey,
-                prefer_server_page_cache: preferServerPageCache,
+                prefer_server_page_cache: true,
                 upload_session_id: uploadSessionId
-            },
-            fallbackGzipData: gzipData,
-            preferServerPageCache
+            }
         };
     }
 
     async function callExtractFireBackend(routeName, requestBundle, payloadPatch = {}, options = {}) {
-        const callBackend = async payload => {
-            const response = await fetch(`${ENV.API_BASE_URL}/${routeName}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                signal: options.signal
-            });
-            if (!response.ok) {
-                throw new Error(await parseHttpErrorResponse(response));
-            }
-            return response.json();
-        };
-
         const requestPayload = { ...requestBundle.payload, ...payloadPatch };
-        try {
-            return await callBackend(requestPayload);
-        } catch (error) {
-            if (!requestBundle.preferServerPageCache || !requestBundle.fallbackGzipData || requestPayload.gzip_data) {
-                throw error;
-            }
-            return callBackend({
-                ...requestPayload,
-                gzip_data: requestBundle.fallbackGzipData,
-                prefer_server_page_cache: false
-            });
+        const response = await fetch(`${ENV.API_BASE_URL}/${routeName}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestPayload),
+            signal: options.signal
+        });
+        if (!response.ok) {
+            throw new Error(await parseHttpErrorResponse(response));
         }
+        return response.json();
     }
 
     function extractFireShouldRetryTextWithPdfUpload(error) {
@@ -3804,19 +3757,7 @@
                 bundleResult = requestBundle.emptyBundleResult;
             } else {
                 setDetectionExtractStatus('Dang goi bundle detect...');
-                try {
-                    bundleResult = await callDetectExtractBackend(requestPayload);
-                } catch (error) {
-                    if (!requestBundle.preferServerPageCache || !requestBundle.fallbackGzipData || requestPayload.gzip_data) {
-                        throw error;
-                    }
-                    setDetectionExtractStatus('Cache page JSON o backend bi miss, dang gui gzip_data fallback...');
-                    bundleResult = await callDetectExtractBackend({
-                        ...requestPayload,
-                        gzip_data: requestBundle.fallbackGzipData,
-                        prefer_server_page_cache: false
-                    });
-                }
+                bundleResult = await callDetectExtractBackend(requestPayload);
             }
             extractFireAssertStageJobCurrent(EXTRACT_FIRE_STAGE_LINE, stageRun.requestId, stageRun.pageKey);
             const roundTripSeconds = requestBundle.emptyBundleResult ? 0 : ((performance.now() - startTime) / 1000);
