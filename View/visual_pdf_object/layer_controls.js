@@ -476,6 +476,7 @@ async function classifyMainLayersForCurrentPage(options = {}) {
                 document_key: documentKey,
                 page_num: pageNum,
                 layers,
+                layer_field: currentLayerField || 'layer_1',
                 force_refresh: Boolean(options.force)
             })
         });
@@ -718,9 +719,18 @@ function updateLayerList() {
         colorSubtree.style.display = expandedNodes[`type-${typeName}`] ? 'block' : 'none';
         colorSubtree.style.marginLeft = '20px';
 
-        // For pipeline layers or "layer" mode shapes: show directly as flat list by name
-        if (typeName === 'pipeline' || typeName === 'detection' || (typeName === 'shape' && currentLayerField === 'layer')) {
+        if (typeName === 'pipeline' || typeName === 'detection') {
             layers.sort((a, b) => (totalCommands[b] || 0) - (totalCommands[a] || 0));
+            layers.forEach((layerName, index) => {
+                const layerItem = createLayerControl(layerName);
+                layerItem.style.marginBottom = '2px';
+                const label = layerItem.querySelector('label');
+                label.textContent = `${layerName} (${totalCommands[layerName] || 0} ele)`;
+                label.style.fontWeight = '500';
+                label.title = layerName;
+                colorSubtree.appendChild(layerItem);
+            });
+        } else if (typeName === 'shape' && currentLayerField === 'layer') {
             layers.forEach((layerName, index) => {
                 const layerItem = createLayerControl(layerName);
                 layerItem.style.marginBottom = '2px';

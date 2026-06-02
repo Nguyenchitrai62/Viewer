@@ -71,13 +71,40 @@ window.addEventListener('keydown', e => {
     }
 });
 window.addEventListener('resize', scheduleResizeCanvas);
+let dragCounter = 0;
+
+document.addEventListener('dragenter', e => {
+    e.preventDefault();
+    dragCounter += 1;
+    dropZone.classList.remove('hidden');
+});
+
+document.addEventListener('dragleave', e => {
+    dragCounter -= 1;
+    if (dragCounter <= 0) {
+        dragCounter = 0;
+        dropZone.classList.add('hidden');
+        dropZone.classList.remove('drag-over');
+    }
+});
+
+document.addEventListener('dragover', e => {
+    e.preventDefault();
+});
+
 dropZone.addEventListener('dragover', e => {
     e.preventDefault();
+    e.stopPropagation();
     dropZone.classList.add('drag-over');
 });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('dragleave', e => {
+    e.stopPropagation();
+    dropZone.classList.remove('drag-over');
+});
 dropZone.addEventListener('drop', async e => {
     e.preventDefault();
+    e.stopPropagation();
+    dragCounter = 0;
     dropZone.classList.add('hidden');
     dropZone.classList.remove('drag-over');
     const file = e.dataTransfer.files[0];

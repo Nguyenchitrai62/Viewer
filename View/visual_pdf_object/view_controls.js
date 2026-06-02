@@ -8,8 +8,14 @@ function setupVisualization() {
         dropZone.classList.remove('hidden');
         return;
     }
+    dropZone.classList.add('hidden');
     layerVisibility = {};
-    sortedLayerKeys = Object.keys(layerIndex).sort((a, b) => totalCommands[b] - totalCommands[a]);
+    sortedLayerKeys = Object.keys(layerIndex);
+    if (currentLayerField === 'layer_1') {
+        sortedLayerKeys.sort((a, b) => totalCommands[b] - totalCommands[a]);
+    } else if (currentLayerField === 'layer') {
+        sortedLayerKeys.sort((a, b) => a.localeCompare(b));
+    }
     sortedLayerKeys.forEach(layerName => layerVisibility[layerName] = true);
     if (svgData) {
         sortedLayerKeys.push('svg_graphic', 'svg_text');
