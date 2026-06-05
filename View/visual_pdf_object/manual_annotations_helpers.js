@@ -219,10 +219,10 @@ function getPointsBounds(points) {
 }
 
 function getManualSuggestionSearchPadding() {
-    return (CONFIG.MANUAL_LABEL_DASH_MAX_ENDPOINT_GAP || 0)
+    return (CONFIG.MANUAL_LABEL_DASH_SEGMENT_MAX_LENGTH || 0) * (CONFIG.MANUAL_LABEL_DASH_MAX_GAP_TO_LENGTH_RATIO || 1)
         + (CONFIG.MANUAL_LABEL_DASH_MAX_OFFSET || 0)
-    + getDashedLineSegmentSoftMaxLength()
-    + getManualLineAttachToleranceWorld();
+        + getDashedLineSegmentSoftMaxLength()
+        + getManualLineAttachToleranceWorld();
 }
 
 function getConnectAnnotationSearchBounds(annotation, padding = getManualSuggestionSearchPadding()) {
@@ -369,6 +369,27 @@ function queryLayerLineCandidates(layerName, queryRange = null) {
 
     const result = queryLineCandidatesFromSharedShapeCache(layerName, queryRange);
     queryCache.layerLineCandidates.set(layerQueryKey, result);
+    return result.slice();
+}
+
+function queryDashedLayerLineCandidates(layerName, queryRange = null) {
+    if (!layerName) return [];
+
+    const queryCache = ensureManualSuggestionQueryCache();
+    const dashedLayerQueryKey = `dashed:${layerName}::${getManualSuggestionBoundsCacheKey(queryRange)}`;
+    const cachedCandidates = queryCache.layerLineCandidates.get(dashedLayerQueryKey);
+    if (cachedCandidates) {
+        return cachedCandidates.slice();
+    }
+
+    const allCandidates = queryLayerLineCandidates(layerName, queryRange);
+    const result = allCandidates.filter(lineCandidate =>
+        lineCandidate && (
+            isShortDashedLineCandidate(lineCandidate)
+            || getLineCandidateSeqnoGroupIds(lineCandidate).length > 0
+        )
+    );
+    queryCache.layerLineCandidates.set(dashedLayerQueryKey, result);
     return result.slice();
 }
 
@@ -867,7 +888,8 @@ function getDashedLineCandidateCompatibility(referenceLineCandidate, lineCandida
 
     const [aMin, aMax] = getLineCandidateProjectionRange(lineCandidateA, originPoint, direction);
     const [bMin, bMax] = getLineCandidateProjectionRange(lineCandidateB, originPoint, direction);
-    const maxGap = CONFIG.MANUAL_LABEL_DASH_MAX_ENDPOINT_GAP || 0;
+    const maxGap = Math.max(getLineCandidateLength(lineCandidateA), getLineCandidateLength(lineCandidateB))
+        * (CONFIG.MANUAL_LABEL_DASH_MAX_GAP_TO_LENGTH_RATIO || 1);
 
     let gap = Infinity;
     let side = null;
@@ -886,9 +908,6 @@ function getDashedLineCandidateCompatibility(referenceLineCandidate, lineCandida
     }
 
     if (!side || !Number.isFinite(gap) || gap > maxGap) return null;
-
-    const maxSegmentLength = Math.max(getLineCandidateLength(lineCandidateA), getLineCandidateLength(lineCandidateB));
-    if (gap > maxSegmentLength) return null;
 
     if (!facingPointA || !facingPointB) return null;
 
@@ -921,7 +940,7 @@ function getDashedAlignedNeighborLineCandidates(currentLineCandidate, referenceL
         getLineCandidateBounds(currentLineCandidate),
         getManualSuggestionSearchPadding()
     );
-    queryLayerLineCandidates(currentLineCandidate.layerName, queryRange).forEach(lineCandidate => {
+    queryDashedLayerLineCandidates(currentLineCandidate.layerName, queryRange).forEach(lineCandidate => {
         if (!lineCandidate || lineCandidate.id === currentLineCandidate.id) return;
         if (existingConnectLineKeys.has(lineCandidate.id)) return;
         const compatibility = getDashedLineCandidateCompatibility(referenceLineCandidate, currentLineCandidate, lineCandidate);
