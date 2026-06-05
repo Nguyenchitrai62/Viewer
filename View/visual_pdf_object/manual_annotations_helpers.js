@@ -856,6 +856,13 @@ function getDashedLineCandidateCompatibility(referenceLineCandidate, lineCandida
     const axisOffsetA = getLineCandidateAxisOffset(lineCandidateA, originPoint, direction);
     const axisOffsetB = getLineCandidateAxisOffset(lineCandidateB, originPoint, direction);
     const sharedDashGroup = isDashGroupLinkedLineCandidate(lineCandidateA, lineCandidateB, referenceLineCandidate);
+
+    const lengthA = getLineCandidateLength(lineCandidateA);
+    const lengthB = getLineCandidateLength(lineCandidateB);
+    if (lengthA <= 1e-6 || lengthB <= 1e-6) return null;
+    const toleranceRatio = Math.max(CONFIG.MANUAL_LABEL_DASH_SEGMENT_LENGTH_TOLERANCE_RATIO || 1, 1);
+    if (Math.max(lengthA, lengthB) > Math.min(lengthA, lengthB) * toleranceRatio + 1e-6) return null;
+
     if (!sharedDashGroup && (axisOffsetA > maxOffset || axisOffsetB > maxOffset)) return null;
 
     const [aMin, aMax] = getLineCandidateProjectionRange(lineCandidateA, originPoint, direction);
@@ -879,6 +886,10 @@ function getDashedLineCandidateCompatibility(referenceLineCandidate, lineCandida
     }
 
     if (!side || !Number.isFinite(gap) || gap > maxGap) return null;
+
+    const maxSegmentLength = Math.max(getLineCandidateLength(lineCandidateA), getLineCandidateLength(lineCandidateB));
+    if (gap > maxSegmentLength) return null;
+
     if (!facingPointA || !facingPointB) return null;
 
     const lateralOffset = Math.abs(
