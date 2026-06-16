@@ -414,6 +414,9 @@
                     <div style="grid-column: span 2; text-align: center;">Waiting for file...</div>
                 </div>
 
+                <div class="section-title" id="rooms-section-title" style="display:none;">Rooms</div>
+                <div id="rooms-list" style="display:none; max-height:200px; overflow-y:auto; font-size:11px; color:#555; margin-bottom:8px;"></div>
+
                 <div class="section-title">3D Dimensions</div>
                 <div class="control-group">
                     <label>Wall Height <span id="val-wall-h">80</span></label>
@@ -1191,18 +1194,22 @@
             const maxDimension = Math.max(maxX - minX, maxY - minY) || 1;
             const scaleFactor = TARGET_SIZE / maxDimension;
 
-            // --- ADD ROOM VISUALIZATION ---
+            // --- ADD ROOM VISUALIZATION (hỗ trợ format mới: {vertices, text:[{rec_text,rec_box}], area}) ---
+            const roomLabels = [];
             if (data.rooms && data.rooms.length > 0) {
                 meshes.rooms = new THREE.Group();
-                data.rooms.forEach(roomPoly => {
-                    if (roomPoly.length < 3) return;
+                data.rooms.forEach((room, roomIdx) => {
+                    // Hỗ trợ cả format cũ [[x,y],...] và format mới {vertices, text, area}
+                    const vertices = Array.isArray(room) ? room : (room.vertices || []);
+                    if (vertices.length < 3) return;
+
                     const shape = new THREE.Shape();
-                    const startX = (roomPoly[0][0] - centerX) * scaleFactor;
-                    const startZ = (roomPoly[0][1] - centerY) * scaleFactor;
+                    const startX = (vertices[0][0] - centerX) * scaleFactor;
+                    const startZ = (vertices[0][1] - centerY) * scaleFactor;
                     shape.moveTo(startX, startZ);
-                    for (let i = 1; i < roomPoly.length; i++) {
-                        const px = (roomPoly[i][0] - centerX) * scaleFactor;
-                        const pz = (roomPoly[i][1] - centerY) * scaleFactor;
+                    for (let i = 1; i < vertices.length; i++) {
+                        const px = (vertices[i][0] - centerX) * scaleFactor;
+                        const pz = (vertices[i][1] - centerY) * scaleFactor;
                         shape.lineTo(px, pz);
                     }
                     shape.closePath();
@@ -1217,13 +1224,127 @@
                         depthWrite: false
                     });
                     const mesh = new THREE.Mesh(geometry, material);
-                    mesh.userData = { isRoom: true };
+                    mesh.userData = { isRoom: true, roomIndex: roomIdx };
                     mesh.rotation.x = Math.PI / 2;
                     mesh.position.y = 1.0; // Lift up to avoid z-fighting with image
                     mesh.renderOrder = 10; // Ensure rendered after image
                     meshes.rooms.add(mesh);
+
+                    // Lấy text objects (format mới: [{text, bbox}, ...])
+                    const textObjs = (!Array.isArray(room) && Array.isArray(room.text)) ? room.text : [];
+                    const roomArea = (!Array.isArray(room) && room.area) ? room.area : 0;
+
+                    // Nếu không có text object, tạo 1 label ở tâm room chỉ hiện diện tích
+                    if (textObjs.length === 0 && roomArea > 0) {
+                        let cx = 0, cz = 0;
+                        vertices.forEach(v => { cx += v[0]; cz += v[1]; });
+                        cx = (cx / vertices.length - centerX) * scaleFactor;
+                        cz = (cz / vertices.length - centerY) * scaleFactor;
+                        roomLabels.push({ cx, cz, text: '', area: roomArea, roomIdx });
+                    }
+
+                    // Với mỗi text object, tạo label tại vị trí rec_box của nó
+                    textObjs.forEach((tobj, textIdx) => {
+                        const textStr = (typeof tobj === 'string') ? tobj : (tobj.rec_text || '');
+                        const rec_box = (typeof tobj === 'object' && tobj.rec_box) ? tobj.rec_box : null;
+                        if (rec_box && rec_box.length >= 4) {
+                            // Dùng tâm rec_box làm vị trí label
+                            const bx = ((rec_box[0] + rec_box[2]) / 2 - centerX) * scaleFactor;
+                            const bz = ((rec_box[1] + rec_box[3]) / 2 - centerY) * scaleFactor;
+                            roomLabels.push({ cx: bx, cz: bz, text: textStr, area: textIdx === 0 ? roomArea : 0, roomIdx });
+                        } else {
+                            // Fallback: tâm room (cho format cũ string[])
+                            let cx = 0, cz = 0;
+                            vertices.forEach(v => { cx += v[0]; cz += v[1]; });
+                            cx = (cx / vertices.length - centerX) * scaleFactor;
+                            cz = (cz / vertices.length - centerY) * scaleFactor;
+                            roomLabels.push({ cx, cz, text: textStr, area: textIdx === 0 ? roomArea : 0, roomIdx });
+                        }
+                    });
                 });
                 rootGroup.add(meshes.rooms);
+
+                // --- Tạo text sprites cho room labels ---
+                roomLabels.forEach(label => {
+                    if (!label.text && !label.area) return;
+                    const displayText = label.text
+                        ? (label.text.length > 30 ? label.text.substring(0, 30) + '…' : label.text)
+                        : '';
+                    const areaText = label.area > 0 ? Math.round(label.area) + ' px²' : '';
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 512;
+                    canvas.height = 128;
+                    ctx.fillStyle = 'rgba(0,0,0,0)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.font = 'bold 28px Arial';
+                    ctx.fillStyle = '#333333';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    if (displayText) {
+                        ctx.fillText(displayText, canvas.width / 2, 40);
+                    }
+                    if (areaText) {
+                        ctx.font = '22px Arial';
+                        ctx.fillStyle = '#666666';
+                        ctx.fillText(areaText, canvas.width / 2, 80);
+                    }
+
+                    const texture = new THREE.CanvasTexture(canvas);
+                    texture.minFilter = THREE.LinearFilter;
+                    const spriteMat = new THREE.SpriteMaterial({
+                        map: texture,
+                        transparent: true,
+                        depthTest: false,
+                        depthWrite: false,
+                    });
+                    const sprite = new THREE.Sprite(spriteMat);
+                    sprite.position.set(label.cx, 0.3, label.cz);
+                    sprite.scale.set(80, 20, 1);
+                    sprite.userData = { isRoomLabel: true, roomIndex: label.roomIdx };
+                    meshes.rooms.add(sprite);
+                });
+            }
+
+            // --- ADD UNASSIGNED TEXT SPRITES (texts không nằm trong room nào) ---
+            if (data.texts && data.texts.length > 0) {
+                if (!meshes.rooms) { meshes.rooms = new THREE.Group(); rootGroup.add(meshes.rooms); }
+                data.texts.forEach(tobj => {
+                    const textStr = (typeof tobj === 'string') ? tobj : (tobj.rec_text || '');
+                    const rec_box = (typeof tobj === 'object' && tobj.rec_box) ? tobj.rec_box : null;
+                    if (!textStr || !rec_box || rec_box.length < 4) return;
+
+                    const cx = ((rec_box[0] + rec_box[2]) / 2 - centerX) * scaleFactor;
+                    const cz = ((rec_box[1] + rec_box[3]) / 2 - centerY) * scaleFactor;
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 512;
+                    canvas.height = 64;
+                    ctx.fillStyle = 'rgba(0,0,0,0)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.font = 'bold 24px Arial';
+                    ctx.fillStyle = '#cc6600';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const displayText = textStr.length > 40 ? textStr.substring(0, 40) + '…' : textStr;
+                    ctx.fillText(displayText, canvas.width / 2, canvas.height / 2);
+
+                    const texture = new THREE.CanvasTexture(canvas);
+                    texture.minFilter = THREE.LinearFilter;
+                    const spriteMat = new THREE.SpriteMaterial({
+                        map: texture,
+                        transparent: true,
+                        depthTest: false,
+                        depthWrite: false,
+                    });
+                    const sprite = new THREE.Sprite(spriteMat);
+                    sprite.position.set(cx, 0.3, cz);
+                    sprite.scale.set(80, 10, 1);
+                    sprite.userData = { isUnassignedText: true };
+                    meshes.rooms.add(sprite);
+                });
             }
 
             if (imageMesh) {
@@ -1350,6 +1471,19 @@
 
             update3DOpacity(document.getElementById('3d-opacity').value / 100);
 
+            // Tính tổng diện tích các phòng
+            let totalRoomArea = 0;
+            let roomsWithText = 0;
+            if (data.rooms && data.rooms.length > 0) {
+                data.rooms.forEach(room => {
+                    const area = (!Array.isArray(room) && room.area) ? room.area : 0;
+                    totalRoomArea += area;
+                    const textObjs = (!Array.isArray(room) && Array.isArray(room.text)) ? room.text : [];
+                    if (textObjs.length > 0) roomsWithText++;
+                });
+            }
+            const unassignedCount = (data.texts && data.texts.length) ? data.texts.length : 0;
+
             document.getElementById('stats-content').innerHTML = `
                 <div><strong>Walls:</strong> ${counts.wall}</div>
                 <div><strong>Doors:</strong> ${counts.door}</div>
@@ -1357,9 +1491,37 @@
                 <div><strong>Double Doors:</strong> ${counts.double_door}</div>
                 <div><strong>Windows:</strong> ${counts.window}</div>
                 <div><strong>Openings:</strong> ${counts.opening}</div>
+                <div><strong>Rooms:</strong> ${data.rooms ? data.rooms.length : 0}</div>
+                <div><strong>Room Area:</strong> ${Math.round(totalRoomArea).toLocaleString()} px²</div>
+                <div><strong>Rooms w/ Text:</strong> ${roomsWithText}</div>
+                <div><strong>Other Texts:</strong> ${unassignedCount}</div>
                 <div><strong>Scale:</strong> ${(1 / scaleFactor).toFixed(2)}x</div>
                 ${processingTime !== null ? `<div><strong>Time:</strong> ${processingTime}ms</div>` : ''}
             `;
+
+            // --- CẬP NHẬT ROOM LIST ---
+            const roomsSectionTitle = document.getElementById('rooms-section-title');
+            const roomsListEl = document.getElementById('rooms-list');
+            if (data.rooms && data.rooms.length > 0) {
+                roomsSectionTitle.style.display = 'block';
+                roomsListEl.style.display = 'block';
+                let roomsHtml = '';
+                data.rooms.forEach((room, idx) => {
+                    const area = (!Array.isArray(room) && room.area) ? Math.round(room.area).toLocaleString() + ' px²' : '—';
+                    const textObjs = (!Array.isArray(room) && Array.isArray(room.text)) ? room.text : [];
+                    const textDisplay = textObjs.length > 0
+                        ? textObjs.map(t => (typeof t === 'string') ? t : (t.rec_text || '')).join(', ')
+                        : '—';
+                    roomsHtml += `<div style="padding:4px 6px;margin:2px 0;background:#f8f9fa;border-radius:4px;border:1px solid #eee;">
+                        <strong>Room ${idx + 1}:</strong> ${area}<br>
+                        <span style="color:#888;">📝 ${textDisplay}</span>
+                    </div>`;
+                });
+                roomsListEl.innerHTML = roomsHtml;
+            } else {
+                roomsSectionTitle.style.display = 'none';
+                roomsListEl.style.display = 'none';
+            }
 
             // --- CẬP NHẬT MINI-MAP SAU KHI BUILD XONG ---
             updateMapBounds(data);

@@ -370,21 +370,21 @@
         bounds.height = detectionSafeNumber(rawBounds?.height) ?? Math.max(1, bounds.maxY - bounds.minY);
 
         const fallbackImageSize = result?.raw?.image_size || result?.processed?.image_size || result?.image_size || {};
-        const renderScale = detectionSafeNumber(backendContext.render_scale ?? backendContext.renderScale);
+        const renderScale = detectionSafeNumber(backendContext.render_scale ?? backendContext.renderScale) ?? 3.0;
         const imageWidth = detectionSafeNumber(
             backendContext.rendered_image_width
             ?? backendContext.renderedImageWidth
             ?? backendContext.image_width
             ?? backendContext.imageWidth
             ?? fallbackImageSize.width
-        ) ?? (renderScale !== null ? Math.max(1, Math.round(bounds.width * renderScale)) : null);
+        ) ?? Math.max(1, Math.round(bounds.width * renderScale));
         const imageHeight = detectionSafeNumber(
             backendContext.rendered_image_height
             ?? backendContext.renderedImageHeight
             ?? backendContext.image_height
             ?? backendContext.imageHeight
             ?? fallbackImageSize.height
-        ) ?? (renderScale !== null ? Math.max(1, Math.round(bounds.height * renderScale)) : null);
+        ) ?? Math.max(1, Math.round(bounds.height * renderScale));
 
         if (!Number.isFinite(imageWidth) || imageWidth <= 0 || !Number.isFinite(imageHeight) || imageHeight <= 0) {
             return null;
@@ -3685,7 +3685,12 @@
         const totalConnect = Number(postprocess.total_connect_detections || 0);
         const validConnect = Number(postprocess.validated_connect_detections || 0);
         const rejectedConnect = Number(postprocess.rejected_connect_detections || 0);
-        return `raw ${rawCount} | process ${processedCount} | final ${finalCount} | connect ${validConnect}/${totalConnect} valid, ${rejectedConnect} rejected`;
+        const parts = [];
+        if (rawCount > 0) parts.push(`raw ${rawCount}`);
+        parts.push(`detections ${processedCount}`);
+        if (finalCount > 0) parts.push(`final ${finalCount}`);
+        if (totalConnect > 0) parts.push(`connect ${validConnect}/${totalConnect} valid, ${rejectedConnect} rejected`);
+        return parts.join(' | ');
     }
 
     function detectionFormatTimingMessage(bundleTiming = null, roundTripSeconds = 0) {
@@ -3709,7 +3714,7 @@
         }
 
         if (Number.isFinite(roundTripSeconds) && roundTripSeconds > 0) {
-            segments.push(`RT ${roundTripSeconds.toFixed(2)}s`);
+            segments.push(`${roundTripSeconds.toFixed(2)}s`);
         }
 
         return segments.join(' | ');
