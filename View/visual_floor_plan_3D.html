@@ -1274,25 +1274,34 @@
 
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
-                    canvas.width = 512;
-                    canvas.height = 128;
-                    ctx.fillStyle = 'rgba(0,0,0,0)';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.font = 'bold 28px Arial';
+
+                    // TĂNG ĐỘ PHÂN GIẢI CANVAS GẤP ĐÔI ĐỂ NÉT HƠN (1024x256 -> Tỷ lệ 4:1)
+                    canvas.width = 1024;
+                    canvas.height = 256;
+
+                    // Dùng clearRect tốt hơn fillRect màu trong suốt để tránh lỗi viền đen
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.font = 'bold 56px Arial'; // Tăng size chữ tương ứng với canvas mới
                     ctx.fillStyle = '#333333';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
+
                     if (displayText) {
-                        ctx.fillText(displayText, canvas.width / 2, 40);
+                        ctx.fillText(displayText, canvas.width / 2, 80);
                     }
                     if (areaText) {
-                        ctx.font = '22px Arial';
+                        ctx.font = '44px Arial'; // Tăng size chữ tương ứng
                         ctx.fillStyle = '#666666';
-                        ctx.fillText(areaText, canvas.width / 2, 80);
+                        ctx.fillText(areaText, canvas.width / 2, 170);
                     }
 
                     const texture = new THREE.CanvasTexture(canvas);
+                    // CẬP NHẬT FILTER ĐỂ TEXT SẮC NÉT Ở MỌI GÓC ĐỘ VÀ KHI ZOOM
                     texture.minFilter = THREE.LinearFilter;
+                    texture.magFilter = THREE.LinearFilter;
+                    texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); // Chống mờ khi nhìn nghiêng
+
                     const spriteMat = new THREE.SpriteMaterial({
                         map: texture,
                         transparent: true,
@@ -1300,8 +1309,10 @@
                         depthWrite: false,
                     });
                     const sprite = new THREE.Sprite(spriteMat);
-                    sprite.position.set(label.cx, 0.3, label.cz);
-                    sprite.scale.set(80, 20, 1);
+                    sprite.position.set(label.cx, 3.0, label.cz);
+
+                    // SCALE PHẢI ĐÚNG TỶ LỆ CỦA CANVAS (1024:256 = 4:1)
+                    sprite.scale.set(160, 40, 1);
                     sprite.userData = { isRoomLabel: true, roomIndex: label.roomIdx };
                     meshes.rooms.add(sprite);
                 });
@@ -1320,19 +1331,26 @@
 
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
-                    canvas.width = 512;
-                    canvas.height = 64;
-                    ctx.fillStyle = 'rgba(0,0,0,0)';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.font = 'bold 24px Arial';
+
+                    // TĂNG ĐỘ PHÂN GIẢI CANVAS GẤP ĐÔI (1024x128 -> Tỷ lệ 8:1)
+                    canvas.width = 1024;
+                    canvas.height = 128;
+
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.font = 'bold 48px Arial'; // Tăng size chữ
                     ctx.fillStyle = '#cc6600';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
                     const displayText = textStr.length > 40 ? textStr.substring(0, 40) + '…' : textStr;
-                    ctx.fillText(displayText, canvas.width / 2, canvas.height / 2);
+                    ctx.fillText(displayText, canvas.width / 2, canvas.height / 2 + 5);
 
                     const texture = new THREE.CanvasTexture(canvas);
+                    // CẬP NHẬT FILTER
                     texture.minFilter = THREE.LinearFilter;
+                    texture.magFilter = THREE.LinearFilter;
+                    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
                     const spriteMat = new THREE.SpriteMaterial({
                         map: texture,
                         transparent: true,
@@ -1340,8 +1358,10 @@
                         depthWrite: false,
                     });
                     const sprite = new THREE.Sprite(spriteMat);
-                    sprite.position.set(cx, 0.3, cz);
-                    sprite.scale.set(80, 10, 1);
+                    sprite.position.set(cx, 3.0, cz);
+
+                    // SCALE PHẢI ĐÚNG TỶ LỆ CỦA CANVAS (1024:128 = 8:1)
+                    sprite.scale.set(160, 20, 1);
                     sprite.userData = { isUnassignedText: true };
                     meshes.rooms.add(sprite);
                 });
