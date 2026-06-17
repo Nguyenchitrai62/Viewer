@@ -226,10 +226,11 @@ function getMainLayerPageCacheKey(pageNum = currentPageNum) {
     return `${documentKey}|p:${safePageNum}|mode:${currentLayerField}`;
 }
 
-function buildMainLayerCandidateSignature(layerNames) {
-    return (layerNames || [])
+function buildMainLayerCandidateSignature(layerNames, pageKey) {
+    const layerPart = (layerNames || [])
         .map(layerName => `${layerName}:${Number(totalCommands[layerName] || 0)}`)
         .join('|');
+    return `${pageKey || ''}|${layerPart}`;
 }
 
 function getMainLayerEntryForCurrentPage() {
@@ -382,13 +383,18 @@ function normalizeMainLayerClassificationResponse(data, candidateLayerNames, can
         .filter(result => result?.layer_name && (result.is_main_layer || getMainLayerTop1(result) === 0))
         .map(result => result.layer_name);
 
+    // Derive candidate names from BE response if FE sent empty layers
+    const resolvedCandidateNames = (candidateLayerNames && candidateLayerNames.length)
+        ? [...candidateLayerNames]
+        : results.map(r => r.layer_name).filter(Boolean);
+
     return {
         status: 'ready',
         pageKey,
         documentKey,
         pageNum,
         layerMode: currentLayerField,
-        candidateLayerNames: [...candidateLayerNames],
+        candidateLayerNames: resolvedCandidateNames,
         candidateSignature,
         fireLayers,
         results,
@@ -409,7 +415,7 @@ async function classifyMainLayersForCurrentPage(options = {}) {
     const pageNum = Number.isInteger(Number(currentPageNum)) && Number(currentPageNum) >= 1 ? Number(currentPageNum) : 1;
     const pageKey = getMainLayerPageCacheKey(pageNum);
     const candidateLayerNames = getMainLayerCandidateLayerNames();
-    const candidateSignature = buildMainLayerCandidateSignature(candidateLayerNames);
+    const candidateSignature = buildMainLayerCandidateSignature(candidateLayerNames, pageKey);
     const existingEntry = mainLayerClassificationCache.get(pageKey);
 
     if (!candidateLayerNames.length) {
@@ -464,10 +470,6 @@ async function classifyMainLayersForCurrentPage(options = {}) {
         if (!isMainLayerClassificationRequestStillCurrent(pageKey, requestToken)) {
             throw createMainLayerAbortError();
         }
-        const layers = await renderMainLayerCandidateImages(candidateLayerNames, pageKey, requestToken);
-        if (!isMainLayerClassificationRequestStillCurrent(pageKey, requestToken)) {
-            throw createMainLayerAbortError();
-        }
         const response = await fetch(`${ENV.API_BASE_URL}/classify_main_layers`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -475,7 +477,7 @@ async function classifyMainLayersForCurrentPage(options = {}) {
                 pdf_name: getCurrentMainLayerDocumentName(),
                 document_key: documentKey,
                 page_num: pageNum,
-                layers,
+                layers: [],
                 layer_field: currentLayerField || 'layer_1',
                 force_refresh: Boolean(options.force)
             })
@@ -549,7 +551,7 @@ function updateMainLayerButtonState() {
 
     const candidateLayerNames = getMainLayerCandidateLayerNames();
     const entry = getMainLayerEntryForCurrentPage();
-    const signature = buildMainLayerCandidateSignature(candidateLayerNames);
+    const signature = buildMainLayerCandidateSignature(candidateLayerNames, getMainLayerPageCacheKey());
 
     if (entry?.status === 'pending') {
         btnShowMainLayer.disabled = true;
