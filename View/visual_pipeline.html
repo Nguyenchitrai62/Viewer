@@ -628,18 +628,30 @@
             }
 
             _generateTooltipText(obj) {
-                let text = `Shape: ${obj.shape_name}\n`;
-                text += `Pipe ID: ${Array.isArray(obj.pipe_id) ? obj.pipe_id.join(', ') : obj.pipe_id}\n`;
+                const lines = [];
+                if (obj.id !== undefined) lines.push(`ID: ${obj.id}`);
+                if (obj.layer) lines.push(`Layer: ${obj.layer}`);
+                lines.push(`Shape: ${obj.shape_name || 'N/A'}`);
+                lines.push(`Pipe ID: ${Array.isArray(obj.pipe_id) ? obj.pipe_id.join(', ') : obj.pipe_id}`);
+                if (obj.link && obj.link.length) lines.push(`Links: ${obj.link.join(', ')}`);
+                if (obj.DN && obj.DN.length) lines.push(`DN: ${obj.DN.join(', ')}`);
+                if (obj.EI && obj.EI.length) lines.push(`EI: ${obj.EI.join(', ')}`);
 
-
-                text += `Vertices: ${obj.vertices.length}`;
-                if (obj.vertices.length <= 4) {
-                    text += `\n${obj.vertices.map((v, i) => `  [${i + 1}] (${v[0].toFixed(1)}, ${v[1].toFixed(1)})`).join('\n')}`;
+                const verts = obj.vertices;
+                if (verts && Array.isArray(verts)) {
+                    lines.push(`Vertices: ${verts.length}`);
+                    if (verts.length <= 6) {
+                        verts.forEach((v, i) => lines.push(`  [${i + 1}] (${Number(v[0]).toFixed(1)}, ${Number(v[1]).toFixed(1)})`));
+                    } else {
+                        verts.slice(0, 3).forEach((v, i) => lines.push(`  [${i + 1}] (${Number(v[0]).toFixed(1)}, ${Number(v[1]).toFixed(1)})`));
+                        lines.push(`  ... (${verts.length - 6} more)`);
+                        verts.slice(-3).forEach((v, i) => lines.push(`  [${verts.length - 2 + i}] (${Number(v[0]).toFixed(1)}, ${Number(v[1]).toFixed(1)})`));
+                    }
                 } else {
-                    text += ` (too many to display)`;
+                    lines.push(`Vertices: N/A`);
                 }
 
-                return text;
+                return lines.join('\n');
             }
 
             _positionTooltip(event) {
@@ -763,15 +775,12 @@
                     const color = this._getColorForShape(obj.shape_name);
                     const opacity = shouldHighlight ? this.HIGHLIGHT_OPACITY : this.NORMAL_OPACITY;
 
-                    // THAY ĐỔI: Xử lý riêng cho Tee và Elbow với 1 điểm
                     if ((obj.shape_name.startsWith('Tee') || obj.shape_name.startsWith('Elbow')) && obj.vertices.length === 1) {
-                        // Render Tee hoặc Elbow như một circle lớn
                         const [x, y] = obj.vertices[0];
-                        const radius = shouldHighlight ? 1.5 : 1; // Bán kính nhỏ hơn
-
-                        // Thêm invisible overlay để tăng hit area
+                        const radius = shouldHighlight ? 2 : 1.5;
+                        // Hit area matches the visible circle exactly
                         const hitArea = this._createSvgElement('circle', {
-                            cx: x, cy: y, r: radius + 5, fill: 'transparent', opacity: '0',
+                            cx: x, cy: y, r: radius, fill: 'transparent', opacity: '0',
                             style: 'pointer-events: all; cursor: pointer;'
                         });
                         hitArea.addEventListener('click', () => this.selectObject(obj));
@@ -782,7 +791,7 @@
                         const circle = this._createSvgElement('circle', {
                             cx: x, cy: y, r: radius, fill: color, opacity: opacity,
                             class: 'color-overlay' + (shouldHighlight ? ' highlighted' : ''),
-                            style: 'pointer-events: none;' // Disable pointer events
+                            style: 'pointer-events: none;'
                         });
                         circle.addEventListener('click', () => this.selectObject(obj));
                         circle.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
@@ -794,18 +803,16 @@
                                 cx: x, cy: y, r: radius, fill: 'none', stroke: this._darkenColor(color),
                                 'stroke-width': shouldHighlight ? this.HIGHLIGHT_STROKE_WIDTH : this.NORMAL_STROKE_WIDTH,
                                 opacity: opacity, class: 'bbox' + (shouldHighlight ? ' highlighted' : ''),
-                                style: 'pointer-events: none;' // Disable pointer events
+                                style: 'pointer-events: none;'
                             });
                             circleBorder.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
                             circleBorder.addEventListener('mouseout', () => this.hideTooltip());
                             svg.appendChild(circleBorder);
                         }
                     } else {
-                        // Render bình thường cho Line và Sprinkler
-                        // Thêm invisible overlay để tăng hit area cho click events
+                        // Hit area matches the polygon shape exactly (no padding)
                         const hitArea = this._createSvgElement('polygon', {
-                            points: points, fill: 'none', stroke: 'transparent',
-                            'stroke-width': '10', opacity: '0',
+                            points: points, fill: 'transparent', stroke: 'none', opacity: '0',
                             style: 'pointer-events: all; cursor: pointer;'
                         });
                         hitArea.addEventListener('click', () => this.selectObject(obj));
@@ -816,7 +823,7 @@
                         const polyFill = this._createSvgElement('polygon', {
                             points: points, fill: color, opacity: opacity,
                             class: 'color-overlay' + (shouldHighlight ? ' highlighted' : ''),
-                            style: 'pointer-events: none;' // Disable pointer events để hit area phía dưới capture
+                            style: 'pointer-events: none;'
                         });
                         polyFill.addEventListener('click', () => this.selectObject(obj));
                         polyFill.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
@@ -828,7 +835,7 @@
                                 points: points, fill: 'none', stroke: this._darkenColor(color),
                                 'stroke-width': shouldHighlight ? this.HIGHLIGHT_STROKE_WIDTH : this.NORMAL_STROKE_WIDTH,
                                 opacity: opacity, class: 'bbox' + (shouldHighlight ? ' highlighted' : ''),
-                                style: 'pointer-events: none;' // Disable pointer events
+                                style: 'pointer-events: none;'
                             });
                             polyBorder.addEventListener('mouseover', (e) => this.showTooltip(obj, e));
                             polyBorder.addEventListener('mouseout', () => this.hideTooltip());
