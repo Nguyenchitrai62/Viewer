@@ -1122,6 +1122,7 @@ function ensurePageThumbnailPlaceholders(totalPages) {
     }
 
     updatePageProcessingSummary();
+    initThumbnailContextMenu();
 }
 
 function setBackendThumbnailPreview(pageNum, imageData, imageWidth = 0, imageHeight = 0) {
@@ -1240,6 +1241,187 @@ async function createPageThumbnails(file, numPages = null) {
         }
         controller.abort();
     }
+}
+
+function downloadPageGzipJson(pageNum, sourceContext) {
+    const cache = sourceContext.cache;
+    const gzipB64 = getPageGzipCacheValue(cache, pageNum, { touch: false });
+    if (!gzipB64) {
+        return null;
+    }
+
+    const file = sourceContext.file;
+    const pdfName = file?.name || 'document';
+    const baseName = pdfName.replace(/\.pdf$/i, '');
+    const filename = `${baseName}_page${pageNum}.json.gz`;
+
+    const byteLength = getBase64DecodedByteLength(gzipB64);
+    const cleanB64 = gzipB64.replace(/\s+/g, '');
+    let padded = cleanB64;
+    if (cleanB64.length % 4 !== 0) {
+        padded += '='.repeat(4 - (cleanB64.length % 4));
+    }
+    if (padded.endsWith('==')) {
+        padded = padded.slice(0, -2);
+    } else if (padded.endsWith('=')) {
+        padded = padded.slice(0, -1);
+    }
+    const padded2 = padded.length % 4 === 0 ? padded : padded + '='.repeat(4 - (padded.length % 4));
+    const binary = atob(padded2);
+
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+
+    const blob = new Blob([bytes], { type: 'application/gzip' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+
+    return { pageNum, byteLength };
+}
+
+function hidePageContextMenu() {
+    const existing = document.getElementById('thumbnail-context-menu');
+    if (existing) existing.remove();
+}
+
+function showPageContextMenu(pageNum, clientX, clientY) {
+    hidePageContextMenu();
+
+    const state = pdfPageProcessingState[pageNum];
+    if (!state || state.status !== 'ready') {
+        return;
+    }
+
+    const sourceContext = getPageSelectionContext();
+    const gzipB64 = getPageGzipCacheValue(sourceContext.cache, pageNum, { touch: false });
+    if (!gzipB64) {
+        return;
+    }
+
+    const menu = document.createElement('div');
+    menu.id = 'thumbnail-context-menu';
+    menu.style.cssText = [
+        'position:fixed',
+        `left:${clientX}px`,
+        `top:${clientY}px`,
+        'background:#fff',
+        'border:1px solid #ccc',
+        'border-radius:6px',
+        'box-shadow:0 4px 16px rgba(0,0,0,0.15)',
+        'padding:4px 0',
+        'z-index:9999',
+        'min-width:200px',
+        'font-family:inherit',
+        'font-size:13px'
+    ].join(';');
+
+    const item = document.createElement('div');
+    item.textContent = 'Download JSON Gzip';
+    item.style.cssText = [
+        'padding:8px 16px',
+        'cursor:pointer',
+        'border-radius:4px',
+        'transition:background 0.1s'
+    ].join(';');
+    item.addEventListener('mouseenter', () => { item.style.background = '#f0f0f0'; });
+    item.addEventListener('mouseleave', () => { item.style.background = ''; });
+    item.addEventListener('click', () => {
+        hidePageContextMenu();
+        const result = downloadPageGzipJson(pageNum, sourceContext);
+        if (result) {
+            console.log(`Downloaded page ${pageNum}: ${(result.byteLength / 1024).toFixed(1)} KB gzip`);
+        }
+    });
+
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+        menu.style.left = `${clientX - rect.width}px`;
+    }
+    if (rect.bottom > window.innerHeight) {
+        menu.style.top = `${clientY - rect.height}px`;
+    }
+}
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('#thumbnail-context-menu')) {
+        hidePageContextMenu();
+    }
+});
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') hidePageContextMenu();
+});
+
+async function downloadThumbnailPageGzip(pageNum) {
+    const sourceContext = getPageSelectionContext();
+    const cache = sourceContext.cache;
+    let gzipB64 = getPageGzipCacheValue(cache, pageNum, { touch: false });
+
+    if (!gzipB64) {
+        if (!sourceContext.file) {
+            throw new Error('No PDF file loaded.');
+        }
+        showCanvasStatusOverlay(`Fetching page ${pageNum}...`, 'Downloading gzip from backend...', 'info');
+        try {
+            const response = await fetch(`${ENV.API_BASE_URL}/process_page`, {
+                method: 'POST',
+                body: buildCacheOnlyPdfRequestFormData(sourceContext.file, pageNum)
+            });
+            if (!response.ok) {
+                throw new Error(await parseHttpErrorResponse(response));
+            }
+            const data = await loadJsonResponseStreaming(response, {
+                sourceLabel: `page ${pageNum} gzip`,
+                pageNum,
+                autoLoad: false
+            });
+            if (data.topLevelValues?.gzip_data) {
+                gzipB64 = data.topLevelValues.gzip_data;
+            } else {
+                throw new Error('Response did not contain gzip data.');
+            }
+        } finally {
+            hideCanvasStatusOverlay();
+        }
+    }
+
+    const result = downloadPageGzipJson(pageNum, { cache: { entries: new Map([[pageNum, gzipB64]]) }, file: sourceContext.file });
+    if (!result) {
+        throw new Error('Failed to build gzip download.');
+    }
+}
+
+function handleThumbnailContextMenu(e) {
+    const thumb = e.target.closest('.page-thumbnail');
+    if (!thumb) {
+        hidePageContextMenu();
+        return;
+    }
+    e.preventDefault();
+    const pageNum = parseInt(thumb.dataset.page, 10);
+    showPageContextMenu(pageNum, e.clientX, e.clientY);
+}
+
+let thumbnailContextMenuInitialized = false;
+
+function initThumbnailContextMenu() {
+    if (thumbnailContextMenuInitialized) return;
+    thumbnailContextMenuInitialized = true;
+    const container = document.getElementById('page-thumbnails');
+    if (!container) return;
+    container.addEventListener('contextmenu', handleThumbnailContextMenu);
 }
 
 function updateSelectedThumbnail(selectedPage) {
