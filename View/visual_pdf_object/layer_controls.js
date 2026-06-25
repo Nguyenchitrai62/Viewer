@@ -828,6 +828,139 @@ function updateLayerList() {
     updateMainLayerButtonState();
 }
 
+function hideLayerContextMenu() {
+    const existing = document.getElementById('layer-context-menu');
+    if (existing) existing.remove();
+}
+
+function showLayerContextMenu(layerName, clientX, clientY) {
+    hideLayerContextMenu();
+
+    const menu = document.createElement('div');
+    menu.id = 'layer-context-menu';
+    menu.style.cssText = [
+        'position:fixed',
+        `left:${clientX}px`,
+        `top:${clientY}px`,
+        'background:#fff',
+        'border:1px solid #ccc',
+        'border-radius:6px',
+        'box-shadow:0 4px 16px rgba(0,0,0,0.15)',
+        'padding:4px 0',
+        'z-index:9999',
+        'min-width:180px',
+        'font-family:inherit',
+        'font-size:13px'
+    ].join(';');
+
+    const item = document.createElement('div');
+    item.textContent = 'Copy Layer Name';
+    item.style.cssText = [
+        'padding:8px 16px',
+        'cursor:pointer',
+        'border-radius:4px',
+        'transition:background 0.1s',
+        'display:flex',
+        'align-items:center',
+        'gap:8px'
+    ].join(';');
+
+    const copyIcon = document.createElement('span');
+    copyIcon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+    item.appendChild(copyIcon);
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = layerName;
+    labelSpan.style.maxWidth = '160px';
+    labelSpan.style.overflow = 'hidden';
+    labelSpan.style.textOverflow = 'ellipsis';
+    labelSpan.style.whiteSpace = 'nowrap';
+    item.appendChild(labelSpan);
+
+    item.addEventListener('mouseenter', () => { item.style.background = '#f0f0f0'; });
+    item.addEventListener('mouseleave', () => { item.style.background = ''; });
+    item.addEventListener('click', () => {
+        hideLayerContextMenu();
+        navigator.clipboard.writeText(layerName).then(() => {
+            const badge = document.createElement('div');
+            badge.textContent = `Copied: ${layerName}`;
+            badge.style.cssText = [
+                'position:fixed',
+                `left:${Math.min(clientX, window.innerWidth - 220)}px`,
+                `top:${Math.min(clientY - 40, window.innerHeight - 50)}px`,
+                'background:#333',
+                'color:#fff',
+                'padding:6px 12px',
+                'border-radius:6px',
+                'font-size:12px',
+                'z-index:10000',
+                'pointer-events:none',
+                'opacity:0',
+                'transition:opacity 0.2s'
+            ].join(';');
+            document.body.appendChild(badge);
+            requestAnimationFrame(() => { badge.style.opacity = '1'; });
+            setTimeout(() => {
+                badge.style.opacity = '0';
+                setTimeout(() => badge.remove(), 200);
+            }, 1500);
+        }).catch(err => {
+            console.warn('Clipboard write failed:', err);
+        });
+    });
+
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+        menu.style.left = `${clientX - rect.width}px`;
+    }
+    if (rect.bottom > window.innerHeight) {
+        menu.style.top = `${clientY - rect.height}px`;
+    }
+}
+
+function handleLayerListContextMenu(e) {
+    const layerItem = e.target.closest('.layer-item');
+    if (!layerItem) {
+        hideLayerContextMenu();
+        return;
+    }
+    e.preventDefault();
+    const checkbox = layerItem.querySelector('input[type="checkbox"]');
+    const layerName = checkbox?.dataset.layer;
+    if (layerName) {
+        showLayerContextMenu(layerName, e.clientX, e.clientY);
+    }
+}
+
+function initLayerContextMenu() {
+    if (window._layerContextMenuInitialized) return;
+    window._layerContextMenuInitialized = true;
+    const list = document.getElementById('layer-list');
+    if (!list) return;
+    list.addEventListener('contextmenu', handleLayerListContextMenu);
+
+    document.addEventListener('click', e => {
+        if (!e.target.closest('#layer-context-menu')) {
+            hideLayerContextMenu();
+        }
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') hideLayerContextMenu();
+    });
+}
+
+if (typeof updateLayerList === 'function') {
+    const _origUpdateLayerList = updateLayerList;
+    window.updateLayerList = function () {
+        _origUpdateLayerList.apply(this, arguments);
+        initLayerContextMenu();
+    };
+} else {
+    initLayerContextMenu();
+}
+
 if (btnShowMainLayer) {
     btnShowMainLayer.addEventListener('click', async () => {
         try {
