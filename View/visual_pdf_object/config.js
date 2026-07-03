@@ -22,7 +22,7 @@ const CONFIG = {
     SIMILAR_BBOX_LINE_WIDTH: 5, // Do day vien bbox cho ket qua tim thay
     MIN_PATTERN_LENGTH: 20, // So lenh toi thieu de bo qua kiem tra do dai
     OVERLAP_THRESHOLD: 0.2, // Nguong chong lan de gop cac bbox trung nhau
-    MERGE_RESULTS: false, // Gop ket qua cua hai nhom tim kiem
+    MERGE_RESULTS: true, // Gop ket qua cua hai nhom tim kiem
     MIN_LINE_WIDTH: 0.5, // Do day toi thieu cho shape co width = 0
     MAX_SAFE_FULL_JSON_PARSE_BYTES: 25 * 1024 * 1024, // Gioi han fallback khi browser khong stream duoc JSON
     FAST_FULL_JSON_PARSE_BYTES: 100 * 1024 * 1024, // File/response JSON vua phai se uu tien JSON.parse native de nhanh hon clarinet
