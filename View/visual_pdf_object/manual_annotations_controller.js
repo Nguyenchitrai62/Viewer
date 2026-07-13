@@ -1918,6 +1918,15 @@ function createConnectAutoAcceptSeedQueue(seedConnectAnnotations) {
             }
             return null;
         },
+        nextAllBatch() {
+            const annotations = [
+                ...solidSeeds.slice(solidSeedIndex),
+                ...dashedSeeds.slice(dashedSeedIndex)
+            ];
+            solidSeedIndex = solidSeeds.length;
+            dashedSeedIndex = dashedSeeds.length;
+            return annotations.length ? { annotations, queueType: 'combined' } : null;
+        },
         next() {
             if (solidSeedIndex < solidSeeds.length) {
                 const annotation = solidSeeds[solidSeedIndex];
@@ -1958,9 +1967,17 @@ async function autoAcceptSuggestedConnectAnnotationsFromSeedQueue(seedConnectAnn
     let skippedSeedCount = 0;
     let activeRequestId = null;
     let ownsCurrentRequest = false;
+    const maxIterations = typeof getManualSuggestionAutoAcceptIterationLimit === 'function'
+        ? getManualSuggestionAutoAcceptIterationLimit(3)
+        : 3;
+    const useCombinedDenseRound = maxIterations === 1
+        && typeof isLargeManualSuggestionContext === 'function'
+        && isLargeManualSuggestionContext();
 
-    while (seedQueue.length) {
-        const queuedBatch = seedQueue.nextBatch();
+    while (seedQueue.length && processedBatchCount < maxIterations) {
+        const queuedBatch = useCombinedDenseRound
+            ? seedQueue.nextAllBatch()
+            : seedQueue.nextBatch();
         if (!queuedBatch?.annotations?.length) break;
 
         const manualContext = buildConnectAutoAcceptManualContext();
@@ -2082,6 +2099,7 @@ async function autoAcceptSuggestedConnectAnnotationsFromSeedQueue(seedConnectAnn
         timing: {
             totalMs: performance.now() - autoAcceptStartTime,
             roundBreakdown,
+            maxIterations,
             skippedSeedCount
         }
     };

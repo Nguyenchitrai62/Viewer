@@ -533,7 +533,7 @@ async function saveSymbolAnnotationsForCurrentPage(options = {}) {
     });
 }
 
-async function getSymbolAnnotationExportImageCanvas(pageNum = Number(currentPageNum)) {
+async function getSymbolAnnotationExportPage(pageNum = Number(currentPageNum)) {
     if (!currentPdfFile) {
         throw new Error('Cần mở file PDF gốc để export ảnh x3.');
     }
@@ -560,12 +560,25 @@ async function getSymbolAnnotationExportImageCanvas(pageNum = Number(currentPage
             canvasContext: sourceContext,
             viewport
         }).promise;
-        return sourceCanvas;
+        return {
+            canvas: sourceCanvas,
+            imageWidth: sourceCanvas.width,
+            imageHeight: sourceCanvas.height,
+            pageWidth: viewport.width / scale,
+            pageHeight: viewport.height / scale,
+            scaleX: scale,
+            scaleY: scale
+        };
     } finally {
         if (page) {
             try { page.cleanup(); } catch (error) {}
         }
     }
+}
+
+async function getSymbolAnnotationExportImageCanvas(pageNum = Number(currentPageNum)) {
+    const exportPage = await getSymbolAnnotationExportPage(pageNum);
+    return exportPage.canvas;
 }
 
 function buildSymbolAnnotationDatasetSampleStem(payload) {
@@ -641,7 +654,52 @@ function clampSymbolAnnotationYoloValue(value) {
     return Math.max(0, Math.min(1, Number(value) || 0));
 }
 
-function buildSymbolAnnotationDatasetLabelText(payload, labels) {
+// The JPEG contains the whole PDF page, while persisted yolo_bbox values may have
+// been normalized against vector-content bounds. Rebuild YOLO coordinates from
+// world_bbox and the exact PDF render geometry so labels match the exported image.
+function getSymbolAnnotationExportYoloBbox(annotation, exportPage = null) {
+    const imageWidth = Number(exportPage?.imageWidth);
+    const imageHeight = Number(exportPage?.imageHeight);
+    const scaleX = Number(exportPage?.scaleX);
+    const scaleY = Number(exportPage?.scaleY);
+    const worldBbox = annotation?.world_bbox;
+    const x = Number(worldBbox?.x);
+    const y = Number(worldBbox?.y);
+    const width = Number(worldBbox?.width);
+    const height = Number(worldBbox?.height);
+
+    if (
+        [imageWidth, imageHeight, scaleX, scaleY, x, y, width, height].every(Number.isFinite)
+        && imageWidth > 0
+        && imageHeight > 0
+        && scaleX > 0
+        && scaleY > 0
+        && width > 0
+        && height > 0
+    ) {
+        const minX = Math.max(0, Math.min(imageWidth, x * scaleX));
+        const minY = Math.max(0, Math.min(imageHeight, y * scaleY));
+        const maxX = Math.max(0, Math.min(imageWidth, (x + width) * scaleX));
+        const maxY = Math.max(0, Math.min(imageHeight, (y + height) * scaleY));
+        const clippedWidth = maxX - minX;
+        const clippedHeight = maxY - minY;
+
+        if (clippedWidth <= 0 || clippedHeight <= 0) {
+            return null;
+        }
+
+        return {
+            x_center: ((minX + maxX) / 2) / imageWidth,
+            y_center: ((minY + maxY) / 2) / imageHeight,
+            width: clippedWidth / imageWidth,
+            height: clippedHeight / imageHeight
+        };
+    }
+
+    return annotation?.yolo_bbox || null;
+}
+
+function buildSymbolAnnotationDatasetLabelText(payload, labels, exportPage = null) {
     const classIdLookup = new Map();
     labels.forEach(label => {
         classIdLookup.set(label.key, label.exportClassId);
@@ -655,7 +713,7 @@ function buildSymbolAnnotationDatasetLabelText(payload, labels) {
         if (!Number.isFinite(Number(classId))) {
             return '';
         }
-        const yoloBbox = annotation?.yolo_bbox;
+        const yoloBbox = getSymbolAnnotationExportYoloBbox(annotation, exportPage);
         const width = clampSymbolAnnotationYoloValue(yoloBbox?.width);
         const height = clampSymbolAnnotationYoloValue(yoloBbox?.height);
         if (width <= 0 || height <= 0) {
@@ -791,8 +849,9 @@ async function exportSymbolAnnotationsDatasetForCurrentPage() {
         for (let index = 0; index < payloads.length; index += 1) {
             const payload = payloads[index];
             setSymbolAnnotationLoading(true, `Đang render ảnh page ${payload.page_num} (${index + 1}/${payloads.length})...`);
-            const sourceCanvas = await getSymbolAnnotationExportImageCanvas(payload.page_num);
-            const labelText = buildSymbolAnnotationDatasetLabelText(payload, labels);
+            const exportPage = await getSymbolAnnotationExportPage(payload.page_num);
+            const sourceCanvas = exportPage.canvas;
+            const labelText = buildSymbolAnnotationDatasetLabelText(payload, labels, exportPage);
             const sampleStem = buildSymbolAnnotationDatasetSampleStem(payload);
 
             if (typeof saveCanvasToZip === 'function') {

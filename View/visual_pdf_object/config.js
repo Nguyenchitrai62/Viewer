@@ -45,6 +45,13 @@ const CONFIG = {
     MANUAL_LABEL_DASH_SEGMENT_LENGTH_TOLERANCE_RATIO: 2, // Cho phep doan net dut dai hon muc chuan mot chut o elbow/tee
     MANUAL_LABEL_DASH_MAX_GAP_TO_LENGTH_RATIO: 1.5, // Gap giua 2 doan net dut toi da = do dai line dai hon * ty le nay
     MANUAL_LABEL_DASH_MAX_OFFSET: 1, // Lech vuong goc toi da khi gom net dut thang hang
+    // Keep browser-side suggestions aligned with Extract_FIRE auto_accept on
+    // ultra-dense vector pages. Below this threshold suggestions stay exact
+    // and unbounded, preserving the existing behavior for normal drawings.
+    EXTRACT_FIRE_AUTO_ACCEPT_LARGE_CONTEXT_LINE_CANDIDATE_THRESHOLD: 100000,
+    EXTRACT_FIRE_AUTO_ACCEPT_LARGE_CONTEXT_MAX_GROUPED_LINE_CANDIDATES: 128,
+    EXTRACT_FIRE_AUTO_ACCEPT_LARGE_CONTEXT_MAX_ITERATIONS: 1,
+    EXTRACT_FIRE_AUTO_ACCEPT_LARGE_CONTEXT_MAX_TEE_CANDIDATES: 64,
     MANUAL_LABEL_CLASSES: Object.freeze({ junction: 0, connect: 1 }),
     MANUAL_LABEL_NUM_CROPS: 50,
     MANUAL_LABEL_CROP_SIZE: 1024,

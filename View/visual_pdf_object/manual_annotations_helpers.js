@@ -225,6 +225,121 @@ function getManualSuggestionSearchPadding() {
         + getManualLineAttachToleranceWorld();
 }
 
+function getManualSuggestionLineCandidateCount() {
+    return snapPointLineItems instanceof Map ? snapPointLineItems.size : 0;
+}
+
+function isLargeManualSuggestionContext() {
+    const threshold = Math.max(
+        1,
+        Number(CONFIG.EXTRACT_FIRE_AUTO_ACCEPT_LARGE_CONTEXT_LINE_CANDIDATE_THRESHOLD) || 100000
+    );
+    return getManualSuggestionLineCandidateCount() >= threshold;
+}
+
+function getManualSuggestionLargeContextGroupLimit() {
+    if (!isLargeManualSuggestionContext()) return null;
+    return Math.max(
+        1,
+        Number(CONFIG.EXTRACT_FIRE_AUTO_ACCEPT_LARGE_CONTEXT_MAX_GROUPED_LINE_CANDIDATES) || 128
+    );
+}
+
+function getManualSuggestionAutoAcceptIterationLimit(defaultLimit = 3) {
+    const resolvedDefault = Math.max(1, Number(defaultLimit) || 3);
+    if (!isLargeManualSuggestionContext()) return resolvedDefault;
+    return Math.max(
+        1,
+        Math.min(
+            resolvedDefault,
+            Number(CONFIG.EXTRACT_FIRE_AUTO_ACCEPT_LARGE_CONTEXT_MAX_ITERATIONS) || 1
+        )
+    );
+}
+
+function getManualSuggestionLargeContextTeeCandidateLimit() {
+    if (!isLargeManualSuggestionContext()) return null;
+    return Math.max(
+        1,
+        Number(CONFIG.EXTRACT_FIRE_AUTO_ACCEPT_LARGE_CONTEXT_MAX_TEE_CANDIDATES) || 64
+    );
+}
+
+function getTeeConnectSuggestionSearchBounds(annotation, referenceLineCandidate, padding = null) {
+    const resolvedPadding = padding === null
+        ? Math.max(getManualTeeAttachToleranceWorld() * 4, 8)
+        : Math.max(Number(padding) || 0, 0);
+    const direction = getLineCandidateUnitDirection(referenceLineCandidate);
+    const annotationBounds = getConnectAnnotationSearchBounds(annotation, 0);
+    if (!direction || !annotationBounds) {
+        return getConnectAnnotationSearchBounds(annotation, resolvedPadding);
+    }
+
+    // A tee can only approach the current connect across its perpendicular
+    // axis. Avoid widening the query along the full pipe direction, which can
+    // pull thousands of unrelated detail lines into a long-connect search.
+    const perpendicularX = Math.abs(direction.y);
+    const perpendicularY = Math.abs(direction.x);
+    return {
+        minX: annotationBounds.minX - perpendicularX * resolvedPadding,
+        minY: annotationBounds.minY - perpendicularY * resolvedPadding,
+        maxX: annotationBounds.maxX + perpendicularX * resolvedPadding,
+        maxY: annotationBounds.maxY + perpendicularY * resolvedPadding
+    };
+}
+
+function getLargeContextTeeCandidatePriority(lineCandidate, referenceBounds) {
+    const candidateBounds = getLineCandidateBounds(lineCandidate);
+    if (!candidateBounds || !referenceBounds) {
+        return {
+            lineCandidate,
+            distanceSquared: Infinity,
+            length: getLineCandidateLength(lineCandidate),
+            id: String(lineCandidate?.id || '')
+        };
+    }
+
+    const deltaX = Math.max(
+        referenceBounds.minX - candidateBounds.maxX,
+        candidateBounds.minX - referenceBounds.maxX,
+        0
+    );
+    const deltaY = Math.max(
+        referenceBounds.minY - candidateBounds.maxY,
+        candidateBounds.minY - referenceBounds.maxY,
+        0
+    );
+    return {
+        lineCandidate,
+        distanceSquared: (deltaX * deltaX) + (deltaY * deltaY),
+        length: getLineCandidateLength(lineCandidate),
+        id: String(lineCandidate?.id || '')
+    };
+}
+
+function compareLargeContextTeeCandidatePriority(priorityA, priorityB) {
+    const distanceDelta = priorityA.distanceSquared - priorityB.distanceSquared;
+    if (Math.abs(distanceDelta) > 1e-9) return distanceDelta;
+
+    const lengthDelta = priorityB.length - priorityA.length;
+    if (Math.abs(lengthDelta) > 1e-9) return lengthDelta;
+    return priorityA.id.localeCompare(priorityB.id);
+}
+
+function selectLargeContextTeeCandidates(lineCandidates, referenceLineCandidate, candidateLimit) {
+    const eligibleCandidates = (lineCandidates || []).filter(lineCandidate =>
+        lineCandidate && isTeeLineCandidate(referenceLineCandidate, lineCandidate)
+    );
+    if (eligibleCandidates.length <= candidateLimit) return eligibleCandidates;
+
+    const referenceBounds = getLineCandidateBounds(referenceLineCandidate);
+    return eligibleCandidates
+        .map(lineCandidate => getLargeContextTeeCandidatePriority(lineCandidate, referenceBounds))
+        .sort(compareLargeContextTeeCandidatePriority)
+        .slice(0, candidateLimit)
+        .map(priority => priority.lineCandidate);
+}
+
 function getConnectAnnotationSearchBounds(annotation, padding = getManualSuggestionSearchPadding()) {
     const annotationCache = getConnectAnnotationDerivedCache(annotation);
     const paddingKey = Number(padding);
@@ -2139,6 +2254,8 @@ function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnect
     const seenLineKeys = new Set();
     const queuedSolidLineKeys = new Set(seedLineCandidate?.id ? [seedLineCandidate.id] : []);
     const queuedDashedLineKeys = new Set();
+    const maxGroupedLineCandidates = getManualSuggestionLargeContextGroupLimit();
+    const allowDashedGapTraversal = maxGroupedLineCandidates === null;
 
     const queueLineCandidate = (lineCandidate, preferDashedQueue = false) => {
         if (!lineCandidate || seenLineKeys.has(lineCandidate.id)) return;
@@ -2156,6 +2273,9 @@ function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnect
     let solidLineIndex = 0;
     let dashedLineIndex = 0;
     while (solidLineIndex < solidLineCandidates.length || dashedLineIndex < dashedLineCandidates.length) {
+        if (maxGroupedLineCandidates !== null && groupedLineCandidates.length >= maxGroupedLineCandidates) {
+            break;
+        }
         const currentLineCandidate = solidLineIndex < solidLineCandidates.length
             ? solidLineCandidates[solidLineIndex++]
             : dashedLineCandidates[dashedLineIndex++];
@@ -2187,10 +2307,14 @@ function collectStraightGroupedLineCandidates(seedLineCandidate, existingConnect
             });
         });
 
-        getDashedAlignedNeighborLineCandidates(currentLineCandidate, seedLineCandidate, existingConnectLineKeys).forEach(adjacentLineCandidate => {
-            if (!adjacentLineCandidate || seenLineKeys.has(adjacentLineCandidate.id)) return;
-            queueLineCandidate(adjacentLineCandidate, true);
-        });
+        // Match Extract_FIRE: on ultra-dense pages preserve exact endpoint
+        // traversal but disable fuzzy dash-gap hopping across drawing details.
+        if (allowDashedGapTraversal) {
+            getDashedAlignedNeighborLineCandidates(currentLineCandidate, seedLineCandidate, existingConnectLineKeys).forEach(adjacentLineCandidate => {
+                if (!adjacentLineCandidate || seenLineKeys.has(adjacentLineCandidate.id)) return;
+                queueLineCandidate(adjacentLineCandidate, true);
+            });
+        }
     }
 
     return groupedLineCandidates;
@@ -2480,15 +2604,25 @@ function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLin
     const seedLineCandidates = new Map();
     const acceptedProbeGroupKeys = new Set();
     const suggestableSeedLengthCache = new Map();
+    const teeProbeCache = new Map();
 
     connectAnnotations.forEach(annotation => {
         if (!annotation || annotation.type !== 'connect') return;
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
         if (!referenceLineCandidate) return;
-        const nearbyLineCandidates = queryLayerLineCandidates(
+        let nearbyLineCandidates = queryLayerLineCandidates(
             annotation.layerName,
-            getConnectAnnotationSearchBounds(annotation)
+            getTeeConnectSuggestionSearchBounds(annotation, referenceLineCandidate)
         );
+        const candidateLimit = getManualSuggestionLargeContextTeeCandidateLimit();
+        const teeCandidatesPrevalidated = candidateLimit !== null;
+        if (teeCandidatesPrevalidated) {
+            nearbyLineCandidates = selectLargeContextTeeCandidates(
+                nearbyLineCandidates,
+                referenceLineCandidate,
+                candidateLimit
+            );
+        }
 
         Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation))
             .filter(endpointKey => isJunctionEndpoint(endpointKey, annotation.layerName, referenceLineCandidate, {
@@ -2511,16 +2645,38 @@ function collectTeeConnectSuggestionSeeds(connectAnnotations, existingConnectLin
         nearbyLineCandidates.forEach(lineCandidate => {
             if (!lineCandidate) return;
             if (existingConnectLineKeys.has(lineCandidate.id) || seedLineCandidates.has(lineCandidate.id)) return;
-            if (!isTeeLineCandidate(referenceLineCandidate, lineCandidate)) return;
+            if (!teeCandidatesPrevalidated && !isTeeLineCandidate(referenceLineCandidate, lineCandidate)) return;
 
-            const groupedProbe = buildGroupedConnectAnnotationFromSeedLine(lineCandidate, existingConnectLineKeys, {
-                id: `tee-probe:${lineCandidate.id}`,
-                source: 'suggested',
-                autoManaged: false
-            });
-            const teeProbe = groupedProbe?.annotation || lineCandidate;
-            const probeGroupKey = groupedProbe?.groupedLineKey || null;
-            if (!isSuggestConnectLineLikeLongEnough(teeProbe)) return;
+            let cachedProbe = teeProbeCache.get(lineCandidate.id);
+            if (!cachedProbe) {
+                if (getLineCandidateLength(lineCandidate) >= getManualMinSuggestConnectLength()) {
+                    cachedProbe = {
+                        teeProbe: createConnectAnnotationFromLineCandidates([lineCandidate], {
+                            id: `tee-probe:${lineCandidate.id}`,
+                            source: 'suggested',
+                            autoManaged: false
+                        }),
+                        probeGroupKey: null,
+                        isLongEnough: true
+                    };
+                } else {
+                    const groupedProbe = buildGroupedConnectAnnotationFromSeedLine(lineCandidate, existingConnectLineKeys, {
+                        id: `tee-probe:${lineCandidate.id}`,
+                        source: 'suggested',
+                        autoManaged: false
+                    });
+                    const teeProbe = groupedProbe?.annotation || lineCandidate;
+                    cachedProbe = {
+                        teeProbe,
+                        probeGroupKey: groupedProbe?.groupedLineKey || null,
+                        isLongEnough: isSuggestConnectLineLikeLongEnough(teeProbe)
+                    };
+                }
+                teeProbeCache.set(lineCandidate.id, cachedProbe);
+            }
+
+            const { teeProbe, probeGroupKey, isLongEnough } = cachedProbe;
+            if (!teeProbe || !isLongEnough) return;
             if (probeGroupKey && acceptedProbeGroupKeys.has(probeGroupKey)) return;
 
             const touchesConnectInterior = doesLineCandidateTouchConnectInterior(teeProbe, annotation);
@@ -2603,6 +2759,7 @@ async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existin
     const seedLineCandidates = new Map();
     const acceptedProbeGroupKeys = new Set();
     const suggestableSeedLengthCache = new Map();
+    const teeProbeCache = new Map();
     const yieldState = { lastYieldTime: performance.now() };
     let processedCount = 0;
 
@@ -2611,10 +2768,19 @@ async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existin
         if (!annotation || annotation.type !== 'connect') continue;
         const referenceLineCandidate = getReferenceLineCandidateForAnnotation(annotation);
         if (!referenceLineCandidate) continue;
-        const nearbyLineCandidates = queryLayerLineCandidates(
+        let nearbyLineCandidates = queryLayerLineCandidates(
             annotation.layerName,
-            getConnectAnnotationSearchBounds(annotation)
+            getTeeConnectSuggestionSearchBounds(annotation, referenceLineCandidate)
         );
+        const candidateLimit = getManualSuggestionLargeContextTeeCandidateLimit();
+        const teeCandidatesPrevalidated = candidateLimit !== null;
+        if (teeCandidatesPrevalidated) {
+            nearbyLineCandidates = selectLargeContextTeeCandidates(
+                nearbyLineCandidates,
+                referenceLineCandidate,
+                candidateLimit
+            );
+        }
 
         const endpointKeys = Array.from(getConnectAnnotationBoundaryEndpointKeys(annotation))
             .filter(endpointKey => isJunctionEndpoint(endpointKey, annotation.layerName, referenceLineCandidate, {
@@ -2643,16 +2809,38 @@ async function collectTeeConnectSuggestionSeedsAsync(connectAnnotations, existin
             if (!shouldContinueManualSuggestionWork(options)) return [];
             if (!lineCandidate) continue;
             if (existingConnectLineKeys.has(lineCandidate.id) || seedLineCandidates.has(lineCandidate.id)) continue;
-            if (!isTeeLineCandidate(referenceLineCandidate, lineCandidate)) continue;
+            if (!teeCandidatesPrevalidated && !isTeeLineCandidate(referenceLineCandidate, lineCandidate)) continue;
 
-            const groupedProbe = buildGroupedConnectAnnotationFromSeedLine(lineCandidate, existingConnectLineKeys, {
-                id: `tee-probe:${lineCandidate.id}`,
-                source: 'suggested',
-                autoManaged: false
-            });
-            const teeProbe = groupedProbe?.annotation || lineCandidate;
-            const probeGroupKey = groupedProbe?.groupedLineKey || null;
-            if (!isSuggestConnectLineLikeLongEnough(teeProbe)) continue;
+            let cachedProbe = teeProbeCache.get(lineCandidate.id);
+            if (!cachedProbe) {
+                if (getLineCandidateLength(lineCandidate) >= getManualMinSuggestConnectLength()) {
+                    cachedProbe = {
+                        teeProbe: createConnectAnnotationFromLineCandidates([lineCandidate], {
+                            id: `tee-probe:${lineCandidate.id}`,
+                            source: 'suggested',
+                            autoManaged: false
+                        }),
+                        probeGroupKey: null,
+                        isLongEnough: true
+                    };
+                } else {
+                    const groupedProbe = buildGroupedConnectAnnotationFromSeedLine(lineCandidate, existingConnectLineKeys, {
+                        id: `tee-probe:${lineCandidate.id}`,
+                        source: 'suggested',
+                        autoManaged: false
+                    });
+                    const teeProbe = groupedProbe?.annotation || lineCandidate;
+                    cachedProbe = {
+                        teeProbe,
+                        probeGroupKey: groupedProbe?.groupedLineKey || null,
+                        isLongEnough: isSuggestConnectLineLikeLongEnough(teeProbe)
+                    };
+                }
+                teeProbeCache.set(lineCandidate.id, cachedProbe);
+            }
+
+            const { teeProbe, probeGroupKey, isLongEnough } = cachedProbe;
+            if (!teeProbe || !isLongEnough) continue;
             if (probeGroupKey && acceptedProbeGroupKeys.has(probeGroupKey)) continue;
 
             const touchesConnectInterior = doesLineCandidateTouchConnectInterior(teeProbe, annotation);
