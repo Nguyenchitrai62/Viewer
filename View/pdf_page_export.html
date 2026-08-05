@@ -357,7 +357,6 @@
 
         .export-button {
             width: 100%;
-            margin-top: 17px;
             padding: 13px 16px;
             border: 0;
             border-radius: 12px;
@@ -365,6 +364,130 @@
             background: linear-gradient(145deg, var(--blue), var(--blue-dark));
             box-shadow: 0 11px 24px rgba(37, 99, 235, 0.24);
             font-weight: 850;
+        }
+
+        .download-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 9px;
+            margin-top: 17px;
+        }
+
+        .image-export-button {
+            border: 1px solid #b8c9e7;
+            color: var(--blue-dark);
+            background: #f4f8ff;
+            box-shadow: none;
+        }
+
+        .image-export-button:hover:not(:disabled) {
+            border-color: #83a4d9;
+            background: #eaf2ff;
+        }
+
+        .image-dialog {
+            width: min(460px, calc(100% - 28px));
+            padding: 0;
+            overflow: hidden;
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            border-radius: 20px;
+            color: var(--ink);
+            background: #ffffff;
+            box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+        }
+
+        .image-dialog::backdrop {
+            background: rgba(15, 23, 42, 0.48);
+            backdrop-filter: blur(4px);
+        }
+
+        .image-dialog-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 20px 21px 15px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .image-dialog-header h2 {
+            margin: 0;
+            font-size: 1.15rem;
+        }
+
+        .image-dialog-header p {
+            margin: 5px 0 0;
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .dialog-close-button {
+            display: grid;
+            place-items: center;
+            flex: 0 0 auto;
+            width: 34px;
+            height: 34px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            color: #64748b;
+            background: #f8fafc;
+            font-size: 1.2rem;
+            line-height: 1;
+        }
+
+        .image-dialog-body {
+            padding: 18px 21px;
+        }
+
+        .scale-select {
+            width: 100%;
+            margin-top: 8px;
+            padding: 11px 12px;
+            border: 1px solid #b9c7da;
+            border-radius: 11px;
+            color: var(--ink);
+            background: #ffffff;
+            outline: none;
+        }
+
+        .scale-select:focus {
+            border-color: var(--blue);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.11);
+        }
+
+        .image-export-summary {
+            margin: 14px 0 0;
+            padding: 12px;
+            border: 1px solid #d7e3f5;
+            border-radius: 11px;
+            color: #40526d;
+            background: #f5f9ff;
+            font-size: 0.82rem;
+            line-height: 1.5;
+        }
+
+        .image-dialog-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 9px;
+            padding: 15px 21px 20px;
+            border-top: 1px solid var(--line);
+        }
+
+        .dialog-button {
+            padding: 10px 15px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            color: #334155;
+            background: #f8fafc;
+            font-weight: 750;
+        }
+
+        .dialog-button-primary {
+            border-color: var(--blue);
+            color: #ffffff;
+            background: var(--blue);
         }
 
         .preview-panel {
@@ -513,6 +636,10 @@
                 gap: 10px;
                 padding: 12px;
             }
+
+            .download-actions {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -571,7 +698,10 @@
                     </div>
                 </div>
 
-                <button id="export-button" class="export-button" type="button" disabled>Xuất PDF đã chọn</button>
+                <div class="download-actions">
+                    <button id="export-button" class="export-button" type="button" disabled>Xuất PDF</button>
+                    <button id="image-export-button" class="export-button image-export-button" type="button" disabled>Tải ảnh</button>
+                </div>
             </section>
 
             <section class="panel preview-panel" aria-label="Xem trước các trang PDF">
@@ -590,7 +720,37 @@
         </div>
     </main>
 
+    <dialog id="image-export-dialog" class="image-dialog" aria-labelledby="image-dialog-title">
+        <div class="image-dialog-header">
+            <div>
+                <h2 id="image-dialog-title">Tải trang PDF thành ảnh</h2>
+                <p>Ảnh PNG giữ nét tốt cho bản vẽ kỹ thuật. Scale lớn cho ảnh rõ hơn nhưng tốn nhiều bộ nhớ hơn.</p>
+            </div>
+            <button id="image-dialog-close" class="dialog-close-button" type="button" aria-label="Đóng">×</button>
+        </div>
+        <div class="image-dialog-body">
+            <label class="field-label" for="image-scale">
+                <span>Scale ảnh</span>
+                <span>PNG</span>
+            </label>
+            <select id="image-scale" class="scale-select">
+                <option value="0.5">0.5× — ảnh nhẹ</option>
+                <option value="1">1× — khoảng 72 DPI</option>
+                <option value="1.5">1.5×</option>
+                <option value="2">2×</option>
+                <option value="3" selected>3× — khuyên dùng</option>
+                <option value="4">4× — rất lớn</option>
+            </select>
+            <p id="image-export-summary" class="image-export-summary"></p>
+        </div>
+        <div class="image-dialog-actions">
+            <button id="image-dialog-cancel" class="dialog-button" type="button">Hủy</button>
+            <button id="image-dialog-confirm" class="dialog-button dialog-button-primary" type="button">Tạo và tải ảnh</button>
+        </div>
+    </dialog>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
         (() => {
             'use strict';
@@ -615,6 +775,13 @@
                 selectAllButton: document.getElementById('select-all-button'),
                 clearButton: document.getElementById('clear-button'),
                 exportButton: document.getElementById('export-button'),
+                imageExportButton: document.getElementById('image-export-button'),
+                imageExportDialog: document.getElementById('image-export-dialog'),
+                imageDialogClose: document.getElementById('image-dialog-close'),
+                imageDialogCancel: document.getElementById('image-dialog-cancel'),
+                imageDialogConfirm: document.getElementById('image-dialog-confirm'),
+                imageScale: document.getElementById('image-scale'),
+                imageExportSummary: document.getElementById('image-export-summary'),
                 statusCard: document.getElementById('status-card'),
                 statusTitle: document.getElementById('status-title'),
                 statusDetail: document.getElementById('status-detail'),
@@ -673,6 +840,8 @@
                 elements.pageSelection.disabled = nextBusy || !previewDocument;
                 elements.selectAllButton.disabled = nextBusy || !previewDocument;
                 elements.clearButton.disabled = nextBusy || !previewDocument;
+                elements.pageGrid.style.pointerEvents = nextBusy ? 'none' : '';
+                elements.pageGrid.setAttribute('aria-busy', String(nextBusy));
                 updateExportButton();
             }
 
@@ -761,8 +930,11 @@
             }
 
             function updateExportButton() {
-                elements.exportButton.disabled = isBusy || !currentFile || !previewDocument || selectedPages.size === 0;
+                const actionsDisabled = isBusy || !currentFile || !previewDocument || selectedPages.size === 0;
+                elements.exportButton.disabled = actionsDisabled;
+                elements.imageExportButton.disabled = actionsDisabled;
                 elements.exportButton.textContent = isBusy ? 'Đang xử lý…' : `Xuất PDF${selectedPages.size ? ` (${selectedPages.size} trang)` : ''}`;
+                elements.imageExportButton.textContent = isBusy ? 'Đang xử lý…' : `Tải ảnh${selectedPages.size ? ` (${selectedPages.size})` : ''}`;
             }
 
             function validateSelection({ updateCards = true } = {}) {
@@ -1019,11 +1191,19 @@
                 return output;
             }
 
-            function buildDownloadFilename(filename, pageNumbers) {
+            function getSourceStem(filename) {
                 const lastDot = filename.lastIndexOf('.');
-                const stem = lastDot > 0 ? filename.slice(0, lastDot) : filename;
+                return (lastDot > 0 ? filename.slice(0, lastDot) : filename) || 'document';
+            }
+
+            function buildExportBaseName(filename, pageNumbers) {
+                const stem = getSourceStem(filename);
                 const pageSuffix = compressPageNumbers(pageNumbers).replace(/\s+/g, '');
-                return `${stem || 'document'} [${pageSuffix}].pdf`;
+                return `${stem} [${pageSuffix}]`;
+            }
+
+            function buildDownloadFilename(filename, pageNumbers) {
+                return `${buildExportBaseName(filename, pageNumbers)}.pdf`;
             }
 
             function buildPdfInWorker(sourceBytes, pageNumbers, expectedPageCount) {
@@ -1108,8 +1288,7 @@
                 });
             }
 
-            function downloadBytes(bytes, filename) {
-                const blob = new Blob([bytes], { type: 'application/pdf' });
+            function downloadBlob(blob, filename) {
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.href = url;
@@ -1118,6 +1297,158 @@
                 link.click();
                 link.remove();
                 setTimeout(() => URL.revokeObjectURL(url), 30000);
+            }
+
+            function downloadBytes(bytes, filename) {
+                downloadBlob(new Blob([bytes], { type: 'application/pdf' }), filename);
+            }
+
+            function formatImageScale(scale) {
+                return `${Number(scale).toFixed(Number.isInteger(scale) ? 0 : 1)}x`;
+            }
+
+            function buildPageImageFilename(filename, pageNumber, scale) {
+                return `${getSourceStem(filename)} [${pageNumber}] @${formatImageScale(scale)}.png`;
+            }
+
+            function updateImageExportSummary() {
+                const pages = Array.from(selectedPages).sort((left, right) => left - right);
+                const scale = Number(elements.imageScale.value) || 3;
+                const baseName = currentFile ? buildExportBaseName(currentFile.name, pages) : 'PDF';
+                elements.imageExportSummary.textContent = pages.length > 1
+                    ? `${pages.length} ảnh PNG ở scale ${formatImageScale(scale)} sẽ được đặt trong folder “${baseName} @${formatImageScale(scale)}” và tải xuống dưới dạng ZIP.`
+                    : `Trang ${pages[0] || ''} sẽ được tải trực tiếp thành một ảnh PNG ở scale ${formatImageScale(scale)}.`;
+            }
+
+            function openImageExportDialog() {
+                if (!validateSelection() || isBusy) return;
+                elements.imageScale.value = '3';
+                updateImageExportSummary();
+                elements.imageExportDialog.showModal();
+            }
+
+            function canvasToPngBlob(canvas) {
+                return new Promise((resolve, reject) => {
+                    canvas.toBlob(blob => {
+                        if (blob) {
+                            resolve(blob);
+                        } else {
+                            reject(new Error('Trình duyệt không thể mã hóa ảnh PNG.'));
+                        }
+                    }, 'image/png');
+                });
+            }
+
+            async function renderPdfPageToPng(pageNumber, scale) {
+                const page = await previewDocument.getPage(pageNumber);
+                const viewport = page.getViewport({ scale });
+                const width = Math.max(1, Math.ceil(viewport.width));
+                const height = Math.max(1, Math.ceil(viewport.height));
+                const pixelCount = width * height;
+                if (width > 16384 || height > 16384 || pixelCount > 80000000) {
+                    page.cleanup();
+                    throw new Error(`Trang ${pageNumber} quá lớn ở scale ${formatImageScale(scale)}. Hãy chọn scale thấp hơn.`);
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const context = canvas.getContext('2d', { alpha: false });
+                if (!context) {
+                    page.cleanup();
+                    throw new Error('Trình duyệt không tạo được canvas để render ảnh.');
+                }
+
+                try {
+                    context.fillStyle = '#ffffff';
+                    context.fillRect(0, 0, width, height);
+                    await page.render({ canvasContext: context, viewport }).promise;
+                    return await canvasToPngBlob(canvas);
+                } finally {
+                    page.cleanup();
+                    canvas.width = 1;
+                    canvas.height = 1;
+                }
+            }
+
+            async function exportSelectedPagesAsImages(scale) {
+                if (!currentFile || !previewDocument || !validateSelection()) return;
+                const fileAtStart = currentFile;
+                const pagesAtStart = Array.from(selectedPages).sort((left, right) => left - right);
+                const scaleAtStart = Number(scale);
+                if (!Number.isFinite(scaleAtStart) || scaleAtStart <= 0) {
+                    setStatus('error', 'Scale không hợp lệ', 'Hãy chọn một giá trị scale lớn hơn 0.');
+                    return;
+                }
+
+                setBusy(true);
+                try {
+                    const multiplePages = pagesAtStart.length > 1;
+                    if (multiplePages && !window.JSZip) {
+                        throw new Error('Không tải được thư viện ZIP. Kiểm tra kết nối CDN rồi thử lại.');
+                    }
+
+                    const scaleLabel = formatImageScale(scaleAtStart);
+                    const exportBaseName = `${buildExportBaseName(fileAtStart.name, pagesAtStart)} @${scaleLabel}`;
+                    const zip = multiplePages ? new JSZip() : null;
+                    const zipFolder = zip ? zip.folder(exportBaseName) : null;
+                    let singleImageBlob = null;
+
+                    for (let index = 0; index < pagesAtStart.length; index += 1) {
+                        const pageNumber = pagesAtStart[index];
+                        const progress = 5 + (index / pagesAtStart.length) * 72;
+                        setStatus(
+                            'info',
+                            `Đang tạo ảnh ${index + 1}/${pagesAtStart.length}…`,
+                            `Trang ${pageNumber} · PNG · scale ${scaleLabel}`,
+                            progress,
+                        );
+                        const imageBlob = await renderPdfPageToPng(pageNumber, scaleAtStart);
+                        if (zipFolder) {
+                            zipFolder.file(buildPageImageFilename(fileAtStart.name, pageNumber, scaleAtStart), imageBlob);
+                        } else {
+                            singleImageBlob = imageBlob;
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
+
+                    if (multiplePages) {
+                        setStatus('info', 'Đang đóng gói ZIP…', `${pagesAtStart.length} ảnh PNG`, 80);
+                        const zipBlob = await zip.generateAsync({
+                            type: 'blob',
+                            compression: 'STORE',
+                            platform: 'DOS',
+                        }, metadata => {
+                            setStatus(
+                                'info',
+                                'Đang đóng gói ZIP…',
+                                `${pagesAtStart.length} ảnh PNG · ${Math.round(metadata.percent)}%`,
+                                80 + metadata.percent * 0.19,
+                            );
+                        });
+                        downloadBlob(zipBlob, `${exportBaseName}.zip`);
+                        setStatus(
+                            'success',
+                            'Đã tạo ZIP ảnh thành công',
+                            `${pagesAtStart.length} ảnh · ${scaleLabel} · ${formatBytes(zipBlob.size)}`,
+                            100,
+                        );
+                    } else {
+                        const pageNumber = pagesAtStart[0];
+                        downloadBlob(singleImageBlob, buildPageImageFilename(fileAtStart.name, pageNumber, scaleAtStart));
+                        setStatus(
+                            'success',
+                            'Đã tạo ảnh thành công',
+                            `Trang ${pageNumber} · ${scaleLabel} · ${formatBytes(singleImageBlob.size)}`,
+                            100,
+                        );
+                    }
+                } catch (error) {
+                    console.error(error);
+                    setStatus('error', 'Không thể tạo ảnh', error?.message || 'Trình duyệt không đủ bộ nhớ để render ảnh.');
+                } finally {
+                    setBusy(false);
+                }
             }
 
             async function exportSelectedPages() {
@@ -1210,6 +1541,20 @@
                 validateSelection();
             });
             elements.exportButton.addEventListener('click', exportSelectedPages);
+            elements.imageExportButton.addEventListener('click', openImageExportDialog);
+            elements.imageScale.addEventListener('change', updateImageExportSummary);
+            elements.imageDialogClose.addEventListener('click', () => elements.imageExportDialog.close());
+            elements.imageDialogCancel.addEventListener('click', () => elements.imageExportDialog.close());
+            elements.imageDialogConfirm.addEventListener('click', () => {
+                const scale = Number(elements.imageScale.value);
+                elements.imageExportDialog.close();
+                exportSelectedPagesAsImages(scale);
+            });
+            elements.imageExportDialog.addEventListener('click', event => {
+                if (event.target === elements.imageExportDialog) {
+                    elements.imageExportDialog.close();
+                }
+            });
             window.addEventListener('beforeunload', () => {
                 if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
                 revokeThumbnailUrls();
