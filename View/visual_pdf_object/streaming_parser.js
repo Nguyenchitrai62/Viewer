@@ -14,6 +14,7 @@ function normalizeShapeForViewer(rawShape, id) {
         color: rawShape?.color ?? null,
         width: rawShape?.width,
         fill: rawShape?.fill ?? null,
+        dashes: rawShape?.dashes ?? null,
         rect: Array.isArray(rawShape?.rect) ? rawShape.rect : null,
         seqno: seqnoValue
     };
@@ -360,7 +361,6 @@ function loadNormalizedDocument({ shapes, metadata = null, svg = null, sourceFil
     svgData = svg || {};
     jsonData = { metadata: documentMetadata };
     currentJsonSourceFile = sourceFile || null;
-    currentJsonGzipPromise = null;
     currentPageNum = pageNum;
     pipelineLayerNames = [];
     pipelineRawResults = Array.isArray(importedPipelineRawResults) ? importedPipelineRawResults : null;
@@ -1148,67 +1148,4 @@ async function parseGzipBase64ToDocumentStreaming(gzipB64, { sourceLabel = 'JSON
         initialRasterPreview: null,
         topLevelValues: extractTopLevelValuesFromParsedDocument(parsed)
     };
-}
-
-async function compressStreamToGzipBase64(stream) {
-    const compressedStream = stream.pipeThrough(new CompressionStream('gzip'));
-    const reader = compressedStream.getReader();
-    const chunks = [];
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-    }
-    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-    const combined = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-        combined.set(chunk, offset);
-        offset += chunk.length;
-    }
-    let binaryStr = '';
-    const chunkSize = 0x8000;
-    for (let i = 0; i < combined.length; i += chunkSize) {
-        binaryStr += String.fromCharCode(...combined.subarray(i, i + chunkSize));
-    }
-    return btoa(binaryStr);
-}
-
-// Compress JSON to base64-gzipped format using CompressionStream API
-async function compressJsonToGzipBase64(jsonString) {
-    return compressStreamToGzipBase64(new Blob([jsonString]).stream());
-}
-
-async function compressFileToGzipBase64(file) {
-    if (!file?.stream) {
-        throw new Error('Streaming file compression is not supported in this browser.');
-    }
-    return compressStreamToGzipBase64(file.stream());
-}
-
-async function ensurePipelineCacheForCurrentDocument() {
-    if (currentPageNum) {
-        const cachedGzip = getPageGzipCacheValue(cachedPages, currentPageNum);
-        if (cachedGzip) {
-            return cachedGzip;
-        }
-    }
-    if (!currentJsonSourceFile) {
-        return null;
-    }
-
-    if (!currentJsonGzipPromise) {
-        currentJsonGzipPromise = compressFileToGzipBase64(currentJsonSourceFile)
-            .then(gzipData => {
-                resetActivePageGzipCache();
-                setPageGzipCacheValue(cachedPages, 1, gzipData);
-                currentPageNum = 1;
-                return gzipData;
-            })
-            .finally(() => {
-                currentJsonGzipPromise = null;
-            });
-    }
-
-    return currentJsonGzipPromise;
 }

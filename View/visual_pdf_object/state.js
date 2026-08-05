@@ -133,11 +133,12 @@ const zoomIndicator = document.getElementById('zoom-indicator');
 const dropZone = document.getElementById('drop-zone');
 const layerList = document.getElementById('layer-list');
 const btnShowMainLayer = document.getElementById('btn-show-main-layer');
+const btnSolidifyDashedLines = document.getElementById('btn-solidify-dashed-lines');
+const btnSolidifyElbowBbox = document.getElementById('btn-solidify-elbow-bbox');
 const canvasContainer = document.getElementById('canvas-container');
 const btnDrawBbox = document.getElementById('btn-draw-rect');
 const btnResetFilter = document.getElementById('btn-reset-filter');
 const btnExportSvg = document.getElementById('btn-export-svg');
-const btnDetectPipeline = document.getElementById('btn-detect-pipeline');
 const btnExportPipelineJson = document.getElementById('btn-export-pipeline-json');
 const btnExportRevitJson = document.getElementById('btn-export-revit-json');
 const btnToggleLayerMode = document.getElementById('btn-toggle-layer-mode');
@@ -158,7 +159,6 @@ let jsonData = null;
 let jsonShapes = null;
 let documentMetadata = null;
 let currentJsonSourceFile = null;
-let currentJsonGzipPromise = null;
 let currentLayerField = 'layer_1';
 let svgData = null;
 let pipelineRawResults = null;
@@ -177,6 +177,9 @@ let isDrawingBbox = false;
 let isApplyingSavedPattern = false;
 let bboxStart = null;
 let currentBbox = null;
+let isSolidifyElbowBboxMode = false;
+let solidifyElbowBboxStart = null;
+let solidifyElbowCurrentBbox = null;
 let mouseX = 0, mouseY = 0;
 
 let isVLMBboxMode = false;
@@ -338,6 +341,7 @@ const UI_TEXT = Object.freeze({
     VLM_SHORT: '🤖 AI',
     CANCEL: 'Cancel',
     MODE_FIND: '🔍 Tìm kiếm',
+    MODE_SOLIDIFY_ELBOW: '▧ Nối nét elbow trong bbox',
     MODE_SYMBOL: '🏷️ Symbol',
     MODE_JUNCTION: '● Junction',
     MODE_CONNECT: '↔ Connect',

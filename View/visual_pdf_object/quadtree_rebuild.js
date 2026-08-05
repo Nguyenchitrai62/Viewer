@@ -22,6 +22,12 @@ function sortShapesForDraw(shapes) {
 }
 
 function buildLayerIndex() {
+    if (typeof resetSolidLineConversionState === 'function') {
+        resetSolidLineConversionState({ removeShapes: false, refresh: false });
+    }
+    if (typeof resetSolidifyElbowBboxState === 'function') {
+        resetSolidifyElbowBboxState();
+    }
     layerIndex = {};
     totalCommands = {};
     allShapesSorted = [];

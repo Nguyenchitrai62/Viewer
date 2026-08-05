@@ -433,6 +433,15 @@
                         <h3>⚙️ Controls</h3>
                         <div class="controls">
                             <div class="control-group">
+                                <label for="jsonFileInput">Import JSON:</label>
+                                <input
+                                    id="jsonFileInput"
+                                    class="file-input"
+                                    type="file"
+                                    accept=".json,application/json"
+                                >
+                            </div>
+                            <div class="control-group">
                                 <label for="pipeFilter">Highlight Pipe:</label>
                                 <select id="pipeFilter">
                                     <option value="all">All Pipes</option>
@@ -493,6 +502,9 @@
             }
 
             initializeEventListeners() {
+                document.getElementById('jsonFileInput')
+                    .addEventListener('change', event => this.handleJsonUpload(event));
+
                 ['pipeFilter', 'shapeFilter'].forEach(id => {
                     document.getElementById(id).addEventListener('change', () => this.updateVisualization());
                 });

@@ -2443,6 +2443,10 @@ async function setAnnotationMode(mode) {
         canvasContainer.classList.remove('drawing-bbox');
     }
 
+    if (isSolidifyElbowBboxMode) {
+        deactivateSolidifyElbowBboxMode({ clearModeLabel: false });
+    }
+
     if (isVLMBboxMode) {
         isVLMBboxMode = false;
         vlmBboxStart = null;

@@ -261,6 +261,8 @@ body {
 }
 
 .control-panel-actions {
+    display: grid;
+    gap: 8px;
     margin-bottom: 12px;
 }
 
@@ -399,6 +401,18 @@ body {
     transform: translateY(-1px);
 }
 
+#floating-toolbar button.is-active {
+    border-color: rgba(96, 165, 250, 0.9);
+    background-color: rgba(37, 99, 235, 0.72);
+    box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.22), 0 6px 18px rgba(37, 99, 235, 0.28);
+}
+
+#floating-toolbar button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
 .crop-toolbar button,
 #btn-export-svg {
     padding: 8px 16px;
@@ -447,11 +461,31 @@ body {
     color: white !important;
 }
 
-#canvas-container.drawing-bbox {
+#btn-solidify-elbow-bbox {
+    background-color: rgba(16, 185, 129, 0.16) !important;
+    border-color: rgba(52, 211, 153, 0.48) !important;
+    color: #6ee7b7 !important;
+}
+
+#btn-solidify-elbow-bbox:hover {
+    background-color: rgba(16, 185, 129, 0.28) !important;
+    border-color: rgba(110, 231, 183, 0.72) !important;
+    color: #ffffff !important;
+}
+
+#btn-solidify-elbow-bbox.active {
+    background-color: var(--danger-color) !important;
+    border-color: var(--danger-color) !important;
+    color: #ffffff !important;
+}
+
+#canvas-container.drawing-bbox,
+#canvas-container.solidify-elbow-bbox-mode {
     cursor: crosshair !important;
 }
 
 #canvas-container.drawing-bbox::after,
+#canvas-container.solidify-elbow-bbox-mode::after,
 #canvas-container.annotation-junction-mode::after,
 #canvas-container.annotation-connect-mode::after,
 #canvas-container.annotation-pair-check-mode::after,

@@ -76,12 +76,13 @@
         }
 
         .viewer-grid {
-            display: flex;
-            flex-wrap: wrap;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(180px, 220px));
             justify-content: center;
             gap: 15px; /* Giảm từ 25px */
-            margin-top: 10px;
+            margin: 10px auto 0;
             width: 100%;
+            max-width: 925px;
         }
 
         .viewer-card {
@@ -101,8 +102,7 @@
             position: relative;
             overflow: hidden;
             animation: fadeInUp 0.6s ease-out both;
-            flex: 1 1 180px;
-            max-width: 220px;
+            width: 100%;
             height: 200px;
         }
 
@@ -169,6 +169,7 @@
         .viewer-card:nth-child(5) { animation-delay: 0.3s; }
         .viewer-card:nth-child(6) { animation-delay: 0.35s; }
         .viewer-card:nth-child(7) { animation-delay: 0.4s; }
+        .viewer-card:nth-child(8) { animation-delay: 0.45s; }
 
         /* Icon SVG Style */
         svg { width: 24px; height: 24px; fill: currentColor; }
@@ -178,6 +179,34 @@
             padding: 20px;
             color: var(--text-dim);
             font-size: 0.8rem;
+        }
+
+        @media (max-width: 900px) {
+            body {
+                height: auto;
+                min-height: 100vh;
+                overflow-y: auto;
+            }
+
+            .container {
+                height: auto;
+                min-height: 100vh;
+                padding-block: 32px;
+            }
+
+            .viewer-grid {
+                grid-template-columns: repeat(2, minmax(160px, 220px));
+            }
+        }
+
+        @media (max-width: 480px) {
+            .viewer-grid {
+                grid-template-columns: minmax(0, 220px);
+            }
+
+            .viewer-card {
+                height: 180px;
+            }
         }
     </style>
 </head>
@@ -215,6 +244,16 @@
                     <svg viewBox="0 0 24 24"><path d="M14,2L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2H14M18,20V9H13V4H6V20H18M13.5,12.5V14.5H11.5V12.5H13.5M13.5,15.5V17.5H11.5V15.5H13.5Z"/></svg>
                 </div>
                 <h3>PDF Object</h3>
+                <div class="arrow">
+                    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
+                </div>
+            </a>
+
+            <a href="View/pdf_page_export.html" class="viewer-card">
+                <div class="icon-box">
+                    <svg viewBox="0 0 24 24"><path d="M14,2L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2H14M13,4V9H18V20H6V4H13M8,12V14H16V12H8M8,16V18H13V16H8Z"/></svg>
+                </div>
+                <h3>PDF Page Export</h3>
                 <div class="arrow">
                     <svg viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M4,11V13H16L10.5,18.5L11.92,19.92L19.84,12L11.92,4.08L10.5,5.5L16,11H4Z"/></svg>
                 </div>

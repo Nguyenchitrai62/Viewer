@@ -505,7 +505,7 @@ function linkConsecutiveSeqnos() {
         const seq1 = seqnos[i];
         const seq2 = seqnos[i + 1];
         if (Math.abs(seq1 - seq2) === 1) { // seqno liß╗ün nhau
-            const [end1] = getSeqnoStartEnd(seq1);
+            const [, end1] = getSeqnoStartEnd(seq1);
             const [start2] = getSeqnoStartEnd(seq2);
             if (end1 && start2) {
                 const dist = Math.sqrt((end1[0] - start2[0]) ** 2 + (end1[1] - start2[1]) ** 2);

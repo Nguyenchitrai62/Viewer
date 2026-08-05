@@ -1508,8 +1508,8 @@ function drawCrosshairOverlay() {
         activeVLMBbox &&
         (isVLMDrawing || vlmSelectionUiState === 'preview' || vlmSelectionUiState === 'loading')
     );
-    const shouldDrawCrosshairGuides = Boolean(isDrawingBbox);
-    const shouldShowOverlayCanvas = Boolean(isDrawingBbox || hasDetectedCellOverlay);
+    const shouldDrawCrosshairGuides = Boolean(isDrawingBbox || isSolidifyElbowBboxMode);
+    const shouldShowOverlayCanvas = Boolean(isDrawingBbox || isSolidifyElbowBboxMode || hasDetectedCellOverlay);
 
     if (typeof drawManualLabelCrosshairOverlay === 'function' && annotationMode) {
         crosshairCanvas.style.display = 'block';
@@ -1557,7 +1557,7 @@ function drawCrosshairOverlay() {
         drawDetectedCellOverlay();
     }
 
-    if (!isDrawingBbox) {
+    if (!isDrawingBbox && !isSolidifyElbowBboxMode) {
         return;
     }
 
@@ -1592,6 +1592,23 @@ function drawCrosshairOverlay() {
         crosshairCtx.setLineDash([]);
         crosshairCtx.strokeRect(screenBbox.x, screenBbox.y, screenBbox.width, screenBbox.height);
     }
+
+    if (isSolidifyElbowBboxMode && solidifyElbowCurrentBbox
+        && solidifyElbowCurrentBbox.width > 0 && solidifyElbowCurrentBbox.height > 0) {
+        const screenBbox = {
+            x: solidifyElbowCurrentBbox.x * zoom + offsetX,
+            y: solidifyElbowCurrentBbox.y * zoom + offsetY,
+            width: solidifyElbowCurrentBbox.width * zoom,
+            height: solidifyElbowCurrentBbox.height * zoom
+        };
+        crosshairCtx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+        crosshairCtx.strokeStyle = '#10b981';
+        crosshairCtx.lineWidth = 2;
+        crosshairCtx.setLineDash([7, 4]);
+        crosshairCtx.fillRect(screenBbox.x, screenBbox.y, screenBbox.width, screenBbox.height);
+        crosshairCtx.strokeRect(screenBbox.x, screenBbox.y, screenBbox.width, screenBbox.height);
+        crosshairCtx.setLineDash([]);
+    }
 }
 
 function scheduleCrosshairOverlayDraw() {
@@ -1604,7 +1621,7 @@ function scheduleCrosshairOverlayDraw() {
 }
 
 function scheduleDraw() {
-    if ((Array.isArray(extractedCellOverlays) && extractedCellOverlays.length > 0) || annotationMode || vlmSelectionUiState) {
+    if ((Array.isArray(extractedCellOverlays) && extractedCellOverlays.length > 0) || annotationMode || vlmSelectionUiState || isSolidifyElbowBboxMode) {
         scheduleCrosshairOverlayDraw();
     }
     if (drawScheduled) return;

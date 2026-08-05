@@ -45,6 +45,39 @@ const CONFIG = {
     MANUAL_LABEL_DASH_SEGMENT_LENGTH_TOLERANCE_RATIO: 2, // Cho phep doan net dut dai hon muc chuan mot chut o elbow/tee
     MANUAL_LABEL_DASH_MAX_GAP_TO_LENGTH_RATIO: 1.5, // Gap giua 2 doan net dut toi da = do dai line dai hon * ty le nay
     MANUAL_LABEL_DASH_MAX_OFFSET: 1, // Lech vuong goc toi da khi gom net dut thang hang
+    // Straight dashed-line -> one long `l` command.
+    // Detection thresholds (change these first when tuning results).
+    SOLIDIFY_STRAIGHT_DASH_SEGMENT_MAX_LENGTH: 50, // Base maximum length of one short dash
+    SOLIDIFY_STRAIGHT_DASH_SEGMENT_LENGTH_TOLERANCE_RATIO: 2, // Effective max length = max length * this ratio
+    SOLIDIFY_STRAIGHT_DASH_MAX_GAP_TO_LENGTH_RATIO: 1.5, // Pair max projected gap = longer dash * this ratio
+    SOLIDIFY_STRAIGHT_DASH_MAX_LATERAL_OFFSET: 1, // Maximum perpendicular displacement between two dashes
+    SOLIDIFY_STRAIGHT_DASH_MAX_ANGLE_DEGREES: 5, // Match Extract_FIRE parallel tolerance
+    SOLIDIFY_STRAIGHT_DASH_MIN_SEGMENTS_PER_GROUP: 2, // Minimum short `l` commands required to create one long `l`
+    SOLIDIFY_STRAIGHT_DASH_EPSILON: 1e-5, // Numeric tolerance; gaps below this are treated as touching
+    SOLIDIFY_STRAIGHT_DASH_SEARCH_GAP_MULTIPLIER: 1.25, // Extra search radius; does not relax final pair validation
+    SOLIDIFY_STRAIGHT_DASH_SCORE_LATERAL_WEIGHT: 4, // Penalty for lateral offset when choosing the nearest continuation
+    SOLIDIFY_STRAIGHT_DASH_USE_SEQNO_GROUP_PRIORITY: true, // Prefer PDF commands linked by consecutive seqno metadata
+    SOLIDIFY_STRAIGHT_DASH_MAX_FALLBACK_NEIGHBORS_PER_SIDE: 1, // Avoid destructive branching when geometry is ambiguous
+    SOLIDIFY_STRAIGHT_DASH_MAX_CANDIDATES_PER_GROUP: 0, // 0 = unlimited; positive value caps one merged chain
+    // Spatial-index/performance settings. Normally these do not need tuning.
+    SOLIDIFY_STRAIGHT_DASH_SPATIAL_CELL_MIN_SIZE: 5,
+    SOLIDIFY_STRAIGHT_DASH_SPATIAL_CELL_MAX_SIZE: 15,
+    SOLIDIFY_STRAIGHT_DASH_SPATIAL_CELL_DIVISOR: 8,
+    SOLIDIFY_STRAIGHT_DASH_SHAPE_YIELD_INTERVAL: 2500,
+    SOLIDIFY_STRAIGHT_DASH_ENDPOINT_YIELD_INTERVAL: 3000,
+    SOLIDIFY_STRAIGHT_DASH_BUTTON_MESSAGE_DURATION_MS: 1800,
+    // Manual bbox: join short straight/Bezier dash fragments along an elbow.
+    SOLIDIFY_ELBOW_BBOX_SEGMENT_MAX_LENGTH: 100,
+    SOLIDIFY_ELBOW_BBOX_MAX_GAP_TO_LENGTH_RATIO: 2,
+    SOLIDIFY_ELBOW_BBOX_MAX_BRIDGE_GAP: 100,
+    SOLIDIFY_ELBOW_BBOX_ANCHOR_SEARCH_PADDING: 35,
+    SOLIDIFY_ELBOW_BBOX_ANCHOR_MAX_BRIDGE_GAP: 50,
+    SOLIDIFY_ELBOW_BBOX_ANCHOR_MAX_TANGENT_DEVIATION_DEGREES: 45,
+    SOLIDIFY_ELBOW_BBOX_MAX_TANGENT_DEVIATION_DEGREES: 60,
+    SOLIDIFY_ELBOW_BBOX_CURVE_SAMPLE_STEPS: 16,
+    SOLIDIFY_ELBOW_BBOX_CURVE_MIN_TURN_DEGREES: 8,
+    SOLIDIFY_ELBOW_BBOX_CURVE_SIMPLIFY_TOLERANCE: 0.08,
+    SOLIDIFY_ELBOW_BBOX_BUTTON_MESSAGE_DURATION_MS: 2200,
     // Keep browser-side suggestions aligned with Extract_FIRE auto_accept on
     // ultra-dense vector pages. Below this threshold suggestions stay exact
     // and unbounded, preserving the existing behavior for normal drawings.

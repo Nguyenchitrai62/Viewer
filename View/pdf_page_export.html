@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chọn trang và xuất PDF</title>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f5f7fb;
+            --panel: rgba(255, 255, 255, 0.94);
+            --panel-strong: #ffffff;
+            --ink: #14213d;
+            --muted: #64748b;
+            --line: #dbe3ef;
+            --blue: #2563eb;
+            --blue-dark: #1d4ed8;
+            --blue-soft: #eaf1ff;
+            --green: #138a5b;
+            --red: #c43d4b;
+            --shadow: 0 18px 48px rgba(30, 54, 93, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        [hidden] {
+            display: none !important;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 10% 0%, rgba(37, 99, 235, 0.10), transparent 34rem),
+                radial-gradient(circle at 100% 24%, rgba(16, 185, 129, 0.08), transparent 30rem),
+                var(--bg);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.52;
+        }
+
+        .app-shell {
+            width: min(1440px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 30px 0 48px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 22px;
+        }
+
+        .eyebrow {
+            margin: 0 0 6px;
+            color: var(--blue);
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(1.8rem, 3.5vw, 3rem);
+            line-height: 1.06;
+            letter-spacing: -0.045em;
+        }
+
+        .intro {
+            max-width: 620px;
+            margin: 10px 0 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .privacy-badge {
+            flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 10px 14px;
+            border: 1px solid #bde5d2;
+            border-radius: 999px;
+            color: #0b6945;
+            background: #effbf5;
+            font-size: 0.86rem;
+            font-weight: 750;
+        }
+
+        .privacy-badge::before {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #17a36b;
+            box-shadow: 0 0 0 5px rgba(23, 163, 107, 0.12);
+            content: "";
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+            gap: 20px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid rgba(203, 213, 225, 0.82);
+            border-radius: 22px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(14px);
+        }
+
+        .control-panel {
+            position: sticky;
+            top: 18px;
+            padding: 18px;
+        }
+
+        .drop-zone {
+            display: grid;
+            place-items: center;
+            min-height: 210px;
+            padding: 24px;
+            border: 2px dashed #a9b9d0;
+            border-radius: 17px;
+            background: linear-gradient(145deg, #f9fbff, #f0f5ff);
+            text-align: center;
+            transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+            outline: none;
+        }
+
+        .drop-zone.is-dragging,
+        .drop-zone:focus-visible {
+            border-color: var(--blue);
+            background: var(--blue-soft);
+            transform: translateY(-2px);
+        }
+
+        .upload-icon {
+            display: grid;
+            place-items: center;
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 13px;
+            border-radius: 14px;
+            color: #ffffff;
+            background: linear-gradient(145deg, #3777ed, #1f55bd);
+            box-shadow: 0 10px 22px rgba(37, 99, 235, 0.25);
+            font-size: 1.35rem;
+            font-weight: 900;
+        }
+
+        .drop-zone strong {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 1.03rem;
+        }
+
+        .drop-zone small {
+            display: block;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .choose-button {
+            margin-top: 15px;
+            padding: 9px 14px;
+            border: 1px solid #bfd0eb;
+            border-radius: 10px;
+            color: var(--blue-dark);
+            background: #ffffff;
+            font-weight: 750;
+        }
+
+        .file-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+            clip-path: inset(50%);
+        }
+
+        .file-card {
+            display: none;
+            gap: 10px;
+            margin-top: 14px;
+            padding: 13px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #fbfdff;
+        }
+
+        .file-card.is-visible {
+            display: grid;
+        }
+
+        .file-name {
+            overflow: hidden;
+            font-weight: 800;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .local-mode {
+            color: var(--green);
+            font-weight: 750;
+        }
+
+        .selection-block {
+            margin-top: 20px;
+        }
+
+        .field-label {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            font-weight: 800;
+        }
+
+        .page-input {
+            width: 100%;
+            padding: 12px 13px;
+            border: 1px solid #b9c7da;
+            border-radius: 11px;
+            color: var(--ink);
+            background: #ffffff;
+            outline: none;
+        }
+
+        .page-input:focus {
+            border-color: var(--blue);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.11);
+        }
+
+        .page-input.is-invalid {
+            border-color: var(--red);
+            box-shadow: 0 0 0 4px rgba(196, 61, 75, 0.09);
+        }
+
+        .hint,
+        .selection-feedback {
+            margin: 7px 0 0;
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .selection-feedback.is-error {
+            color: var(--red);
+        }
+
+        .quick-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .secondary-button {
+            flex: 1;
+            padding: 9px 10px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            color: #334155;
+            background: #f8fafc;
+            font-weight: 700;
+        }
+
+        .status-card {
+            display: none;
+            margin-top: 17px;
+            padding: 13px;
+            border: 1px solid var(--line);
+            border-radius: 13px;
+            background: #f8fafc;
+        }
+
+        .status-card.is-visible {
+            display: block;
+        }
+
+        .status-card.is-error {
+            border-color: #efc0c6;
+            background: #fff7f8;
+        }
+
+        .status-card.is-success {
+            border-color: #bee4d2;
+            background: #f1fbf6;
+        }
+
+        .status-title {
+            font-size: 0.88rem;
+            font-weight: 800;
+        }
+
+        .status-detail {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+
+        .progress-track {
+            display: none;
+            height: 7px;
+            margin-top: 10px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #dce5f2;
+        }
+
+        .progress-track.is-visible {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 0;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #2563eb, #4f8cff);
+            transition: width 120ms linear;
+        }
+
+        .export-button {
+            width: 100%;
+            margin-top: 17px;
+            padding: 13px 16px;
+            border: 0;
+            border-radius: 12px;
+            color: #ffffff;
+            background: linear-gradient(145deg, var(--blue), var(--blue-dark));
+            box-shadow: 0 11px 24px rgba(37, 99, 235, 0.24);
+            font-weight: 850;
+        }
+
+        .preview-panel {
+            min-height: 520px;
+            overflow: hidden;
+        }
+
+        .preview-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 17px 20px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .preview-header h2 {
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .preview-count {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .empty-state {
+            display: grid;
+            place-items: center;
+            min-height: 450px;
+            padding: 30px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        .empty-state strong {
+            display: block;
+            margin-bottom: 7px;
+            color: #3a4a63;
+        }
+
+        .page-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            max-height: calc(100vh - 165px);
+            min-height: 450px;
+            padding: 18px;
+            overflow: auto;
+        }
+
+        .page-card {
+            position: relative;
+            display: block;
+            padding: 9px;
+            border: 1px solid #d6dfeb;
+            border-radius: 13px;
+            background: #f8fafc;
+            cursor: pointer;
+            transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+            user-select: none;
+        }
+
+        .page-card:hover {
+            border-color: #97acd0;
+            transform: translateY(-2px);
+        }
+
+        .page-card.is-selected {
+            border-color: var(--blue);
+            background: var(--blue-soft);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+
+        .thumbnail-frame {
+            position: relative;
+            display: grid;
+            place-items: center;
+            aspect-ratio: 0.72;
+            overflow: hidden;
+            border: 1px solid #e1e7ef;
+            border-radius: 8px;
+            background: #ffffff;
+        }
+
+        .thumbnail-frame::before {
+            color: #9aa9bd;
+            font-size: 0.76rem;
+            content: "Đang chờ xem trước";
+        }
+
+        .page-thumbnail {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #ffffff;
+        }
+
+        .page-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 9px 2px 1px;
+            color: #344256;
+            font-size: 0.82rem;
+            font-weight: 750;
+        }
+
+        .page-checkbox {
+            width: 17px;
+            height: 17px;
+            margin: 0;
+            accent-color: var(--blue);
+        }
+
+        @media (max-width: 900px) {
+            .topbar {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+
+            .control-panel {
+                position: static;
+            }
+
+            .page-grid {
+                max-height: none;
+            }
+        }
+
+        @media (max-width: 520px) {
+            .app-shell {
+                width: min(100% - 20px, 1440px);
+                padding-top: 20px;
+            }
+
+            .page-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="app-shell">
+        <header class="topbar">
+            <div>
+                <p class="eyebrow">PDF page exporter</p>
+                <h1>Chọn trang, xuất đúng phần cần dùng</h1>
+                <p class="intro">Nhập <strong>1,2,3,6</strong> hoặc <strong>1-5, 9</strong>, hoặc bấm trực tiếp vào hình thu nhỏ của từng trang.</p>
+            </div>
+            <div class="privacy-badge">Xử lý 100% trên trình duyệt</div>
+        </header>
+
+        <div class="workspace">
+            <section class="panel control-panel" aria-label="Điều khiển xuất PDF">
+                <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-controls="pdf-file" aria-label="Chọn hoặc thả tệp PDF">
+                    <div>
+                        <div class="upload-icon" aria-hidden="true">↑</div>
+                        <strong>Thả PDF vào đây</strong>
+                        <small>File không được gửi lên backend. PDF lớn được đọc cục bộ theo từng chunk khi export.</small>
+                        <button id="choose-file-button" class="choose-button" type="button">Chọn file PDF</button>
+                    </div>
+                </div>
+                <input id="pdf-file" class="file-input" type="file" accept="application/pdf,.pdf">
+
+                <div id="file-card" class="file-card" aria-live="polite">
+                    <div id="file-name" class="file-name"></div>
+                    <div class="file-meta">
+                        <span id="file-size"></span>
+                        <span id="page-total"></span>
+                        <span class="local-mode">Không upload</span>
+                    </div>
+                </div>
+
+                <div class="selection-block">
+                    <label class="field-label" for="page-selection">
+                        <span>Trang cần xuất</span>
+                        <span id="selected-count">0 trang</span>
+                    </label>
+                    <input id="page-selection" class="page-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Ví dụ: 1-5, 9" disabled>
+                    <p class="hint">Các trang được giữ theo thứ tự gốc; trang nhập trùng sẽ chỉ xuất một lần.</p>
+                    <p id="selection-feedback" class="selection-feedback" aria-live="polite">Hãy chọn một file PDF trước.</p>
+                    <div class="quick-actions">
+                        <button id="select-all-button" class="secondary-button" type="button" disabled>Chọn tất cả</button>
+                        <button id="clear-button" class="secondary-button" type="button" disabled>Bỏ chọn</button>
+                    </div>
+                </div>
+
+                <div id="status-card" class="status-card" role="status" aria-live="polite">
+                    <div id="status-title" class="status-title"></div>
+                    <div id="status-detail" class="status-detail"></div>
+                    <div id="progress-track" class="progress-track">
+                        <div id="progress-bar" class="progress-bar"></div>
+                    </div>
+                </div>
+
+                <button id="export-button" class="export-button" type="button" disabled>Xuất PDF đã chọn</button>
+            </section>
+
+            <section class="panel preview-panel" aria-label="Xem trước các trang PDF">
+                <div class="preview-header">
+                    <h2>Xem trước trang</h2>
+                    <span id="preview-count" class="preview-count">Chưa có PDF</span>
+                </div>
+                <div id="empty-state" class="empty-state">
+                    <div>
+                        <strong>Chưa có trang để hiển thị</strong>
+                        Chọn một file PDF để xem thumbnail và đánh dấu trang cần xuất.
+                    </div>
+                </div>
+                <div id="page-grid" class="page-grid" hidden></div>
+            </section>
+        </div>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        (() => {
+            'use strict';
+
+            const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024;
+            const THUMBNAIL_WIDTH = 190;
+            const MAX_THUMBNAIL_WORKERS = 2;
+            const QPDF_JS_URL = 'https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.js';
+            const QPDF_WASM_URL = 'https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.wasm';
+
+            const elements = {
+                dropZone: document.getElementById('drop-zone'),
+                chooseFileButton: document.getElementById('choose-file-button'),
+                fileInput: document.getElementById('pdf-file'),
+                fileCard: document.getElementById('file-card'),
+                fileName: document.getElementById('file-name'),
+                fileSize: document.getElementById('file-size'),
+                pageTotal: document.getElementById('page-total'),
+                pageSelection: document.getElementById('page-selection'),
+                selectedCount: document.getElementById('selected-count'),
+                selectionFeedback: document.getElementById('selection-feedback'),
+                selectAllButton: document.getElementById('select-all-button'),
+                clearButton: document.getElementById('clear-button'),
+                exportButton: document.getElementById('export-button'),
+                statusCard: document.getElementById('status-card'),
+                statusTitle: document.getElementById('status-title'),
+                statusDetail: document.getElementById('status-detail'),
+                progressTrack: document.getElementById('progress-track'),
+                progressBar: document.getElementById('progress-bar'),
+                emptyState: document.getElementById('empty-state'),
+                pageGrid: document.getElementById('page-grid'),
+                previewCount: document.getElementById('preview-count'),
+            };
+
+            let currentFile = null;
+            let previewDocument = null;
+            let previewObjectUrl = null;
+            let totalPages = 0;
+            let selectedPages = new Set();
+            let isBusy = false;
+            let loadGeneration = 0;
+            let thumbnailObserver = null;
+            let thumbnailQueue = [];
+            let activeThumbnailWorkers = 0;
+            let thumbnailObjectUrls = [];
+
+            if (window.pdfjsLib) {
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            }
+
+            function formatBytes(bytes) {
+                if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+                const units = ['B', 'KB', 'MB', 'GB'];
+                const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+                const value = bytes / (1024 ** unitIndex);
+                return `${value.toFixed(unitIndex === 0 || value >= 100 ? 0 : 1)} ${units[unitIndex]}`;
+            }
+
+            function setStatus(kind, title, detail = '', progress = null) {
+                elements.statusCard.classList.add('is-visible');
+                elements.statusCard.classList.toggle('is-error', kind === 'error');
+                elements.statusCard.classList.toggle('is-success', kind === 'success');
+                elements.statusTitle.textContent = title;
+                elements.statusDetail.textContent = detail;
+
+                const hasProgress = Number.isFinite(progress);
+                elements.progressTrack.classList.toggle('is-visible', hasProgress);
+                elements.progressBar.style.width = hasProgress ? `${Math.max(0, Math.min(100, progress))}%` : '0%';
+            }
+
+            function hideStatus() {
+                elements.statusCard.classList.remove('is-visible', 'is-error', 'is-success');
+                elements.progressTrack.classList.remove('is-visible');
+            }
+
+            function setBusy(nextBusy) {
+                isBusy = nextBusy;
+                elements.fileInput.disabled = nextBusy;
+                elements.chooseFileButton.disabled = nextBusy;
+                elements.pageSelection.disabled = nextBusy || !previewDocument;
+                elements.selectAllButton.disabled = nextBusy || !previewDocument;
+                elements.clearButton.disabled = nextBusy || !previewDocument;
+                updateExportButton();
+            }
+
+            function parsePageSelection(value, pageCount) {
+                const normalized = String(value || '').trim().replace(/[–—]/g, '-');
+                if (!normalized) {
+                    return [];
+                }
+
+                const pages = new Set();
+                const tokens = normalized.split(',');
+                for (const rawToken of tokens) {
+                    const token = rawToken.trim();
+                    if (!token) {
+                        throw new Error('Danh sách có một mục trống.');
+                    }
+
+                    const singleMatch = token.match(/^\d+$/);
+                    const rangeMatch = token.match(/^(\d+)\s*-\s*(\d+)$/);
+                    let start;
+                    let end;
+
+                    if (singleMatch) {
+                        start = end = Number(token);
+                    } else if (rangeMatch) {
+                        start = Number(rangeMatch[1]);
+                        end = Number(rangeMatch[2]);
+                        if (start > end) {
+                            throw new Error(`Khoảng “${token}” phải đi từ số nhỏ đến số lớn.`);
+                        }
+                    } else {
+                        throw new Error(`Không hiểu mục “${token}”.`);
+                    }
+
+                    if (start < 1 || end > pageCount) {
+                        throw new Error(`Trang phải nằm trong khoảng 1-${pageCount}.`);
+                    }
+
+                    for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
+                        pages.add(pageNumber);
+                    }
+                }
+
+                return Array.from(pages).sort((left, right) => left - right);
+            }
+
+            function compressPageNumbers(pageNumbers) {
+                const sorted = Array.from(new Set(pageNumbers)).sort((left, right) => left - right);
+                if (!sorted.length) return '';
+
+                const parts = [];
+                let rangeStart = sorted[0];
+                let rangeEnd = sorted[0];
+
+                const pushRange = () => {
+                    if (rangeStart === rangeEnd) {
+                        parts.push(String(rangeStart));
+                    } else if (rangeEnd === rangeStart + 1) {
+                        parts.push(String(rangeStart), String(rangeEnd));
+                    } else {
+                        parts.push(`${rangeStart}-${rangeEnd}`);
+                    }
+                };
+
+                for (let index = 1; index < sorted.length; index += 1) {
+                    const pageNumber = sorted[index];
+                    if (pageNumber === rangeEnd + 1) {
+                        rangeEnd = pageNumber;
+                    } else {
+                        pushRange();
+                        rangeStart = rangeEnd = pageNumber;
+                    }
+                }
+                pushRange();
+                return parts.join(', ');
+            }
+
+            function updateCardSelection() {
+                elements.pageGrid.querySelectorAll('.page-card').forEach(card => {
+                    const pageNumber = Number(card.dataset.pageNumber);
+                    const isSelected = selectedPages.has(pageNumber);
+                    card.classList.toggle('is-selected', isSelected);
+                    const checkbox = card.querySelector('.page-checkbox');
+                    if (checkbox) checkbox.checked = isSelected;
+                });
+            }
+
+            function updateExportButton() {
+                elements.exportButton.disabled = isBusy || !currentFile || !previewDocument || selectedPages.size === 0;
+                elements.exportButton.textContent = isBusy ? 'Đang xử lý…' : `Xuất PDF${selectedPages.size ? ` (${selectedPages.size} trang)` : ''}`;
+            }
+
+            function validateSelection({ updateCards = true } = {}) {
+                if (!previewDocument) {
+                    selectedPages = new Set();
+                    elements.selectedCount.textContent = '0 trang';
+                    updateExportButton();
+                    return false;
+                }
+
+                try {
+                    const parsedPages = parsePageSelection(elements.pageSelection.value, totalPages);
+                    selectedPages = new Set(parsedPages);
+                    elements.pageSelection.classList.remove('is-invalid');
+                    elements.selectionFeedback.classList.remove('is-error');
+                    elements.selectionFeedback.textContent = parsedPages.length
+                        ? `Sẵn sàng xuất ${parsedPages.length} trang theo thứ tự gốc.`
+                        : 'Nhập số trang hoặc bấm vào thumbnail bên phải.';
+                    elements.selectedCount.textContent = `${parsedPages.length} trang`;
+                    if (updateCards) updateCardSelection();
+                    updateExportButton();
+                    return parsedPages.length > 0;
+                } catch (error) {
+                    selectedPages = new Set();
+                    elements.pageSelection.classList.add('is-invalid');
+                    elements.selectionFeedback.classList.add('is-error');
+                    elements.selectionFeedback.textContent = error.message;
+                    elements.selectedCount.textContent = '0 trang';
+                    if (updateCards) updateCardSelection();
+                    updateExportButton();
+                    return false;
+                }
+            }
+
+            function revokeThumbnailUrls() {
+                thumbnailObjectUrls.forEach(url => URL.revokeObjectURL(url));
+                thumbnailObjectUrls = [];
+            }
+
+            async function releasePreview() {
+                loadGeneration += 1;
+                thumbnailQueue = [];
+                activeThumbnailWorkers = 0;
+                if (thumbnailObserver) {
+                    thumbnailObserver.disconnect();
+                    thumbnailObserver = null;
+                }
+                revokeThumbnailUrls();
+                if (previewDocument) {
+                    try {
+                        await previewDocument.destroy();
+                    } catch (error) {
+                        console.warn('Không thể giải phóng PDF preview:', error);
+                    }
+                    previewDocument = null;
+                }
+                if (previewObjectUrl) {
+                    URL.revokeObjectURL(previewObjectUrl);
+                    previewObjectUrl = null;
+                }
+            }
+
+            function enqueueThumbnail(pageNumber, imageElement, generation) {
+                if (imageElement.dataset.queued === 'true' || imageElement.dataset.loaded === 'true') return;
+                imageElement.dataset.queued = 'true';
+                thumbnailQueue.push({ pageNumber, imageElement, generation });
+                drainThumbnailQueue();
+            }
+
+            function drainThumbnailQueue() {
+                while (activeThumbnailWorkers < MAX_THUMBNAIL_WORKERS && thumbnailQueue.length) {
+                    const job = thumbnailQueue.shift();
+                    activeThumbnailWorkers += 1;
+                    renderThumbnail(job)
+                        .catch(error => console.warn(`Thumbnail trang ${job.pageNumber}:`, error))
+                        .finally(() => {
+                            activeThumbnailWorkers = Math.max(0, activeThumbnailWorkers - 1);
+                            drainThumbnailQueue();
+                        });
+                }
+            }
+
+            async function renderThumbnail({ pageNumber, imageElement, generation }) {
+                if (generation !== loadGeneration || !previewDocument) return;
+                const page = await previewDocument.getPage(pageNumber);
+                const baseViewport = page.getViewport({ scale: 1 });
+                const scale = THUMBNAIL_WIDTH / Math.max(baseViewport.width, 1);
+                const viewport = page.getViewport({ scale });
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.ceil(viewport.width));
+                canvas.height = Math.max(1, Math.ceil(viewport.height));
+                const context = canvas.getContext('2d', { alpha: false });
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                await page.render({ canvasContext: context, viewport }).promise;
+                page.cleanup();
+
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.78));
+                canvas.width = 1;
+                canvas.height = 1;
+                if (!blob || generation !== loadGeneration) return;
+
+                const thumbnailUrl = URL.createObjectURL(blob);
+                thumbnailObjectUrls.push(thumbnailUrl);
+                imageElement.src = thumbnailUrl;
+                imageElement.dataset.loaded = 'true';
+                imageElement.alt = `Xem trước trang ${pageNumber}`;
+            }
+
+            function buildPageGrid(pageCount, generation) {
+                const fragment = document.createDocumentFragment();
+                elements.pageGrid.replaceChildren();
+
+                for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+                    const card = document.createElement('label');
+                    card.className = 'page-card';
+                    card.dataset.pageNumber = String(pageNumber);
+
+                    const frame = document.createElement('span');
+                    frame.className = 'thumbnail-frame';
+                    const image = document.createElement('img');
+                    image.className = 'page-thumbnail';
+                    image.dataset.pageNumber = String(pageNumber);
+                    image.decoding = 'async';
+                    frame.appendChild(image);
+
+                    const footer = document.createElement('span');
+                    footer.className = 'page-footer';
+                    const label = document.createElement('span');
+                    label.textContent = `Trang ${pageNumber}`;
+                    const checkbox = document.createElement('input');
+                    checkbox.className = 'page-checkbox';
+                    checkbox.type = 'checkbox';
+                    checkbox.setAttribute('aria-label', `Chọn trang ${pageNumber}`);
+                    checkbox.addEventListener('change', () => {
+                        if (checkbox.checked) {
+                            selectedPages.add(pageNumber);
+                        } else {
+                            selectedPages.delete(pageNumber);
+                        }
+                        elements.pageSelection.value = compressPageNumbers(selectedPages);
+                        validateSelection();
+                    });
+                    footer.append(label, checkbox);
+                    card.append(frame, footer);
+                    fragment.appendChild(card);
+                }
+
+                elements.pageGrid.appendChild(fragment);
+                thumbnailObserver = new IntersectionObserver(entries => {
+                    entries.forEach(entry => {
+                        if (!entry.isIntersecting) return;
+                        const image = entry.target.querySelector('.page-thumbnail');
+                        enqueueThumbnail(Number(entry.target.dataset.pageNumber), image, generation);
+                        thumbnailObserver.unobserve(entry.target);
+                    });
+                }, {
+                    root: elements.pageGrid,
+                    rootMargin: '280px 0px',
+                    threshold: 0.01,
+                });
+                elements.pageGrid.querySelectorAll('.page-card').forEach(card => thumbnailObserver.observe(card));
+            }
+
+            async function loadPdfFile(file) {
+                if (!file) return;
+                const looksLikePdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+                if (!looksLikePdf) {
+                    setStatus('error', 'File không hợp lệ', 'Vui lòng chọn một file có định dạng PDF.');
+                    return;
+                }
+                if (!window.pdfjsLib || typeof Worker !== 'function') {
+                    setStatus('error', 'Không tải được thư viện PDF', 'Kiểm tra kết nối CDN rồi tải lại trang.');
+                    return;
+                }
+
+                setBusy(true);
+                await releasePreview();
+                const generation = loadGeneration;
+                currentFile = file;
+                totalPages = 0;
+                selectedPages = new Set();
+                elements.pageSelection.value = '';
+                elements.fileCard.classList.add('is-visible');
+                elements.fileName.textContent = file.name;
+                elements.fileName.title = file.name;
+                elements.fileSize.textContent = formatBytes(file.size);
+                elements.pageTotal.textContent = 'Đang đọc số trang…';
+                elements.emptyState.hidden = false;
+                elements.pageGrid.hidden = true;
+                elements.previewCount.textContent = 'Đang mở PDF…';
+                setStatus('info', 'Đang mở PDF cục bộ…', 'File chỉ được đọc trong tab trình duyệt này.');
+
+                try {
+                    previewObjectUrl = URL.createObjectURL(file);
+                    previewDocument = await pdfjsLib.getDocument({
+                        url: previewObjectUrl,
+                        verbosity: Number.isFinite(pdfjsLib?.VerbosityLevel?.ERRORS)
+                            ? pdfjsLib.VerbosityLevel.ERRORS
+                            : 0,
+                    }).promise;
+                    if (generation !== loadGeneration) return;
+
+                    totalPages = previewDocument.numPages;
+                    elements.pageTotal.textContent = `${totalPages} trang`;
+                    elements.previewCount.textContent = `${totalPages} trang`;
+                    elements.emptyState.hidden = true;
+                    elements.pageGrid.hidden = false;
+                    elements.pageSelection.disabled = false;
+                    elements.selectAllButton.disabled = false;
+                    elements.clearButton.disabled = false;
+                    buildPageGrid(totalPages, generation);
+                    validateSelection();
+                    hideStatus();
+                } catch (error) {
+                    console.error(error);
+                    await releasePreview();
+                    currentFile = null;
+                    elements.pageTotal.textContent = 'Không đọc được';
+                    elements.previewCount.textContent = 'PDF lỗi';
+                    setStatus('error', 'Không thể mở PDF', error?.message || 'File có thể bị hỏng hoặc có mật khẩu.');
+                } finally {
+                    setBusy(false);
+                }
+            }
+
+            async function readFileForExport(file) {
+                if (file.size <= LARGE_FILE_THRESHOLD || typeof file.stream !== 'function') {
+                    setStatus('info', 'Đang đọc PDF…', `${formatBytes(file.size)} từ bộ nhớ cục bộ`, 12);
+                    return new Uint8Array(await file.arrayBuffer());
+                }
+
+                const output = new Uint8Array(file.size);
+                const reader = file.stream().getReader();
+                let offset = 0;
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        output.set(value, offset);
+                        offset += value.byteLength;
+                        const progress = (offset / file.size) * 35;
+                        setStatus(
+                            'info',
+                            'Đang đọc PDF lớn theo từng chunk…',
+                            `${formatBytes(offset)} / ${formatBytes(file.size)} · không upload`,
+                            progress,
+                        );
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
+                } finally {
+                    reader.releaseLock();
+                }
+                return output;
+            }
+
+            function buildDownloadFilename(filename, pageNumbers) {
+                const lastDot = filename.lastIndexOf('.');
+                const stem = lastDot > 0 ? filename.slice(0, lastDot) : filename;
+                const pageSuffix = compressPageNumbers(pageNumbers).replace(/\s+/g, '');
+                return `${stem || 'document'} [${pageSuffix}].pdf`;
+            }
+
+            function buildPdfInWorker(sourceBytes, pageNumbers, expectedPageCount) {
+                const pageSpec = compressPageNumbers(pageNumbers).replace(/\s+/g, '');
+                const workerSource = `
+                    self.onmessage = async event => {
+                        try {
+                            importScripts(${JSON.stringify(QPDF_JS_URL)});
+                            const { sourceBuffer, selectedPageSpec } = event.data;
+                            const messages = [];
+                            const qpdf = await Module({
+                                noInitialRun: true,
+                                locateFile: path => path.endsWith('.wasm')
+                                    ? ${JSON.stringify(QPDF_WASM_URL)}
+                                    : path,
+                                print: message => messages.push(String(message)),
+                                printErr: message => messages.push(String(message)),
+                            });
+                            qpdf.FS.writeFile('/input.pdf', new Uint8Array(sourceBuffer));
+
+                            try {
+                                qpdf.callMain([
+                                    '/input.pdf',
+                                    '--warning-exit-0',
+                                    '--pages',
+                                    '.',
+                                    selectedPageSpec,
+                                    '--',
+                                    '/output.pdf',
+                                ]);
+                            } catch (error) {
+                                if (Number(error && error.status) !== 0) {
+                                    throw new Error(messages.filter(Boolean).slice(-4).join(' · ') || error.message || String(error));
+                                }
+                            }
+
+                            const wasmOutput = qpdf.FS.readFile('/output.pdf');
+                            const outputBytes = new Uint8Array(wasmOutput.byteLength);
+                            outputBytes.set(wasmOutput);
+                            qpdf.FS.unlink('/input.pdf');
+                            qpdf.FS.unlink('/output.pdf');
+                            self.postMessage({
+                                type: 'complete',
+                                buffer: outputBytes.buffer,
+                                byteLength: outputBytes.byteLength,
+                            }, [outputBytes.buffer]);
+                        } catch (error) {
+                            self.postMessage({
+                                type: 'error',
+                                message: error && error.message ? error.message : String(error),
+                            });
+                        }
+                    };
+                `;
+                const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
+                const worker = new Worker(workerUrl);
+
+                return new Promise((resolve, reject) => {
+                    const cleanup = () => {
+                        worker.terminate();
+                        URL.revokeObjectURL(workerUrl);
+                    };
+                    worker.onmessage = event => {
+                        if (event.data?.type === 'complete') {
+                            const { buffer, byteOffset, byteLength } = event.data;
+                            cleanup();
+                            resolve(new Uint8Array(buffer, byteOffset, byteLength));
+                            return;
+                        }
+                        cleanup();
+                        reject(new Error(event.data?.message || 'Web Worker không thể tạo PDF.'));
+                    };
+                    worker.onerror = event => {
+                        cleanup();
+                        reject(new Error(event.message || 'Không khởi chạy được Web Worker xử lý PDF.'));
+                    };
+                    worker.postMessage({
+                        sourceBuffer: sourceBytes.buffer,
+                        selectedPageSpec: pageSpec,
+                        expectedPageCount,
+                    }, [sourceBytes.buffer]);
+                });
+            }
+
+            function downloadBytes(bytes, filename) {
+                const blob = new Blob([bytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 30000);
+            }
+
+            async function exportSelectedPages() {
+                if (!currentFile || !previewDocument || !validateSelection()) return;
+                const fileAtStart = currentFile;
+                const pagesAtStart = Array.from(selectedPages).sort((left, right) => left - right);
+                setBusy(true);
+
+                try {
+                    const sourceBytes = await readFileForExport(fileAtStart);
+                    setStatus(
+                        'info',
+                        'Đang tạo PDF trong tiến trình nền…',
+                        `${pagesAtStart.length} trang · giữ catalog, vector, font và cấu hình layer`,
+                        52,
+                    );
+                    const outputBytes = await buildPdfInWorker(sourceBytes, pagesAtStart, totalPages);
+                    setStatus('info', 'Đang chuẩn bị tải xuống…', formatBytes(outputBytes.byteLength), 96);
+                    downloadBytes(outputBytes, buildDownloadFilename(fileAtStart.name, pagesAtStart));
+                    setStatus(
+                        'success',
+                        'Đã tạo PDF thành công',
+                        `${pagesAtStart.length} trang · ${formatBytes(outputBytes.byteLength)} · file không rời khỏi trình duyệt`,
+                        100,
+                    );
+                } catch (error) {
+                    console.error(error);
+                    const isEncrypted = /encrypt|password/i.test(String(error?.message || ''));
+                    setStatus(
+                        'error',
+                        'Không thể xuất PDF',
+                        isEncrypted
+                            ? 'PDF có mật khẩu/mã hóa chưa được hỗ trợ. Hãy mở khóa file trước khi dùng công cụ này.'
+                            : (error?.message || 'Trình duyệt có thể không đủ bộ nhớ cho file này.'),
+                    );
+                } finally {
+                    setBusy(false);
+                }
+            }
+
+            function openFilePicker() {
+                if (isBusy) return;
+                elements.fileInput.value = '';
+                elements.fileInput.click();
+            }
+
+            elements.chooseFileButton.addEventListener('click', event => {
+                event.stopPropagation();
+                openFilePicker();
+            });
+            elements.dropZone.addEventListener('click', openFilePicker);
+            elements.dropZone.addEventListener('keydown', event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openFilePicker();
+                }
+            });
+            elements.fileInput.addEventListener('change', () => {
+                const [file] = elements.fileInput.files || [];
+                loadPdfFile(file);
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                elements.dropZone.addEventListener(eventName, event => {
+                    event.preventDefault();
+                    if (!isBusy) elements.dropZone.classList.add('is-dragging');
+                });
+            });
+            ['dragleave', 'drop'].forEach(eventName => {
+                elements.dropZone.addEventListener(eventName, event => {
+                    event.preventDefault();
+                    elements.dropZone.classList.remove('is-dragging');
+                });
+            });
+            elements.dropZone.addEventListener('drop', event => {
+                if (isBusy) return;
+                const file = Array.from(event.dataTransfer?.files || []).find(candidate => (
+                    candidate.type === 'application/pdf' || candidate.name.toLowerCase().endsWith('.pdf')
+                ));
+                loadPdfFile(file);
+            });
+
+            elements.pageSelection.addEventListener('input', () => validateSelection());
+            elements.selectAllButton.addEventListener('click', () => {
+                elements.pageSelection.value = totalPages > 1 ? `1-${totalPages}` : '1';
+                validateSelection();
+            });
+            elements.clearButton.addEventListener('click', () => {
+                elements.pageSelection.value = '';
+                validateSelection();
+            });
+            elements.exportButton.addEventListener('click', exportSelectedPages);
+            window.addEventListener('beforeunload', () => {
+                if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+                revokeThumbnailUrls();
+            });
+        })();
+    </script>
+</body>
+
+</html>

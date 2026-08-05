@@ -65,7 +65,6 @@ function releaseVisualizationMemoryForPageSwitch() {
     documentMetadata = null;
     svgData = null;
     currentJsonSourceFile = null;
-    currentJsonGzipPromise = null;
     layerIndex = {};
     layerVisibility = {};
     sortedLayerKeys = [];
@@ -121,6 +120,9 @@ function releaseVisualizationMemoryForPageSwitch() {
     isApplyingSavedPattern = false;
     bboxStart = null;
     currentBbox = null;
+    isSolidifyElbowBboxMode = false;
+    solidifyElbowBboxStart = null;
+    solidifyElbowCurrentBbox = null;
     isVLMBboxMode = false;
     vlmBboxStart = null;
     vlmBboxEnd = null;
@@ -145,6 +147,9 @@ function releaseVisualizationMemoryForPageSwitch() {
     }
     btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
     btnDrawBbox.classList.remove('active');
+    if (typeof updateSolidifyElbowBboxButtonState === 'function') {
+        updateSolidifyElbowBboxButtonState();
+    }
     btnAIExtract.textContent = UI_TEXT.VLM_EXTRACT;
     btnAIExtract.classList.remove('active');
     annotationMode = null;
@@ -176,7 +181,7 @@ function releaseVisualizationMemoryForPageSwitch() {
     if (typeof invalidateManualAnnotationSpatialIndex === 'function') {
         invalidateManualAnnotationSpatialIndex();
     }
-    canvasContainer.classList.remove('drawing-bbox', 'vlm-bbox-mode', 'annotation-junction-mode', 'annotation-connect-mode', 'annotation-pair-check-mode', 'annotation-delete-mode');
+    canvasContainer.classList.remove('drawing-bbox', 'solidify-elbow-bbox-mode', 'vlm-bbox-mode', 'annotation-junction-mode', 'annotation-connect-mode', 'annotation-pair-check-mode', 'annotation-delete-mode');
     crosshairCtx.clearRect(0, 0, crosshairCanvas.width, crosshairCanvas.height);
     if (typeof updateModeLabel === 'function') {
         updateModeLabel(null);

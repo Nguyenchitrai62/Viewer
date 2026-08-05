@@ -12,6 +12,12 @@ function resetLayerInteractionState() {
 
 function applyLayerVisibilityUpdate(options = {}) {
     resetLayerInteractionState();
+    if (typeof updateSolidLineButtonState === 'function') {
+        updateSolidLineButtonState();
+    }
+    if (typeof updateSolidifyElbowBboxButtonState === 'function') {
+        updateSolidifyElbowBboxButtonState();
+    }
     if (typeof invalidateShapeRasterCache === 'function') {
         invalidateShapeRasterCache();
         scheduleShapeRasterCacheBuild();
@@ -826,6 +832,9 @@ function updateLayerList() {
     });
     layerList.appendChild(fragment);
     updateMainLayerButtonState();
+    if (typeof updateSolidLineButtonState === 'function') {
+        updateSolidLineButtonState();
+    }
 }
 
 function hideLayerContextMenu() {

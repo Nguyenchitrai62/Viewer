@@ -63,6 +63,8 @@ window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
         if (isVLMBboxMode) {
             btnAIExtract.click();
+        } else if (isSolidifyElbowBboxMode) {
+            deactivateSolidifyElbowBboxMode();
         } else if (isDrawingBbox) {
             btnDrawBbox.click();
         } else if (annotationMode) {
@@ -341,10 +343,9 @@ if (manualLabelPanel) {
     });
 }
 
-btnDetectPipeline.addEventListener('click', detectPipeline);
 btnExportPipelineJson.addEventListener('click', () => {
     if (!pipelineRawResults) {
-        alert('No pipeline data to export. Please run "Detect Pipeline" first.');
+        alert('No pipeline data available to export.');
         return;
     }
 
@@ -361,7 +362,7 @@ btnExportPipelineJson.addEventListener('click', () => {
 
 btnExportRevitJson.addEventListener('click', async () => {
     if (!pipelineRawResults || pipelineRawResults.length === 0) {
-        alert('No pipeline data available. Please run "Detect Pipeline" first.');
+        alert('No pipeline data available to export to Revit.');
         return;
     }
 
@@ -478,6 +479,9 @@ btnDrawBbox.addEventListener('click', () => {
     canvasContainer.classList.toggle('drawing-bbox', isDrawingBbox); // Update cursor style
     
     if (isDrawingBbox) {
+        if (isSolidifyElbowBboxMode) {
+            deactivateSolidifyElbowBboxMode({ clearModeLabel: false });
+        }
         // Cancel VLM mode if active
         if (isVLMBboxMode) {
             isVLMBboxMode = false;
@@ -526,6 +530,9 @@ btnResetFilter.addEventListener('click', () => {
     btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
     btnDrawBbox.classList.remove('active');
     canvasContainer.classList.remove('drawing-bbox'); // Reset cursor
+    if (isSolidifyElbowBboxMode) {
+        deactivateSolidifyElbowBboxMode({ clearModeLabel: false });
+    }
     updateModeLabel(null);
     scheduleCrosshairOverlayDraw();
     if (shouldRefreshSearchCanvas) {
@@ -563,6 +570,9 @@ btnAIExtract.addEventListener('click', () => {
             btnDrawBbox.textContent = UI_TEXT.DRAW_FIND;
             btnDrawBbox.classList.remove('active');
             canvasContainer.classList.remove('drawing-bbox');
+        }
+        if (isSolidifyElbowBboxMode) {
+            deactivateSolidifyElbowBboxMode({ clearModeLabel: false });
         }
         if (annotationMode) {
             deactivateManualLabelMode();
@@ -603,6 +613,9 @@ function updateModeLabel(mode) {
     } else if (mode === 'vlm') {
         label.textContent = UI_TEXT.VLM_SHORT;
         label.classList.add('vlm-mode');
+    } else if (mode === 'solidify-elbow') {
+        label.textContent = UI_TEXT.MODE_SOLIDIFY_ELBOW;
+        label.classList.add('find-mode');
     } else if (mode === 'symbol') {
         label.textContent = UI_TEXT.MODE_SYMBOL;
         label.classList.add('find-mode');
@@ -638,13 +651,13 @@ canvasContainer.addEventListener('mousedown', e => {
     if (e.button !== 0) {
         return;
     }
-    if (!isDrawingBbox && !isVLMBboxMode && !annotationMode && typeof handleDetectionExtractCanvasClick === 'function') {
+    if (!isDrawingBbox && !isVLMBboxMode && !isSolidifyElbowBboxMode && !annotationMode && typeof handleDetectionExtractCanvasClick === 'function') {
         if (handleDetectionExtractCanvasClick(worldX, worldY, e)) {
             activeMouseButton = null;
             return;
         }
     }
-    if (!isDrawingBbox && !isVLMBboxMode && !annotationMode) setInteractionState(true); // Start interaction only for pan, not bbox
+    if (!isDrawingBbox && !isVLMBboxMode && !isSolidifyElbowBboxMode && !annotationMode) setInteractionState(true); // Start interaction only for pan, not bbox
     if (annotationMode) {
         if (typeof window.isDetectionExtractManualEditingAllowed === 'function' && !window.isDetectionExtractManualEditingAllowed()) {
             activeMouseButton = null;
@@ -660,6 +673,10 @@ canvasContainer.addEventListener('mousedown', e => {
         vlmBboxStart = { x: worldX, y: worldY };
         vlmBboxEnd = { ...vlmBboxStart };
         isVLMDrawing = true;
+        scheduleCrosshairOverlayDraw();
+    } else if (isSolidifyElbowBboxMode) {
+        solidifyElbowBboxStart = { x: worldX, y: worldY };
+        solidifyElbowCurrentBbox = null;
         scheduleCrosshairOverlayDraw();
     } else if (isDrawingBbox) {
         bboxStart = { x: worldX, y: worldY };
@@ -707,6 +724,18 @@ canvasContainer.addEventListener('mouseup', e => {
         isVLMDrawing = false;
         scheduleCrosshairOverlayDraw();
         scheduleDraw();
+    } else if (isSolidifyElbowBboxMode) {
+        const completedBbox = solidifyElbowCurrentBbox
+            && solidifyElbowCurrentBbox.width > 1
+            && solidifyElbowCurrentBbox.height > 1
+            ? { ...solidifyElbowCurrentBbox }
+            : null;
+        solidifyElbowBboxStart = null;
+        solidifyElbowCurrentBbox = null;
+        scheduleCrosshairOverlayDraw();
+        if (completedBbox && typeof solidifyDashedElbowInBbox === 'function') {
+            void solidifyDashedElbowInBbox(completedBbox);
+        }
     } else if (isDrawingBbox) {
         // If bbox was drawn (with valid size), show modal
         const completedBbox = currentBbox && currentBbox.width > 1 && currentBbox.height > 1
@@ -764,6 +793,16 @@ canvasContainer.addEventListener('mousemove', e => {
             scheduleDraw();
         }
         vlmBboxEnd = { x: canvasX, y: canvasY };
+        scheduleCrosshairOverlayDraw();
+    } else if (isSolidifyElbowBboxMode) {
+        if (solidifyElbowBboxStart) {
+            solidifyElbowCurrentBbox = {
+                x: Math.min(solidifyElbowBboxStart.x, canvasX),
+                y: Math.min(solidifyElbowBboxStart.y, canvasY),
+                width: Math.abs(canvasX - solidifyElbowBboxStart.x),
+                height: Math.abs(canvasY - solidifyElbowBboxStart.y)
+            };
+        }
         scheduleCrosshairOverlayDraw();
     } else if (isDrawingBbox) {
         if (bboxStart) {
