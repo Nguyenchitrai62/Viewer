@@ -1222,29 +1222,171 @@
                                 print: message => messages.push(String(message)),
                                 printErr: message => messages.push(String(message)),
                             });
-                            qpdf.FS.writeFile('/input.pdf', new Uint8Array(sourceBuffer));
 
-                            try {
-                                qpdf.callMain([
-                                    '/input.pdf',
-                                    '--warning-exit-0',
-                                    '--pages',
-                                    '.',
-                                    selectedPageSpec,
-                                    '--',
-                                    '/output.pdf',
-                                ]);
-                            } catch (error) {
-                                if (Number(error && error.status) !== 0) {
-                                    throw new Error(messages.filter(Boolean).slice(-4).join(' · ') || error.message || String(error));
+                            const isPdfWhitespace = byte => (
+                                byte === 0x00 || byte === 0x09 || byte === 0x0A ||
+                                byte === 0x0C || byte === 0x0D || byte === 0x20
+                            );
+
+                            const findByteSequence = (bytes, sequence, startAt = 0) => {
+                                let index = bytes.indexOf(sequence[0], Math.max(0, startAt));
+                                while (index >= 0 && index <= bytes.length - sequence.length) {
+                                    let matches = true;
+                                    for (let offset = 0; offset < sequence.length; offset += 1) {
+                                        if (bytes[index + offset] !== sequence[offset]) {
+                                            matches = false;
+                                            break;
+                                        }
+                                    }
+                                    if (matches) return index;
+                                    index = bytes.indexOf(sequence[0], index + 1);
                                 }
+                                return -1;
+                            };
+
+                            const findPdfDictionaryEnd = (bytes, dictionaryStart) => {
+                                let depth = 1;
+                                for (let index = dictionaryStart + 2; index < bytes.length; index += 1) {
+                                    const byte = bytes[index];
+
+                                    if (byte === 0x25) {
+                                        while (index < bytes.length && bytes[index] !== 0x0A && bytes[index] !== 0x0D) {
+                                            index += 1;
+                                        }
+                                        continue;
+                                    }
+
+                                    if (byte === 0x28) {
+                                        let stringDepth = 1;
+                                        for (index += 1; index < bytes.length && stringDepth > 0; index += 1) {
+                                            if (bytes[index] === 0x5C) {
+                                                index += 1;
+                                            } else if (bytes[index] === 0x28) {
+                                                stringDepth += 1;
+                                            } else if (bytes[index] === 0x29) {
+                                                stringDepth -= 1;
+                                            }
+                                        }
+                                        index -= 1;
+                                        continue;
+                                    }
+
+                                    if (byte === 0x3C && bytes[index + 1] !== 0x3C) {
+                                        for (index += 1; index < bytes.length && bytes[index] !== 0x3E; index += 1) {
+                                            // Skip a hexadecimal string so its bytes cannot look like a dictionary terminator.
+                                        }
+                                        continue;
+                                    }
+
+                                    if (byte === 0x3C && bytes[index + 1] === 0x3C) {
+                                        depth += 1;
+                                        index += 1;
+                                        continue;
+                                    }
+
+                                    if (byte === 0x3E && bytes[index + 1] === 0x3E) {
+                                        depth -= 1;
+                                        if (depth === 0) return index + 2;
+                                        index += 1;
+                                    }
+                                }
+                                return -1;
+                            };
+
+                            // Some AutoCAD PDFs contain a malformed direct /PageLabels number tree. qpdf
+                            // must read that tree while copying pages, even when page labels are not needed.
+                            // On the retry path, turn only that catalog value into null without changing any
+                            // byte offsets, so the original page content and cross-reference table remain intact.
+                            const neutralizeMalformedPageLabels = source => {
+                                const bytes = source.slice();
+                                const pageLabelsKey = [
+                                    0x2F, 0x50, 0x61, 0x67, 0x65, 0x4C, 0x61, 0x62, 0x65, 0x6C, 0x73,
+                                ];
+                                let searchAt = 0;
+                                let repaired = false;
+
+                                while (true) {
+                                    const keyStart = findByteSequence(bytes, pageLabelsKey, searchAt);
+                                    if (keyStart < 0) break;
+
+                                    let valueStart = keyStart + pageLabelsKey.length;
+                                    while (valueStart < bytes.length && isPdfWhitespace(bytes[valueStart])) {
+                                        valueStart += 1;
+                                    }
+
+                                    if (bytes[valueStart] === 0x3C && bytes[valueStart + 1] === 0x3C) {
+                                        const valueEnd = findPdfDictionaryEnd(bytes, valueStart);
+                                        if (valueEnd > valueStart) {
+                                            const replacementLength = valueEnd - valueStart;
+                                            bytes.fill(0x20, valueStart, valueEnd);
+                                            if (replacementLength >= 5) {
+                                                bytes[valueStart] = 0x20;
+                                                bytes[valueStart + 1] = 0x6E;
+                                                bytes[valueStart + 2] = 0x75;
+                                                bytes[valueStart + 3] = 0x6C;
+                                                bytes[valueStart + 4] = 0x6C;
+                                                repaired = true;
+                                            }
+                                            searchAt = valueEnd;
+                                            continue;
+                                        }
+                                    }
+
+                                    searchAt = keyStart + pageLabelsKey.length;
+                                }
+
+                                return repaired ? bytes : null;
+                            };
+
+                            const clearQpdfFiles = () => {
+                                for (const filePath of ['/input.pdf', '/output.pdf']) {
+                                    try {
+                                        qpdf.FS.unlink(filePath);
+                                    } catch (error) {
+                                        // The file may not exist on the first run.
+                                    }
+                                }
+                            };
+
+                            const runQpdf = (inputBytes, removePageLabels = false) => {
+                                clearQpdfFiles();
+                                messages.length = 0;
+                                qpdf.FS.writeFile('/input.pdf', inputBytes);
+
+                                const args = ['/input.pdf', '--warning-exit-0'];
+                                if (removePageLabels) args.push('--remove-page-labels');
+                                args.push('--pages', '.', selectedPageSpec, '--', '/output.pdf');
+
+                                let exitCode = 0;
+                                try {
+                                    exitCode = qpdf.callMain(args);
+                                } catch (error) {
+                                    const status = Number(error && error.status);
+                                    exitCode = Number.isFinite(status) ? status : -1;
+                                }
+
+                                if (Number(exitCode) !== 0) {
+                                    const detail = messages.filter(Boolean).slice(-4).join(' · ');
+                                    throw new Error(detail || 'qpdf kết thúc với mã ' + exitCode + '.');
+                                }
+
+                                const wasmOutput = qpdf.FS.readFile('/output.pdf');
+                                const outputBytes = new Uint8Array(wasmOutput.byteLength);
+                                outputBytes.set(wasmOutput);
+                                return outputBytes;
+                            };
+
+                            const originalBytes = new Uint8Array(sourceBuffer);
+                            let outputBytes;
+                            try {
+                                outputBytes = runQpdf(originalBytes);
+                            } catch (primaryError) {
+                                const repairedBytes = neutralizeMalformedPageLabels(originalBytes);
+                                if (!repairedBytes) throw primaryError;
+                                outputBytes = runQpdf(repairedBytes, true);
                             }
 
-                            const wasmOutput = qpdf.FS.readFile('/output.pdf');
-                            const outputBytes = new Uint8Array(wasmOutput.byteLength);
-                            outputBytes.set(wasmOutput);
-                            qpdf.FS.unlink('/input.pdf');
-                            qpdf.FS.unlink('/output.pdf');
+                            clearQpdfFiles();
                             self.postMessage({
                                 type: 'complete',
                                 buffer: outputBytes.buffer,
