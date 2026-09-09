@@ -980,7 +980,7 @@
                         <span id="selected-count">0 trang</span>
                     </label>
                     <input id="page-selection" class="page-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Ví dụ: 1-5, 9" disabled>
-                    <p class="hint">Các trang được giữ theo thứ tự gốc; trang nhập trùng sẽ chỉ xuất một lần.</p>
+                    <p id="selection-hint" class="hint">Các trang được giữ theo thứ tự gốc; trang nhập trùng sẽ chỉ xuất một lần.</p>
                     <p id="selection-feedback" class="selection-feedback" aria-live="polite">Hãy chọn một file PDF trước.</p>
                     <div class="quick-actions">
                         <button id="select-all-button" class="secondary-button" type="button" disabled>Chọn tất cả</button>
@@ -1104,6 +1104,7 @@
                 pageSelection: document.getElementById('page-selection'),
                 selectedCount: document.getElementById('selected-count'),
                 selectionFeedback: document.getElementById('selection-feedback'),
+                selectionHint: document.getElementById('selection-hint'),
                 selectAllButton: document.getElementById('select-all-button'),
                 clearButton: document.getElementById('clear-button'),
                 exportButton: document.getElementById('export-button'),
@@ -1146,6 +1147,7 @@
             let thumbnailObjectUrls = [];
             let mergeFiles = [];
             let mergePageOrder = [];
+            let mergeSelectionError = '';
             let nextMergeFileId = 1;
             let draggedMergeFileId = null;
             let draggedMergePageId = null;
@@ -1193,9 +1195,7 @@
                 elements.chooseFileButton.disabled = nextBusy;
                 elements.mergeFileInput.disabled = nextBusy;
                 elements.mergeAddButton.disabled = nextBusy;
-                elements.pageSelection.disabled = nextBusy || !previewDocument || previewMode !== 'single';
-                elements.selectAllButton.disabled = nextBusy || !previewDocument || previewMode !== 'single';
-                elements.clearButton.disabled = nextBusy || !previewDocument || previewMode !== 'single';
+                updateSelectionControls();
                 elements.pageGrid.style.pointerEvents = nextBusy ? 'none' : '';
                 elements.pageGrid.setAttribute('aria-busy', String(nextBusy));
                 updateExportButton();
@@ -1287,6 +1287,15 @@
             }
 
             function updateExportButton() {
+                if (previewMode === 'merge') {
+                    updateMergeControls();
+                    elements.exportButton.disabled = elements.mergeButton.disabled;
+                    const count = getMergePageTotal();
+                    elements.exportButton.textContent = isBusy ? 'Đang xử lý…' : `Xuất PDF (${count} trang)`;
+                    elements.imageExportButton.disabled = true;
+                    elements.imageExportButton.textContent = 'Tải ảnh';
+                    return;
+                }
                 const actionsDisabled = isBusy || previewMode !== 'single' || !currentFile || !previewDocument || selectedPages.size === 0;
                 elements.exportButton.disabled = actionsDisabled;
                 elements.imageExportButton.disabled = actionsDisabled;
@@ -1338,7 +1347,7 @@
                 elements.mergeCount.textContent = `${mergeFiles.length} tệp`;
                 elements.mergeClearButton.disabled = isBusy || mergeFiles.length === 0;
                 elements.mergeOutputName.disabled = isBusy;
-                elements.mergeButton.disabled = isBusy || mergeFiles.length === 0 || pageTotal === 0 || hasInvalidFile || isInspecting;
+                elements.mergeButton.disabled = isBusy || mergeFiles.length === 0 || pageTotal === 0 || Boolean(mergeSelectionError) || hasInvalidFile || isInspecting;
                 elements.mergeButton.textContent = isBusy
                     ? 'Đang xử lý…'
                     : `Xuất PDF đã ghép${pageTotal ? ` (${pageTotal} trang)` : ''}`;
@@ -1609,7 +1618,60 @@
                 }
             }
 
+            function updateSelectionControls() {
+                const ready = previewMode === 'merge'
+                    ? mergePageOrder.length > 0 && !mergeFiles.some(entry => entry.pageCount === null && !entry.error)
+                    : Boolean(previewDocument);
+                elements.pageSelection.disabled = isBusy || !ready;
+                elements.selectAllButton.disabled = isBusy || !ready;
+                elements.clearButton.disabled = isBusy || !ready;
+                elements.selectionHint.textContent = previewMode === 'merge'
+                    ? 'Nhập số thứ tự # trong preview (ví dụ 1-5, 9), không phải số trang gốc của từng PDF. Xuất theo thứ tự đang hiển thị.'
+                    : 'Các trang được giữ theo thứ tự gốc; trang nhập trùng sẽ chỉ xuất một lần.';
+            }
+
+            function syncMergeSelection({ updateInput = true } = {}) {
+                const positions = [];
+                const pagesById = new Map();
+                mergePageOrder.forEach((page, index) => {
+                    pagesById.set(page.id, page);
+                    if (page.included) positions.push(index + 1);
+                });
+                if (updateInput && !mergeSelectionError) {
+                    elements.pageSelection.value = compressPageNumbers(positions);
+                }
+                elements.pageGrid.querySelectorAll('.merge-page-card').forEach(card => {
+                    const included = Boolean(pagesById.get(card.dataset.mergePageId)?.included);
+                    card.classList.toggle('is-selected', included);
+                    card.querySelector('.page-checkbox').checked = included;
+                });
+                elements.pageSelection.classList.toggle('is-invalid', Boolean(mergeSelectionError));
+                elements.selectionFeedback.classList.toggle('is-error', Boolean(mergeSelectionError));
+                elements.selectedCount.textContent = `${positions.length} trang`;
+                elements.selectionFeedback.textContent = mergeSelectionError || (positions.length
+                    ? `Sẵn sàng xuất ${positions.length} trang theo thứ tự trong preview.`
+                    : 'Nhập số thứ tự # hoặc chọn trang trong preview.');
+                if (!mergeFiles.some(entry => entry.pageCount === null && !entry.error)) {
+                    elements.previewCount.textContent = `${mergeFiles.length} PDF · ${positions.length}/${mergePageOrder.length} trang`;
+                }
+                updateSelectionControls();
+                updateExportButton();
+            }
+
             function validateSelection({ updateCards = true } = {}) {
+                if (previewMode === 'merge') {
+                    let parsedPages = [];
+                    try {
+                        parsedPages = parsePageSelection(elements.pageSelection.value, mergePageOrder.length);
+                        mergeSelectionError = '';
+                    } catch (error) {
+                        mergeSelectionError = error.message;
+                    }
+                    const includedPositions = new Set(parsedPages);
+                    mergePageOrder.forEach((page, index) => { page.included = includedPositions.has(index + 1); });
+                    syncMergeSelection({ updateInput: false });
+                    return !mergeSelectionError && parsedPages.length > 0;
+                }
                 if (!previewDocument) {
                     selectedPages = new Set();
                     elements.selectedCount.textContent = '0 trang';
@@ -1725,6 +1787,8 @@
             function buildPageGrid(pageCount, generation) {
                 resetThumbnailRendering();
                 previewMode = 'single';
+                elements.pageSelection.value = compressPageNumbers(selectedPages);
+                updateSelectionControls();
                 elements.previewTitle.textContent = 'Xem trước trang';
                 const fragment = document.createDocumentFragment();
                 elements.pageGrid.replaceChildren();
@@ -1799,9 +1863,8 @@
                     elements.previewCount.textContent = 'Chưa có PDF';
                     updateExportButton();
                 }
-                elements.pageSelection.disabled = isBusy || !previewDocument;
-                elements.selectAllButton.disabled = isBusy || !previewDocument;
-                elements.clearButton.disabled = isBusy || !previewDocument;
+                updateSelectionControls();
+                validateSelection();
             }
 
             function clearMergePageDropTargets() {
@@ -1878,9 +1941,7 @@
                     card => [card.dataset.mergePageId, card],
                 ));
                 if (thumbnailObserver) thumbnailObserver.disconnect();
-                elements.pageSelection.disabled = true;
-                elements.selectAllButton.disabled = true;
-                elements.clearButton.disabled = true;
+                updateSelectionControls();
 
                 const availablePages = mergePageOrder.filter(pageEntry => (
                     mergeFiles.some(entry => entry.id === pageEntry.fileId && entry.documentHandle)
@@ -1937,10 +1998,8 @@
                     checkbox.setAttribute('aria-label', `Đưa trang ${pageEntry.pageNumber} của ${sourceEntry.file.name} vào PDF kết quả`);
                     checkbox.addEventListener('change', () => {
                         pageEntry.included = checkbox.checked;
-                        card.classList.toggle('is-selected', pageEntry.included);
-                        updateMergeControls();
-                        const selectedTotal = mergePageOrder.filter(candidate => candidate.included).length;
-                        elements.previewCount.textContent = `${mergeFiles.length} PDF · ${selectedTotal}/${mergePageOrder.length} trang`;
+                        mergeSelectionError = '';
+                        syncMergeSelection();
                     });
                     checkbox.addEventListener('dragstart', event => event.preventDefault());
                     footer.append(label, checkbox);
@@ -1992,8 +2051,7 @@
                     threshold: 0.01,
                 });
                 elements.pageGrid.querySelectorAll('.merge-page-card').forEach(card => thumbnailObserver.observe(card));
-                updateMergeControls();
-                updateExportButton();
+                syncMergeSelection();
             }
 
             async function loadPdfFile(file) {
@@ -2668,6 +2726,8 @@
             }
 
             async function exportSelectedPages() {
+                if (isBusy) return;
+                if (previewMode === 'merge') return exportMergedPdfs();
                 if (!currentFile || !previewDocument || !validateSelection()) return;
                 const fileAtStart = currentFile;
                 const pagesAtStart = Array.from(selectedPages).sort((left, right) => left - right);
@@ -2743,6 +2803,7 @@
             }
 
             async function exportMergedPdfs() {
+                if (isBusy || (previewMode === 'merge' && !validateSelection())) return;
                 const allEntriesAtStart = mergeFiles.slice();
                 const pagesAtStart = mergePageOrder
                     .filter(pageEntry => pageEntry.included)
@@ -2854,6 +2915,7 @@
                 const entriesToRelease = mergeFiles.slice();
                 mergeFiles = [];
                 mergePageOrder = [];
+                mergeSelectionError = '';
                 elements.mergeFileInput.value = '';
                 entriesToRelease.forEach(entry => releaseMergeEntry(entry));
                 renderMergeFileList();
@@ -2941,7 +3003,8 @@
 
             elements.pageSelection.addEventListener('input', () => validateSelection());
             elements.selectAllButton.addEventListener('click', () => {
-                elements.pageSelection.value = totalPages > 1 ? `1-${totalPages}` : '1';
+                const pageCount = previewMode === 'merge' ? mergePageOrder.length : totalPages;
+                elements.pageSelection.value = pageCount > 1 ? `1-${pageCount}` : pageCount === 1 ? '1' : '';
                 validateSelection();
             });
             elements.clearButton.addEventListener('click', () => {
