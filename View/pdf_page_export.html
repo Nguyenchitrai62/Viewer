@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chọn trang và xuất PDF</title>
+    <title>Tách trang và ghép PDF</title>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
     <style>
@@ -135,7 +135,9 @@
         .control-panel {
             position: sticky;
             top: 18px;
+            max-height: calc(100vh - 36px);
             padding: 18px;
+            overflow-y: auto;
         }
 
         .drop-zone {
@@ -385,6 +387,243 @@
             background: #eaf2ff;
         }
 
+        .merge-block {
+            margin-top: 22px;
+            padding-top: 20px;
+            border-top: 1px solid var(--line);
+        }
+
+        .merge-heading {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .merge-heading h2 {
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .merge-heading p {
+            margin: 5px 0 0;
+            color: var(--muted);
+            font-size: 0.8rem;
+            line-height: 1.45;
+        }
+
+        .merge-count {
+            flex: 0 0 auto;
+            padding: 4px 8px;
+            border-radius: 999px;
+            color: var(--blue-dark);
+            background: var(--blue-soft);
+            font-size: 0.75rem;
+            font-weight: 800;
+        }
+
+        .merge-toolbar {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px;
+            margin-top: 13px;
+        }
+
+        .merge-toolbar .choose-button {
+            margin: 0;
+        }
+
+        .merge-list {
+            display: grid;
+            gap: 8px;
+            max-height: 245px;
+            margin: 12px 0 0;
+            padding: 0;
+            overflow: auto;
+            list-style: none;
+        }
+
+        .merge-empty {
+            padding: 14px;
+            border: 1px dashed #c6d2e2;
+            border-radius: 11px;
+            color: var(--muted);
+            background: #f8fafc;
+            font-size: 0.8rem;
+            line-height: 1.45;
+            text-align: center;
+        }
+
+        .merge-file-row {
+            position: relative;
+            display: grid;
+            grid-template-columns: 28px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+            padding: 9px;
+            border: 1px solid var(--line);
+            border-radius: 11px;
+            background: #fbfdff;
+            cursor: grab;
+            transition: border-color 130ms ease, box-shadow 130ms ease, opacity 130ms ease, transform 130ms ease;
+            user-select: none;
+        }
+
+        .merge-file-row:hover {
+            border-color: #a9bddd;
+            box-shadow: 0 5px 14px rgba(30, 64, 175, 0.08);
+        }
+
+        .merge-file-row:active {
+            cursor: grabbing;
+        }
+
+        .merge-file-row.is-dragging {
+            opacity: 0.48;
+        }
+
+        .merge-file-row.is-drop-before::before,
+        .merge-file-row.is-drop-after::after {
+            position: absolute;
+            right: 4px;
+            left: 4px;
+            height: 3px;
+            border-radius: 999px;
+            background: var(--blue);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+            content: "";
+        }
+
+        .merge-file-row.is-drop-before::before {
+            top: -6px;
+        }
+
+        .merge-file-row.is-drop-after::after {
+            bottom: -6px;
+        }
+
+        .merge-file-index {
+            display: grid;
+            place-items: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            color: var(--blue-dark);
+            background: var(--blue-soft);
+            font-size: 0.78rem;
+            font-weight: 850;
+            cursor: grab;
+        }
+
+        .merge-file-info {
+            min-width: 0;
+        }
+
+        .merge-file-name {
+            font-size: 0.8rem;
+            font-weight: 800;
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
+        .merge-file-meta {
+            margin-top: 2px;
+            color: var(--muted);
+            font-size: 0.72rem;
+        }
+
+        .merge-file-meta.is-error {
+            color: var(--red);
+        }
+
+        .merge-row-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .merge-icon-button {
+            display: grid;
+            place-items: center;
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            color: #475569;
+            background: #ffffff;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .merge-output {
+            margin-top: 13px;
+        }
+
+        .merge-output .field-label {
+            margin-bottom: 7px;
+        }
+
+        .merge-button {
+            margin-top: 12px;
+        }
+
+        .global-drop-overlay {
+            position: fixed;
+            z-index: 9999;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 26px;
+            visibility: hidden;
+            opacity: 0;
+            pointer-events: none;
+            background: rgba(232, 240, 255, 0.88);
+            backdrop-filter: blur(9px);
+            transition: opacity 130ms ease, visibility 130ms ease;
+        }
+
+        .global-drop-overlay.is-visible {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .global-drop-card {
+            width: min(560px, 100%);
+            padding: 34px;
+            border: 3px dashed var(--blue);
+            border-radius: 24px;
+            color: var(--blue-dark);
+            background: rgba(255, 255, 255, 0.96);
+            box-shadow: 0 24px 70px rgba(30, 64, 175, 0.22);
+            text-align: center;
+        }
+
+        .global-drop-icon {
+            display: grid;
+            place-items: center;
+            width: 62px;
+            height: 62px;
+            margin: 0 auto 16px;
+            border-radius: 18px;
+            color: #ffffff;
+            background: linear-gradient(145deg, #3777ed, #1f55bd);
+            font-size: 1.7rem;
+            font-weight: 900;
+        }
+
+        .global-drop-card strong {
+            display: block;
+            font-size: clamp(1.25rem, 3vw, 1.75rem);
+        }
+
+        .global-drop-card span {
+            display: block;
+            margin-top: 9px;
+            color: #526783;
+            font-size: 0.9rem;
+            line-height: 1.55;
+        }
+
         .image-dialog {
             width: min(460px, calc(100% - 28px));
             padding: 0;
@@ -562,6 +801,63 @@
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
         }
 
+        .merge-page-card {
+            cursor: grab;
+            align-self: start;
+            min-width: 0;
+        }
+
+        .merge-page-card:active {
+            cursor: grabbing;
+        }
+
+        .merge-page-card:hover,
+        .merge-page-card.is-dragging {
+            transform: none;
+        }
+
+        .merge-page-card.is-dragging {
+            opacity: 0.42;
+        }
+
+        .merge-page-card.is-page-drop-before::before,
+        .merge-page-card.is-page-drop-after::after {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            border-radius: 4px;
+            background: var(--blue);
+            content: '';
+            pointer-events: none;
+        }
+
+        .merge-page-card.is-page-drop-before::before {
+            left: -8px;
+        }
+
+        .merge-page-card.is-page-drop-after::after {
+            right: -8px;
+        }
+
+        .page-source {
+            display: block;
+            margin-top: 8px;
+            padding: 6px 7px;
+            border-radius: 7px;
+            color: var(--ink);
+            background: #eaf1ff;
+            font-size: 0.75rem;
+            line-height: 1.5;
+            font-weight: 750;
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
+        .merge-page-card:not(.is-selected) {
+            opacity: 0.58;
+        }
+
         .thumbnail-frame {
             position: relative;
             display: grid;
@@ -618,6 +914,8 @@
 
             .control-panel {
                 position: static;
+                max-height: none;
+                overflow: visible;
             }
 
             .page-grid {
@@ -648,9 +946,9 @@
     <main class="app-shell">
         <header class="topbar">
             <div>
-                <p class="eyebrow">PDF page exporter</p>
-                <h1>Chọn trang, xuất đúng phần cần dùng</h1>
-                <p class="intro">Nhập <strong>1,2,3,6</strong> hoặc <strong>1-5, 9</strong>, hoặc bấm trực tiếp vào hình thu nhỏ của từng trang.</p>
+                <p class="eyebrow">PDF toolkit</p>
+                <h1>Tách trang hoặc ghép nhiều PDF</h1>
+                <p class="intro">Chọn đúng trang cần dùng từ một PDF, hoặc sắp xếp nhiều tệp và ghép chúng thành một tài liệu duy nhất.</p>
             </div>
             <div class="privacy-badge">Xử lý 100% trên trình duyệt</div>
         </header>
@@ -660,12 +958,12 @@
                 <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-controls="pdf-file" aria-label="Chọn hoặc thả tệp PDF">
                     <div>
                         <div class="upload-icon" aria-hidden="true">↑</div>
-                        <strong>Thả PDF vào đây</strong>
+                        <strong>Thả một hoặc nhiều PDF</strong>
                         <small>File không được gửi lên backend. PDF lớn được đọc cục bộ theo từng chunk khi export.</small>
                         <button id="choose-file-button" class="choose-button" type="button">Chọn file PDF</button>
                     </div>
                 </div>
-                <input id="pdf-file" class="file-input" type="file" accept="application/pdf,.pdf">
+                <input id="pdf-file" class="file-input" type="file" accept="application/pdf,.pdf" multiple>
 
                 <div id="file-card" class="file-card" aria-live="polite">
                     <div id="file-name" class="file-name"></div>
@@ -702,11 +1000,36 @@
                     <button id="export-button" class="export-button" type="button" disabled>Xuất PDF</button>
                     <button id="image-export-button" class="export-button image-export-button" type="button" disabled>Tải ảnh</button>
                 </div>
+
+                <section class="merge-block" aria-labelledby="merge-title">
+                    <div class="merge-heading">
+                        <div>
+                            <h2 id="merge-title">Ghép nhiều PDF</h2>
+                            <p>Tất cả trang sẽ hiện ở khung preview; kéo từng trang để xếp thứ tự xuất.</p>
+                        </div>
+                        <span id="merge-count" class="merge-count">0 tệp</span>
+                    </div>
+                    <input id="merge-file-input" class="file-input" type="file" accept="application/pdf,.pdf" multiple>
+                    <div class="merge-toolbar">
+                        <button id="merge-add-button" class="choose-button" type="button">Chọn nhiều PDF</button>
+                        <button id="merge-clear-button" class="secondary-button" type="button" disabled>Xóa hết</button>
+                    </div>
+                    <ol id="merge-file-list" class="merge-list" aria-live="polite">
+                        <li class="merge-empty">Thả PDF ở bất kỳ đâu trên màn hình; tất cả trang sẽ hiện chung trong preview.</li>
+                    </ol>
+                    <div class="merge-output">
+                        <label class="field-label" for="merge-output-name">
+                            <span>Tên tệp kết quả</span>
+                        </label>
+                        <input id="merge-output-name" class="page-input" type="text" value="PDF da ghep.pdf" autocomplete="off">
+                    </div>
+                    <button id="merge-button" class="export-button merge-button" type="button" disabled>Xuất PDF đã ghép</button>
+                </section>
             </section>
 
             <section class="panel preview-panel" aria-label="Xem trước các trang PDF">
                 <div class="preview-header">
-                    <h2>Xem trước trang</h2>
+                    <h2 id="preview-title">Xem trước trang</h2>
                     <span id="preview-count" class="preview-count">Chưa có PDF</span>
                 </div>
                 <div id="empty-state" class="empty-state">
@@ -719,6 +1042,14 @@
             </section>
         </div>
     </main>
+
+    <div id="global-drop-overlay" class="global-drop-overlay" aria-hidden="true">
+        <div class="global-drop-card">
+            <div class="global-drop-icon" aria-hidden="true">↓</div>
+            <strong>Thả PDF vào đây</strong>
+            <span>Thả ở bất kỳ đâu để thêm vào danh sách ghép. Thả một tệp ngay trên ô “tách trang” để mở riêng tệp đó.</span>
+        </div>
+    </div>
 
     <dialog id="image-export-dialog" class="image-dialog" aria-labelledby="image-dialog-title">
         <div class="image-dialog-header">
@@ -760,6 +1091,7 @@
             const MAX_THUMBNAIL_WORKERS = 2;
             const QPDF_JS_URL = 'https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.js';
             const QPDF_WASM_URL = 'https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.0/dist/qpdf.wasm';
+            const PDF_LIB_JS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
 
             const elements = {
                 dropZone: document.getElementById('drop-zone'),
@@ -782,6 +1114,14 @@
                 imageDialogConfirm: document.getElementById('image-dialog-confirm'),
                 imageScale: document.getElementById('image-scale'),
                 imageExportSummary: document.getElementById('image-export-summary'),
+                mergeFileInput: document.getElementById('merge-file-input'),
+                mergeAddButton: document.getElementById('merge-add-button'),
+                mergeClearButton: document.getElementById('merge-clear-button'),
+                mergeFileList: document.getElementById('merge-file-list'),
+                mergeCount: document.getElementById('merge-count'),
+                mergeOutputName: document.getElementById('merge-output-name'),
+                mergeButton: document.getElementById('merge-button'),
+                globalDropOverlay: document.getElementById('global-drop-overlay'),
                 statusCard: document.getElementById('status-card'),
                 statusTitle: document.getElementById('status-title'),
                 statusDetail: document.getElementById('status-detail'),
@@ -789,6 +1129,7 @@
                 progressBar: document.getElementById('progress-bar'),
                 emptyState: document.getElementById('empty-state'),
                 pageGrid: document.getElementById('page-grid'),
+                previewTitle: document.getElementById('preview-title'),
                 previewCount: document.getElementById('preview-count'),
             };
 
@@ -803,6 +1144,15 @@
             let thumbnailQueue = [];
             let activeThumbnailWorkers = 0;
             let thumbnailObjectUrls = [];
+            let mergeFiles = [];
+            let mergePageOrder = [];
+            let nextMergeFileId = 1;
+            let draggedMergeFileId = null;
+            let draggedMergePageId = null;
+            let mergeGridRenderPending = false;
+            let globalFileDragDepth = 0;
+            let mergePreviewGeneration = 0;
+            let previewMode = 'single';
 
             if (window.pdfjsLib) {
                 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -835,14 +1185,21 @@
 
             function setBusy(nextBusy) {
                 isBusy = nextBusy;
+                if (nextBusy) {
+                    globalFileDragDepth = 0;
+                    setGlobalDropOverlayVisible(false);
+                }
                 elements.fileInput.disabled = nextBusy;
                 elements.chooseFileButton.disabled = nextBusy;
-                elements.pageSelection.disabled = nextBusy || !previewDocument;
-                elements.selectAllButton.disabled = nextBusy || !previewDocument;
-                elements.clearButton.disabled = nextBusy || !previewDocument;
+                elements.mergeFileInput.disabled = nextBusy;
+                elements.mergeAddButton.disabled = nextBusy;
+                elements.pageSelection.disabled = nextBusy || !previewDocument || previewMode !== 'single';
+                elements.selectAllButton.disabled = nextBusy || !previewDocument || previewMode !== 'single';
+                elements.clearButton.disabled = nextBusy || !previewDocument || previewMode !== 'single';
                 elements.pageGrid.style.pointerEvents = nextBusy ? 'none' : '';
                 elements.pageGrid.setAttribute('aria-busy', String(nextBusy));
                 updateExportButton();
+                renderMergeFileList();
             }
 
             function parsePageSelection(value, pageCount) {
@@ -920,7 +1277,7 @@
             }
 
             function updateCardSelection() {
-                elements.pageGrid.querySelectorAll('.page-card').forEach(card => {
+                elements.pageGrid.querySelectorAll('.page-card[data-preview-mode="single"]').forEach(card => {
                     const pageNumber = Number(card.dataset.pageNumber);
                     const isSelected = selectedPages.has(pageNumber);
                     card.classList.toggle('is-selected', isSelected);
@@ -930,11 +1287,326 @@
             }
 
             function updateExportButton() {
-                const actionsDisabled = isBusy || !currentFile || !previewDocument || selectedPages.size === 0;
+                const actionsDisabled = isBusy || previewMode !== 'single' || !currentFile || !previewDocument || selectedPages.size === 0;
                 elements.exportButton.disabled = actionsDisabled;
                 elements.imageExportButton.disabled = actionsDisabled;
                 elements.exportButton.textContent = isBusy ? 'Đang xử lý…' : `Xuất PDF${selectedPages.size ? ` (${selectedPages.size} trang)` : ''}`;
                 elements.imageExportButton.textContent = isBusy ? 'Đang xử lý…' : `Tải ảnh${selectedPages.size ? ` (${selectedPages.size})` : ''}`;
+            }
+
+            function isPdfFile(file) {
+                return Boolean(file) && (
+                    file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+                );
+            }
+
+            function isFileDragEvent(event) {
+                return Array.from(event.dataTransfer?.types || []).includes('Files');
+            }
+
+            function setGlobalDropOverlayVisible(visible) {
+                const shouldShow = Boolean(visible) && !isBusy;
+                elements.globalDropOverlay.classList.toggle('is-visible', shouldShow);
+                elements.globalDropOverlay.setAttribute('aria-hidden', String(!shouldShow));
+                if (!shouldShow) elements.dropZone.classList.remove('is-dragging');
+            }
+
+            function handleDroppedPdfFiles(fileList, droppedOnSplitZone = false) {
+                if (isBusy) return;
+                const candidates = Array.from(fileList || []);
+                const pdfFiles = candidates.filter(isPdfFile);
+                if (!pdfFiles.length) {
+                    setStatus('error', 'Không có PDF hợp lệ', 'Hãy thả một hoặc nhiều tệp PDF.');
+                    return;
+                }
+
+                if (droppedOnSplitZone && pdfFiles.length === 1) {
+                    loadPdfFile(pdfFiles[0]);
+                    return;
+                }
+                addMergeFiles(pdfFiles, { includeCurrentFile: !droppedOnSplitZone });
+            }
+
+            function getMergePageTotal() {
+                return mergePageOrder.reduce((total, pageEntry) => total + (pageEntry.included ? 1 : 0), 0);
+            }
+
+            function updateMergeControls() {
+                const hasInvalidFile = mergeFiles.some(entry => entry.error);
+                const isInspecting = mergeFiles.some(entry => entry.pageCount === null && !entry.error);
+                const pageTotal = getMergePageTotal();
+                elements.mergeCount.textContent = `${mergeFiles.length} tệp`;
+                elements.mergeClearButton.disabled = isBusy || mergeFiles.length === 0;
+                elements.mergeOutputName.disabled = isBusy;
+                elements.mergeButton.disabled = isBusy || mergeFiles.length === 0 || pageTotal === 0 || hasInvalidFile || isInspecting;
+                elements.mergeButton.textContent = isBusy
+                    ? 'Đang xử lý…'
+                    : `Xuất PDF đã ghép${pageTotal ? ` (${pageTotal} trang)` : ''}`;
+            }
+
+            function makeMergeIconButton(label, text, disabled, handler) {
+                const button = document.createElement('button');
+                button.className = 'merge-icon-button';
+                button.type = 'button';
+                button.textContent = text;
+                button.title = label;
+                button.setAttribute('aria-label', label);
+                button.disabled = isBusy || disabled;
+                button.addEventListener('click', handler);
+                button.addEventListener('dragstart', event => event.preventDefault());
+                return button;
+            }
+
+            function clearMergeDropIndicators() {
+                elements.mergeFileList.querySelectorAll('.merge-file-row').forEach(row => {
+                    row.classList.remove('is-drop-before', 'is-drop-after');
+                });
+            }
+
+            function reorderMergeFile(draggedId, targetId, placeAfter) {
+                const sourceIndex = mergeFiles.findIndex(entry => entry.id === draggedId);
+                const targetIndex = mergeFiles.findIndex(entry => entry.id === targetId);
+                if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+
+                const [movedEntry] = mergeFiles.splice(sourceIndex, 1);
+                let insertionIndex = targetIndex + (placeAfter ? 1 : 0);
+                if (sourceIndex < insertionIndex) insertionIndex -= 1;
+                mergeFiles.splice(insertionIndex, 0, movedEntry);
+                syncMergePageOrderToFileOrder();
+                renderMergeFileList();
+                renderMergePageGrid();
+            }
+
+            function getMergePageId(fileId, pageNumber) {
+                return `${fileId}:${pageNumber}`;
+            }
+
+            function syncMergePageOrderToFileOrder() {
+                const pagesByFile = new Map();
+                for (const pageEntry of mergePageOrder) {
+                    if (!pagesByFile.has(pageEntry.fileId)) pagesByFile.set(pageEntry.fileId, []);
+                    pagesByFile.get(pageEntry.fileId).push(pageEntry);
+                }
+                mergePageOrder = mergeFiles.flatMap(entry => pagesByFile.get(entry.id) || []);
+            }
+
+            function renderMergeFileList() {
+                if (!mergeFiles.length) {
+                    const emptyItem = document.createElement('li');
+                    emptyItem.className = 'merge-empty';
+                    emptyItem.textContent = 'Thả PDF ở bất kỳ đâu trên màn hình; tất cả trang sẽ hiện chung trong preview.';
+                    elements.mergeFileList.replaceChildren(emptyItem);
+                    updateMergeControls();
+                    return;
+                }
+
+                const fragment = document.createDocumentFragment();
+                mergeFiles.forEach((entry, index) => {
+                    const row = document.createElement('li');
+                    row.className = 'merge-file-row';
+                    row.dataset.mergeFileId = String(entry.id);
+                    row.draggable = !isBusy;
+                    row.title = 'Giữ và kéo để đổi thứ tự';
+                    row.setAttribute('aria-label', `${index + 1}. ${entry.file.name}. Có thể kéo để đổi thứ tự.`);
+                    row.addEventListener('dragstart', event => {
+                        if (isBusy) {
+                            event.preventDefault();
+                            return;
+                        }
+                        draggedMergeFileId = entry.id;
+                        row.classList.add('is-dragging');
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', String(entry.id));
+                    });
+                    row.addEventListener('dragover', event => {
+                        if (draggedMergeFileId === null || draggedMergeFileId === entry.id) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.dataTransfer.dropEffect = 'move';
+                        clearMergeDropIndicators();
+                        const bounds = row.getBoundingClientRect();
+                        const placeAfter = event.clientY >= bounds.top + bounds.height / 2;
+                        row.classList.add(placeAfter ? 'is-drop-after' : 'is-drop-before');
+                    });
+                    row.addEventListener('dragleave', event => {
+                        if (!row.contains(event.relatedTarget)) {
+                            row.classList.remove('is-drop-before', 'is-drop-after');
+                        }
+                    });
+                    row.addEventListener('drop', event => {
+                        if (draggedMergeFileId === null) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const bounds = row.getBoundingClientRect();
+                        const placeAfter = event.clientY >= bounds.top + bounds.height / 2;
+                        const sourceId = draggedMergeFileId;
+                        draggedMergeFileId = null;
+                        clearMergeDropIndicators();
+                        reorderMergeFile(sourceId, entry.id, placeAfter);
+                    });
+                    row.addEventListener('dragend', () => {
+                        draggedMergeFileId = null;
+                        row.classList.remove('is-dragging');
+                        clearMergeDropIndicators();
+                    });
+
+                    const order = document.createElement('span');
+                    order.className = 'merge-file-index';
+                    order.textContent = String(index + 1);
+
+                    const info = document.createElement('div');
+                    info.className = 'merge-file-info';
+                    const name = document.createElement('div');
+                    name.className = 'merge-file-name';
+                    name.textContent = entry.file.name;
+                    name.title = entry.file.name;
+                    const meta = document.createElement('div');
+                    meta.className = 'merge-file-meta';
+                    if (entry.error) {
+                        meta.classList.add('is-error');
+                        meta.textContent = entry.error;
+                    } else if (entry.pageCount === null) {
+                        meta.textContent = `${formatBytes(entry.file.size)} · đang đọc…`;
+                    } else {
+                        meta.textContent = `${formatBytes(entry.file.size)} · ${entry.pageCount} trang`;
+                    }
+                    info.append(name, meta);
+
+                    const actions = document.createElement('div');
+                    actions.className = 'merge-row-actions';
+                    actions.append(
+                        makeMergeIconButton(`Đưa ${entry.file.name} lên`, '↑', index === 0, () => moveMergeFile(entry.id, -1)),
+                        makeMergeIconButton(`Đưa ${entry.file.name} xuống`, '↓', index === mergeFiles.length - 1, () => moveMergeFile(entry.id, 1)),
+                        makeMergeIconButton(`Xóa ${entry.file.name}`, '×', false, () => removeMergeFile(entry.id)),
+                    );
+                    row.append(order, info, actions);
+                    fragment.appendChild(row);
+                });
+                elements.mergeFileList.replaceChildren(fragment);
+                updateMergeControls();
+            }
+
+            function moveMergeFile(id, direction) {
+                if (isBusy) return;
+                const index = mergeFiles.findIndex(entry => entry.id === id);
+                const nextIndex = index + direction;
+                if (index < 0 || nextIndex < 0 || nextIndex >= mergeFiles.length) return;
+                [mergeFiles[index], mergeFiles[nextIndex]] = [mergeFiles[nextIndex], mergeFiles[index]];
+                syncMergePageOrderToFileOrder();
+                renderMergeFileList();
+                renderMergePageGrid();
+            }
+
+            function removeMergeFile(id) {
+                if (isBusy) return;
+                const removedEntry = mergeFiles.find(entry => entry.id === id);
+                mergeFiles = mergeFiles.filter(entry => entry.id !== id);
+                mergePageOrder = mergePageOrder.filter(pageEntry => pageEntry.fileId !== id);
+                if (removedEntry) releaseMergeEntry(removedEntry);
+                renderMergeFileList();
+                if (mergeFiles.length) {
+                    renderMergePageGrid();
+                } else {
+                    showSinglePreview();
+                }
+            }
+
+            async function releaseMergeEntry(entry) {
+                if (entry.documentHandle) {
+                    try {
+                        await entry.documentHandle.destroy();
+                    } catch (error) {
+                        console.warn('Không thể giải phóng PDF trong danh sách ghép:', error);
+                    }
+                    entry.documentHandle = null;
+                }
+                if (entry.objectUrl) {
+                    URL.revokeObjectURL(entry.objectUrl);
+                    entry.objectUrl = null;
+                }
+            }
+
+            async function inspectMergeFile(entry) {
+                try {
+                    entry.objectUrl = URL.createObjectURL(entry.file);
+                    entry.documentHandle = await pdfjsLib.getDocument({
+                        url: entry.objectUrl,
+                        verbosity: Number.isFinite(pdfjsLib?.VerbosityLevel?.ERRORS)
+                            ? pdfjsLib.VerbosityLevel.ERRORS
+                            : 0,
+                    }).promise;
+                    entry.pageCount = entry.documentHandle.numPages;
+                    if (mergeFiles.some(candidate => candidate.id === entry.id)) {
+                        const knownPageIds = new Set(mergePageOrder.map(pageEntry => pageEntry.id));
+                        for (let pageNumber = 1; pageNumber <= entry.pageCount; pageNumber += 1) {
+                            const id = getMergePageId(entry.id, pageNumber);
+                            if (!knownPageIds.has(id)) {
+                                mergePageOrder.push({ id, fileId: entry.id, pageNumber, included: true });
+                            }
+                        }
+                    }
+                } catch (error) {
+                    entry.error = /password/i.test(String(error?.message || error?.name || ''))
+                        ? 'PDF có mật khẩu'
+                        : 'Không đọc được PDF';
+                    await releaseMergeEntry(entry);
+                } finally {
+                    if (mergeFiles.some(candidate => candidate.id === entry.id)) {
+                        renderMergeFileList();
+                        renderMergePageGrid();
+                    }
+                }
+            }
+
+            function filesLookIdentical(left, right) {
+                return left && right &&
+                    left.name === right.name &&
+                    left.size === right.size &&
+                    left.lastModified === right.lastModified;
+            }
+
+            async function addMergeFiles(fileList, { includeCurrentFile = false } = {}) {
+                if (isBusy) return;
+                if (!window.pdfjsLib || typeof Worker !== 'function') {
+                    setStatus('error', 'Không tải được thư viện PDF', 'Kiểm tra kết nối CDN rồi tải lại trang.');
+                    return;
+                }
+
+                const candidates = Array.from(fileList || []);
+                const validFiles = candidates.filter(isPdfFile);
+                if (
+                    includeCurrentFile &&
+                    mergeFiles.length === 0 &&
+                    currentFile &&
+                    previewDocument &&
+                    !validFiles.some(file => filesLookIdentical(file, currentFile))
+                ) {
+                    validFiles.unshift(currentFile);
+                }
+                if (!validFiles.length) {
+                    setStatus('error', 'Không có PDF hợp lệ', 'Hãy chọn ít nhất một tệp có định dạng PDF.');
+                    return;
+                }
+
+                const newEntries = validFiles.map(file => ({
+                    id: nextMergeFileId++,
+                    file,
+                    pageCount: null,
+                    error: '',
+                    documentHandle: null,
+                    objectUrl: null,
+                }));
+                mergeFiles.push(...newEntries);
+                renderMergeFileList();
+                renderMergePageGrid();
+
+                if (validFiles.length !== candidates.length) {
+                    setStatus('error', 'Đã bỏ qua file không hợp lệ', `${candidates.length - validFiles.length} file không phải PDF.`);
+                }
+
+                for (const entry of newEntries) {
+                    await inspectMergeFile(entry);
+                }
             }
 
             function validateSelection({ updateCards = true } = {}) {
@@ -974,15 +1646,18 @@
                 thumbnailObjectUrls = [];
             }
 
-            async function releasePreview() {
-                loadGeneration += 1;
+            function resetThumbnailRendering() {
                 thumbnailQueue = [];
-                activeThumbnailWorkers = 0;
                 if (thumbnailObserver) {
                     thumbnailObserver.disconnect();
                     thumbnailObserver = null;
                 }
                 revokeThumbnailUrls();
+            }
+
+            async function releasePreview() {
+                loadGeneration += 1;
+                resetThumbnailRendering();
                 if (previewDocument) {
                     try {
                         await previewDocument.destroy();
@@ -997,10 +1672,10 @@
                 }
             }
 
-            function enqueueThumbnail(pageNumber, imageElement, generation) {
+            function enqueueThumbnail(pageNumber, imageElement, generation, documentHandle, mode = 'single') {
                 if (imageElement.dataset.queued === 'true' || imageElement.dataset.loaded === 'true') return;
                 imageElement.dataset.queued = 'true';
-                thumbnailQueue.push({ pageNumber, imageElement, generation });
+                thumbnailQueue.push({ pageNumber, imageElement, generation, documentHandle, mode });
                 drainThumbnailQueue();
             }
 
@@ -1017,9 +1692,12 @@
                 }
             }
 
-            async function renderThumbnail({ pageNumber, imageElement, generation }) {
-                if (generation !== loadGeneration || !previewDocument) return;
-                const page = await previewDocument.getPage(pageNumber);
+            async function renderThumbnail({ pageNumber, imageElement, generation, documentHandle, mode }) {
+                const isCurrent = () => mode === 'merge'
+                    ? generation === mergePreviewGeneration && previewMode === 'merge'
+                    : generation === loadGeneration && previewMode === 'single';
+                if (!isCurrent() || !documentHandle) return;
+                const page = await documentHandle.getPage(pageNumber);
                 const baseViewport = page.getViewport({ scale: 1 });
                 const scale = THUMBNAIL_WIDTH / Math.max(baseViewport.width, 1);
                 const viewport = page.getViewport({ scale });
@@ -1035,7 +1713,7 @@
                 const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.78));
                 canvas.width = 1;
                 canvas.height = 1;
-                if (!blob || generation !== loadGeneration) return;
+                if (!blob || !isCurrent() || !imageElement.isConnected) return;
 
                 const thumbnailUrl = URL.createObjectURL(blob);
                 thumbnailObjectUrls.push(thumbnailUrl);
@@ -1045,6 +1723,9 @@
             }
 
             function buildPageGrid(pageCount, generation) {
+                resetThumbnailRendering();
+                previewMode = 'single';
+                elements.previewTitle.textContent = 'Xem trước trang';
                 const fragment = document.createDocumentFragment();
                 elements.pageGrid.replaceChildren();
 
@@ -1052,6 +1733,7 @@
                     const card = document.createElement('label');
                     card.className = 'page-card';
                     card.dataset.pageNumber = String(pageNumber);
+                    card.dataset.previewMode = 'single';
 
                     const frame = document.createElement('span');
                     frame.className = 'thumbnail-frame';
@@ -1088,7 +1770,7 @@
                     entries.forEach(entry => {
                         if (!entry.isIntersecting) return;
                         const image = entry.target.querySelector('.page-thumbnail');
-                        enqueueThumbnail(Number(entry.target.dataset.pageNumber), image, generation);
+                        enqueueThumbnail(Number(entry.target.dataset.pageNumber), image, generation, previewDocument, 'single');
                         thumbnailObserver.unobserve(entry.target);
                     });
                 }, {
@@ -1097,6 +1779,221 @@
                     threshold: 0.01,
                 });
                 elements.pageGrid.querySelectorAll('.page-card').forEach(card => thumbnailObserver.observe(card));
+                updateExportButton();
+            }
+
+            function showSinglePreview() {
+                elements.previewTitle.textContent = 'Xem trước trang';
+                if (previewDocument && totalPages > 0) {
+                    elements.previewCount.textContent = `${totalPages} trang`;
+                    elements.emptyState.hidden = true;
+                    elements.pageGrid.hidden = false;
+                    buildPageGrid(totalPages, loadGeneration);
+                    updateCardSelection();
+                } else {
+                    previewMode = 'single';
+                    resetThumbnailRendering();
+                    elements.pageGrid.replaceChildren();
+                    elements.pageGrid.hidden = true;
+                    elements.emptyState.hidden = false;
+                    elements.previewCount.textContent = 'Chưa có PDF';
+                    updateExportButton();
+                }
+                elements.pageSelection.disabled = isBusy || !previewDocument;
+                elements.selectAllButton.disabled = isBusy || !previewDocument;
+                elements.clearButton.disabled = isBusy || !previewDocument;
+            }
+
+            function clearMergePageDropTargets() {
+                elements.pageGrid.querySelectorAll('.merge-page-card').forEach(card => {
+                    card.classList.remove('is-page-drop-before', 'is-page-drop-after');
+                });
+            }
+
+            function finishMergePageDrag() {
+                draggedMergePageId = null;
+                elements.pageGrid.querySelectorAll('.is-dragging').forEach(card => {
+                    card.classList.remove('is-dragging');
+                });
+                clearMergePageDropTargets();
+                if (mergeGridRenderPending) renderMergePageGrid();
+            }
+
+            // Both the marker and drop use the same horizontal midpoint. Gaps target
+            // the nearest card, rather than unexpectedly sending the page to the end.
+            function getMergePageDropPosition(clientX, clientY) {
+                let closest = null;
+                let closestDistance = Infinity;
+                for (const card of elements.pageGrid.querySelectorAll('.merge-page-card')) {
+                    const bounds = card.getBoundingClientRect();
+                    const dx = Math.max(bounds.left - clientX, 0, clientX - bounds.right);
+                    const dy = Math.max(bounds.top - clientY, 0, clientY - bounds.bottom);
+                    const distance = dx * dx + dy * dy;
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closest = {
+                            card,
+                            targetId: card.dataset.mergePageId,
+                            placeAfter: clientY > bounds.bottom || (
+                                clientY >= bounds.top && clientX >= bounds.left + bounds.width / 2
+                            ),
+                        };
+                    }
+                }
+                return closest;
+            }
+
+            function reorderMergePage(sourceId, targetId, placeAfter) {
+                if (isBusy) return;
+                const sourceIndex = mergePageOrder.findIndex(pageEntry => pageEntry.id === sourceId);
+                const targetIndex = mergePageOrder.findIndex(pageEntry => pageEntry.id === targetId);
+                if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+                const [movedPage] = mergePageOrder.splice(sourceIndex, 1);
+                let insertionIndex = targetIndex + (placeAfter ? 1 : 0);
+                if (sourceIndex < insertionIndex) insertionIndex -= 1;
+                mergePageOrder.splice(insertionIndex, 0, movedPage);
+                renderMergePageGrid();
+            }
+
+            function renderMergePageGrid() {
+                // PDF metadata can finish loading during a drag. Keep the native
+                // drag source attached until drop/cancel, then apply the new pages.
+                if (draggedMergePageId !== null) {
+                    mergeGridRenderPending = true;
+                    return;
+                }
+                mergeGridRenderPending = false;
+                const enteringMergeMode = previewMode !== 'merge';
+                if (enteringMergeMode) {
+                    mergePreviewGeneration += 1;
+                    resetThumbnailRendering();
+                    elements.pageGrid.replaceChildren();
+                }
+                previewMode = 'merge';
+                elements.previewTitle.textContent = 'Thứ tự trang PDF kết quả';
+                const generation = mergePreviewGeneration;
+                const scrollTop = elements.pageGrid.scrollTop;
+                const existingCards = new Map(Array.from(
+                    elements.pageGrid.querySelectorAll('.merge-page-card'),
+                    card => [card.dataset.mergePageId, card],
+                ));
+                if (thumbnailObserver) thumbnailObserver.disconnect();
+                elements.pageSelection.disabled = true;
+                elements.selectAllButton.disabled = true;
+                elements.clearButton.disabled = true;
+
+                const availablePages = mergePageOrder.filter(pageEntry => (
+                    mergeFiles.some(entry => entry.id === pageEntry.fileId && entry.documentHandle)
+                ));
+                const includedCount = availablePages.filter(pageEntry => pageEntry.included).length;
+                elements.previewCount.textContent = mergeFiles.some(entry => entry.pageCount === null && !entry.error)
+                    ? `Đang đọc… ${availablePages.length} trang`
+                    : `${mergeFiles.length} PDF · ${includedCount}/${availablePages.length} trang`;
+                elements.emptyState.hidden = availablePages.length > 0;
+                elements.pageGrid.hidden = availablePages.length === 0;
+
+                const orderedCards = [];
+                for (let pageIndex = 0; pageIndex < availablePages.length; pageIndex += 1) {
+                    const pageEntry = availablePages[pageIndex];
+                    const sourceEntry = mergeFiles.find(entry => entry.id === pageEntry.fileId);
+                    if (!sourceEntry) continue;
+                    const existingCard = existingCards.get(pageEntry.id);
+                    if (existingCard) {
+                        existingCards.delete(pageEntry.id);
+                        existingCard.querySelector('.page-footer span').textContent = `#${pageIndex + 1} · Trang ${pageEntry.pageNumber}`;
+                        existingCard.draggable = !isBusy;
+                        orderedCards.push(existingCard);
+                        continue;
+                    }
+                    const card = document.createElement('article');
+                    card.className = 'page-card merge-page-card';
+                    card.classList.toggle('is-selected', pageEntry.included);
+                    card.dataset.mergePageId = pageEntry.id;
+                    card.draggable = !isBusy;
+                    card.title = 'Giữ và kéo để thay đổi vị trí trang';
+
+                    const sourceBadge = document.createElement('span');
+                    sourceBadge.className = 'page-source';
+                    sourceBadge.textContent = sourceEntry.file.name;
+                    sourceBadge.title = sourceEntry.file.name;
+
+                    const frame = document.createElement('span');
+                    frame.className = 'thumbnail-frame';
+                    const image = document.createElement('img');
+                    image.className = 'page-thumbnail';
+                    image.draggable = false;
+                    image.decoding = 'async';
+                    frame.appendChild(image);
+
+                    const footer = document.createElement('span');
+                    footer.className = 'page-footer';
+                    const label = document.createElement('span');
+                    label.textContent = `#${pageIndex + 1} · Trang ${pageEntry.pageNumber}`;
+                    const checkbox = document.createElement('input');
+                    checkbox.className = 'page-checkbox';
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = pageEntry.included;
+                    checkbox.draggable = false;
+                    checkbox.setAttribute('aria-label', `Đưa trang ${pageEntry.pageNumber} của ${sourceEntry.file.name} vào PDF kết quả`);
+                    checkbox.addEventListener('change', () => {
+                        pageEntry.included = checkbox.checked;
+                        card.classList.toggle('is-selected', pageEntry.included);
+                        updateMergeControls();
+                        const selectedTotal = mergePageOrder.filter(candidate => candidate.included).length;
+                        elements.previewCount.textContent = `${mergeFiles.length} PDF · ${selectedTotal}/${mergePageOrder.length} trang`;
+                    });
+                    checkbox.addEventListener('dragstart', event => event.preventDefault());
+                    footer.append(label, checkbox);
+                    card.append(frame, sourceBadge, footer);
+
+                    card.addEventListener('dragstart', event => {
+                        if (isBusy || event.target.closest?.('input, button')) {
+                            event.preventDefault();
+                            return;
+                        }
+                        draggedMergePageId = pageEntry.id;
+                        card.classList.add('is-dragging');
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', pageEntry.id);
+                    });
+                    card.addEventListener('dragend', finishMergePageDrag);
+                    orderedCards.push(card);
+                }
+
+                existingCards.forEach(card => card.remove());
+                orderedCards.forEach((card, index) => {
+                    const current = elements.pageGrid.children[index];
+                    if (current !== card) elements.pageGrid.insertBefore(card, current || null);
+                });
+                elements.pageGrid.scrollTop = scrollTop;
+                thumbnailObserver = new IntersectionObserver(entries => {
+                    entries.forEach(observerEntry => {
+                        if (!observerEntry.isIntersecting) return;
+                        const pageId = observerEntry.target.dataset.mergePageId;
+                        const pageEntry = mergePageOrder.find(candidate => candidate.id === pageId);
+                        const sourceEntry = pageEntry
+                            ? mergeFiles.find(candidate => candidate.id === pageEntry.fileId)
+                            : null;
+                        const image = observerEntry.target.querySelector('.page-thumbnail');
+                        if (pageEntry && sourceEntry?.documentHandle && image) {
+                            enqueueThumbnail(
+                                pageEntry.pageNumber,
+                                image,
+                                generation,
+                                sourceEntry.documentHandle,
+                                'merge',
+                            );
+                        }
+                        thumbnailObserver.unobserve(observerEntry.target);
+                    });
+                }, {
+                    root: elements.pageGrid,
+                    rootMargin: '280px 0px',
+                    threshold: 0.01,
+                });
+                elements.pageGrid.querySelectorAll('.merge-page-card').forEach(card => thumbnailObserver.observe(card));
+                updateMergeControls();
+                updateExportButton();
             }
 
             async function loadPdfFile(file) {
@@ -1191,6 +2088,44 @@
                 return output;
             }
 
+            async function readMergeFileForExport(file, index, fileCount) {
+                const progressStart = 5 + (index / fileCount) * 40;
+                const progressSpan = 40 / fileCount;
+                if (file.size <= LARGE_FILE_THRESHOLD || typeof file.stream !== 'function') {
+                    setStatus(
+                        'info',
+                        `Đang đọc PDF ${index + 1}/${fileCount}…`,
+                        `${file.name} · ${formatBytes(file.size)}`,
+                        progressStart,
+                    );
+                    const bytes = new Uint8Array(await file.arrayBuffer());
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    return bytes;
+                }
+
+                const output = new Uint8Array(file.size);
+                const reader = file.stream().getReader();
+                let offset = 0;
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        output.set(value, offset);
+                        offset += value.byteLength;
+                        setStatus(
+                            'info',
+                            `Đang đọc PDF lớn ${index + 1}/${fileCount}…`,
+                            `${file.name} · ${formatBytes(offset)} / ${formatBytes(file.size)}`,
+                            progressStart + (offset / file.size) * progressSpan,
+                        );
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
+                } finally {
+                    reader.releaseLock();
+                }
+                return output;
+            }
+
             function getSourceStem(filename) {
                 const lastDot = filename.lastIndexOf('.');
                 return (lastDot > 0 ? filename.slice(0, lastDot) : filename) || 'document';
@@ -1206,13 +2141,18 @@
                 return `${buildExportBaseName(filename, pageNumbers)}.pdf`;
             }
 
-            function buildPdfInWorker(sourceBytes, pageNumbers, expectedPageCount) {
-                const pageSpec = compressPageNumbers(pageNumbers).replace(/\s+/g, '');
+            function buildPdfFromInputsInWorker(inputDefinitions, operationMode, pageSequence = []) {
+                const sources = inputDefinitions.map(definition => ({
+                    buffer: definition.bytes.buffer,
+                    byteOffset: definition.bytes.byteOffset,
+                    byteLength: definition.bytes.byteLength,
+                    pageSpec: definition.pageSpec || '1-z',
+                }));
                 const workerSource = `
                     self.onmessage = async event => {
                         try {
                             importScripts(${JSON.stringify(QPDF_JS_URL)});
-                            const { sourceBuffer, selectedPageSpec } = event.data;
+                            const { sources, operationMode, pageSequence } = event.data;
                             const messages = [];
                             const qpdf = await Module({
                                 noInitialRun: true,
@@ -1339,7 +2279,9 @@
                             };
 
                             const clearQpdfFiles = () => {
-                                for (const filePath of ['/input.pdf', '/output.pdf']) {
+                                const filePaths = sources.map((source, index) => '/input-' + index + '.pdf');
+                                filePaths.push('/output.pdf');
+                                for (const filePath of filePaths) {
                                     try {
                                         qpdf.FS.unlink(filePath);
                                     } catch (error) {
@@ -1348,14 +2290,35 @@
                                 }
                             };
 
-                            const runQpdf = (inputBytes, removePageLabels = false) => {
+                            const runQpdf = (inputByteArrays, removePageLabels = false) => {
                                 clearQpdfFiles();
                                 messages.length = 0;
-                                qpdf.FS.writeFile('/input.pdf', inputBytes);
+                                const inputPaths = inputByteArrays.map((inputBytes, index) => {
+                                    const inputPath = '/input-' + index + '.pdf';
+                                    qpdf.FS.writeFile(inputPath, inputBytes);
+                                    return inputPath;
+                                });
 
-                                const args = ['/input.pdf', '--warning-exit-0'];
+                                const args = [inputPaths[0], '--warning-exit-0'];
                                 if (removePageLabels) args.push('--remove-page-labels');
-                                args.push('--pages', '.', selectedPageSpec, '--', '/output.pdf');
+                                args.push('--pages');
+                                if (operationMode === 'merge') {
+                                    const selections = pageSequence.length
+                                        ? pageSequence
+                                        : inputPaths.map((inputPath, sourceIndex) => ({
+                                            sourceIndex,
+                                            pageSpec: sources[sourceIndex].pageSpec || '1-z',
+                                        }));
+                                    selections.forEach(selection => {
+                                        const inputPath = selection.sourceIndex === 0
+                                            ? '.'
+                                            : inputPaths[selection.sourceIndex];
+                                        args.push(inputPath, selection.pageSpec);
+                                    });
+                                } else {
+                                    args.push('.', sources[0].pageSpec);
+                                }
+                                args.push('--', '/output.pdf');
 
                                 let exitCode = 0;
                                 try {
@@ -1376,14 +2339,120 @@
                                 return outputBytes;
                             };
 
-                            const originalBytes = new Uint8Array(sourceBuffer);
+                            const restoreOptionalContentGroups = async sourceBytes => {
+                                importScripts(${JSON.stringify(PDF_LIB_JS_URL)});
+                                if (!self.PDFLib) throw new Error('Không tải được thư viện phục hồi layer PDF.');
+
+                                const { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef } = self.PDFLib;
+                                const pdfDocument = await PDFDocument.load(sourceBytes, {
+                                    updateMetadata: false,
+                                });
+                                const context = pdfDocument.context;
+                                const ocgRefs = [];
+                                const seenOcgRefs = new Set();
+
+                                for (const [ref, object] of context.enumerateIndirectObjects()) {
+                                    if (!(object instanceof PDFDict)) continue;
+                                    const objectType = object.lookup(PDFName.of('Type'));
+                                    if (!objectType || objectType.toString() !== '/OCG') continue;
+                                    const refKey = ref.toString();
+                                    if (seenOcgRefs.has(refKey)) continue;
+                                    seenOcgRefs.add(refKey);
+                                    ocgRefs.push(ref);
+                                }
+
+                                if (!ocgRefs.length) return sourceBytes;
+
+                                const ocPropertiesKey = PDFName.of('OCProperties');
+                                let ocProperties = pdfDocument.catalog.lookup(ocPropertiesKey);
+                                if (!(ocProperties instanceof PDFDict)) {
+                                    ocProperties = context.obj({});
+                                    pdfDocument.catalog.set(ocPropertiesKey, ocProperties);
+                                }
+
+                                ocProperties.set(PDFName.of('OCGs'), context.obj(ocgRefs));
+
+                                const defaultConfigKey = PDFName.of('D');
+                                let defaultConfig = ocProperties.lookup(defaultConfigKey);
+                                if (!(defaultConfig instanceof PDFDict)) {
+                                    defaultConfig = context.obj({ BaseState: PDFName.of('ON') });
+                                    ocProperties.set(defaultConfigKey, defaultConfig);
+                                }
+
+                                const orderedRefKeys = new Set();
+                                const collectOrderedRefs = value => {
+                                    if (value instanceof PDFRef) {
+                                        orderedRefKeys.add(value.toString());
+                                        return;
+                                    }
+                                    if (!(value instanceof PDFArray)) return;
+                                    for (let index = 0; index < value.size(); index += 1) {
+                                        collectOrderedRefs(value.get(index));
+                                    }
+                                };
+
+                                const orderKey = PDFName.of('Order');
+                                let order = defaultConfig.lookup(orderKey);
+                                if (!(order instanceof PDFArray)) {
+                                    order = context.obj([]);
+                                    defaultConfig.set(orderKey, order);
+                                } else {
+                                    collectOrderedRefs(order);
+                                }
+                                for (const ref of ocgRefs) {
+                                    if (orderedRefKeys.has(ref.toString())) continue;
+                                    order.push(ref);
+                                    orderedRefKeys.add(ref.toString());
+                                }
+
+                                const baseState = defaultConfig.lookup(PDFName.of('BaseState'));
+                                if (baseState && baseState.toString() === '/OFF') {
+                                    const onKey = PDFName.of('ON');
+                                    let onLayers = defaultConfig.lookup(onKey);
+                                    if (!(onLayers instanceof PDFArray)) {
+                                        onLayers = context.obj([]);
+                                        defaultConfig.set(onKey, onLayers);
+                                    }
+                                    const enabledRefs = new Set();
+                                    collectOrderedRefs(onLayers);
+                                    for (let index = 0; index < onLayers.size(); index += 1) {
+                                        const value = onLayers.get(index);
+                                        if (value instanceof PDFRef) enabledRefs.add(value.toString());
+                                    }
+                                    for (const ref of ocgRefs) {
+                                        if (!enabledRefs.has(ref.toString())) onLayers.push(ref);
+                                    }
+                                }
+
+                                return pdfDocument.save({
+                                    useObjectStreams: true,
+                                    addDefaultPage: false,
+                                    updateFieldAppearances: false,
+                                    objectsPerTick: 100,
+                                });
+                            };
+
+                            const originalSources = sources.map(source => new Uint8Array(
+                                source.buffer,
+                                source.byteOffset || 0,
+                                source.byteLength,
+                            ));
                             let outputBytes;
                             try {
-                                outputBytes = runQpdf(originalBytes);
+                                outputBytes = runQpdf(originalSources);
                             } catch (primaryError) {
-                                const repairedBytes = neutralizeMalformedPageLabels(originalBytes);
-                                if (!repairedBytes) throw primaryError;
-                                outputBytes = runQpdf(repairedBytes, true);
+                                let repairedAnySource = false;
+                                const repairedSources = originalSources.map(sourceBytes => {
+                                    const repairedBytes = neutralizeMalformedPageLabels(sourceBytes);
+                                    if (repairedBytes) repairedAnySource = true;
+                                    return repairedBytes || sourceBytes;
+                                });
+                                if (!repairedAnySource) throw primaryError;
+                                outputBytes = runQpdf(repairedSources, true);
+                            }
+
+                            if (operationMode === 'merge') {
+                                outputBytes = await restoreOptionalContentGroups(outputBytes);
                             }
 
                             clearQpdfFiles();
@@ -1422,12 +2491,17 @@
                         cleanup();
                         reject(new Error(event.message || 'Không khởi chạy được Web Worker xử lý PDF.'));
                     };
-                    worker.postMessage({
-                        sourceBuffer: sourceBytes.buffer,
-                        selectedPageSpec: pageSpec,
-                        expectedPageCount,
-                    }, [sourceBytes.buffer]);
+                    worker.postMessage({ sources, operationMode, pageSequence }, sources.map(source => source.buffer));
                 });
+            }
+
+            function buildPdfInWorker(sourceBytes, pageNumbers) {
+                const pageSpec = compressPageNumbers(pageNumbers).replace(/\s+/g, '');
+                return buildPdfFromInputsInWorker([{ bytes: sourceBytes, pageSpec }], 'extract');
+            }
+
+            function buildMergedPdfInWorker(inputDefinitions, pageSequence) {
+                return buildPdfFromInputsInWorker(inputDefinitions, 'merge', pageSequence);
             }
 
             function downloadBlob(blob, filename) {
@@ -1607,7 +2681,7 @@
                         `${pagesAtStart.length} trang · giữ catalog, vector, font và cấu hình layer`,
                         52,
                     );
-                    const outputBytes = await buildPdfInWorker(sourceBytes, pagesAtStart, totalPages);
+                    const outputBytes = await buildPdfInWorker(sourceBytes, pagesAtStart);
                     setStatus('info', 'Đang chuẩn bị tải xuống…', formatBytes(outputBytes.byteLength), 96);
                     downloadBytes(outputBytes, buildDownloadFilename(fileAtStart.name, pagesAtStart));
                     setStatus(
@@ -1625,6 +2699,116 @@
                         isEncrypted
                             ? 'PDF có mật khẩu/mã hóa chưa được hỗ trợ. Hãy mở khóa file trước khi dùng công cụ này.'
                             : (error?.message || 'Trình duyệt có thể không đủ bộ nhớ cho file này.'),
+                    );
+                } finally {
+                    setBusy(false);
+                }
+            }
+
+            function getMergeDownloadFilename() {
+                let filename = elements.mergeOutputName.value.trim() || 'PDF da ghep.pdf';
+                filename = filename.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-').replace(/[. ]+$/g, '');
+                if (!filename) filename = 'PDF da ghep.pdf';
+                if (!filename.toLowerCase().endsWith('.pdf')) filename += '.pdf';
+                elements.mergeOutputName.value = filename;
+                return filename;
+            }
+
+            function buildMergePageSequence(pageEntries, sourceIndexByFileId) {
+                const runs = [];
+                for (const pageEntry of pageEntries) {
+                    const sourceIndex = sourceIndexByFileId.get(pageEntry.fileId);
+                    if (!Number.isInteger(sourceIndex)) continue;
+                    const previousRun = runs[runs.length - 1];
+                    if (
+                        previousRun &&
+                        previousRun.sourceIndex === sourceIndex &&
+                        pageEntry.pageNumber === previousRun.endPage + 1
+                    ) {
+                        previousRun.endPage = pageEntry.pageNumber;
+                    } else {
+                        runs.push({
+                            sourceIndex,
+                            startPage: pageEntry.pageNumber,
+                            endPage: pageEntry.pageNumber,
+                        });
+                    }
+                }
+                return runs.map(run => ({
+                    sourceIndex: run.sourceIndex,
+                    pageSpec: run.startPage === run.endPage
+                        ? String(run.startPage)
+                        : `${run.startPage}-${run.endPage}`,
+                }));
+            }
+
+            async function exportMergedPdfs() {
+                const allEntriesAtStart = mergeFiles.slice();
+                const pagesAtStart = mergePageOrder
+                    .filter(pageEntry => pageEntry.included)
+                    .map(pageEntry => ({ ...pageEntry }));
+                if (isBusy || allEntriesAtStart.length === 0) return;
+                if (!pagesAtStart.length) {
+                    setStatus('error', 'Chưa chọn trang', 'Hãy chọn ít nhất một trang trong khung preview.');
+                    return;
+                }
+                if (allEntriesAtStart.some(entry => entry.error || entry.pageCount === null)) {
+                    setStatus('error', 'Chưa thể ghép PDF', 'Hãy chờ đọc xong và xóa các tệp bị lỗi khỏi danh sách.');
+                    return;
+                }
+
+                const orderedUsedFileIds = [];
+                const seenUsedFileIds = new Set();
+                for (const pageEntry of pagesAtStart) {
+                    if (seenUsedFileIds.has(pageEntry.fileId)) continue;
+                    seenUsedFileIds.add(pageEntry.fileId);
+                    orderedUsedFileIds.push(pageEntry.fileId);
+                }
+                const entriesAtStart = orderedUsedFileIds
+                    .map(fileId => allEntriesAtStart.find(entry => entry.id === fileId))
+                    .filter(Boolean);
+                const sourceIndexByFileId = new Map(
+                    entriesAtStart.map((entry, index) => [entry.id, index]),
+                );
+                const pageSequence = buildMergePageSequence(pagesAtStart, sourceIndexByFileId);
+
+                setBusy(true);
+                try {
+                    const inputDefinitions = [];
+                    for (let index = 0; index < entriesAtStart.length; index += 1) {
+                        const bytes = await readMergeFileForExport(
+                            entriesAtStart[index].file,
+                            index,
+                            entriesAtStart.length,
+                        );
+                        inputDefinitions.push({ bytes, pageSpec: '1-z' });
+                    }
+
+                    const totalMergedPages = pagesAtStart.length;
+                    setStatus(
+                        'info',
+                        'Đang ghép PDF trong tiến trình nền…',
+                        `${entriesAtStart.length} tệp · ${totalMergedPages} trang · giữ vector, font và layer`,
+                        52,
+                    );
+                    const outputBytes = await buildMergedPdfInWorker(inputDefinitions, pageSequence);
+                    setStatus('info', 'Đang chuẩn bị tải xuống…', formatBytes(outputBytes.byteLength), 96);
+                    downloadBytes(outputBytes, getMergeDownloadFilename());
+                    setStatus(
+                        'success',
+                        'Đã ghép PDF thành công',
+                        `${entriesAtStart.length} tệp · ${totalMergedPages} trang · ${formatBytes(outputBytes.byteLength)} · không upload`,
+                        100,
+                    );
+                } catch (error) {
+                    console.error(error);
+                    const isEncrypted = /encrypt|password/i.test(String(error?.message || ''));
+                    setStatus(
+                        'error',
+                        'Không thể ghép PDF',
+                        isEncrypted
+                            ? 'Có PDF dùng mật khẩu/mã hóa. Hãy mở khóa tệp đó trước khi ghép.'
+                            : (error?.message || 'Trình duyệt có thể không đủ bộ nhớ cho các tệp này.'),
                     );
                 } finally {
                     setBusy(false);
@@ -1649,28 +2833,110 @@
                 }
             });
             elements.fileInput.addEventListener('change', () => {
-                const [file] = elements.fileInput.files || [];
-                loadPdfFile(file);
+                const files = Array.from(elements.fileInput.files || []).filter(isPdfFile);
+                if (files.length > 1) {
+                    addMergeFiles(files);
+                } else {
+                    loadPdfFile(files[0]);
+                }
             });
 
-            ['dragenter', 'dragover'].forEach(eventName => {
-                elements.dropZone.addEventListener(eventName, event => {
-                    event.preventDefault();
-                    if (!isBusy) elements.dropZone.classList.add('is-dragging');
-                });
-            });
-            ['dragleave', 'drop'].forEach(eventName => {
-                elements.dropZone.addEventListener(eventName, event => {
-                    event.preventDefault();
-                    elements.dropZone.classList.remove('is-dragging');
-                });
-            });
-            elements.dropZone.addEventListener('drop', event => {
+            elements.mergeAddButton.addEventListener('click', () => {
                 if (isBusy) return;
-                const file = Array.from(event.dataTransfer?.files || []).find(candidate => (
-                    candidate.type === 'application/pdf' || candidate.name.toLowerCase().endsWith('.pdf')
-                ));
-                loadPdfFile(file);
+                elements.mergeFileInput.value = '';
+                elements.mergeFileInput.click();
+            });
+            elements.mergeFileInput.addEventListener('change', () => {
+                addMergeFiles(elements.mergeFileInput.files, { includeCurrentFile: true });
+            });
+            elements.mergeClearButton.addEventListener('click', () => {
+                if (isBusy) return;
+                const entriesToRelease = mergeFiles.slice();
+                mergeFiles = [];
+                mergePageOrder = [];
+                elements.mergeFileInput.value = '';
+                entriesToRelease.forEach(entry => releaseMergeEntry(entry));
+                renderMergeFileList();
+                showSinglePreview();
+            });
+            elements.mergeButton.addEventListener('click', exportMergedPdfs);
+            elements.mergeFileList.addEventListener('dragover', event => {
+                if (draggedMergeFileId === null || event.target.closest?.('.merge-file-row')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = 'move';
+                clearMergeDropIndicators();
+                elements.mergeFileList.querySelector('.merge-file-row:last-child')?.classList.add('is-drop-after');
+            });
+            elements.mergeFileList.addEventListener('drop', event => {
+                if (draggedMergeFileId === null || event.target.closest?.('.merge-file-row')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const sourceIndex = mergeFiles.findIndex(entry => entry.id === draggedMergeFileId);
+                draggedMergeFileId = null;
+                if (sourceIndex < 0) return;
+                const [movedEntry] = mergeFiles.splice(sourceIndex, 1);
+                mergeFiles.push(movedEntry);
+                syncMergePageOrderToFileOrder();
+                renderMergeFileList();
+                renderMergePageGrid();
+            });
+            elements.pageGrid.addEventListener('dragover', event => {
+                if (draggedMergePageId === null || isBusy) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = 'move';
+                clearMergePageDropTargets();
+                const position = getMergePageDropPosition(event.clientX, event.clientY);
+                if (position && position.targetId !== draggedMergePageId) {
+                    position.card.classList.add(position.placeAfter ? 'is-page-drop-after' : 'is-page-drop-before');
+                }
+            });
+            elements.pageGrid.addEventListener('drop', event => {
+                if (draggedMergePageId === null) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const position = getMergePageDropPosition(event.clientX, event.clientY);
+                const sourceId = draggedMergePageId;
+                finishMergePageDrag();
+                if (position) reorderMergePage(sourceId, position.targetId, position.placeAfter);
+            });
+            elements.pageGrid.addEventListener('dragleave', event => {
+                if (!elements.pageGrid.contains(event.relatedTarget)) clearMergePageDropTargets();
+            });
+
+            document.addEventListener('dragenter', event => {
+                if (!isFileDragEvent(event)) return;
+                event.preventDefault();
+                globalFileDragDepth += 1;
+                setGlobalDropOverlayVisible(true);
+            });
+            document.addEventListener('dragover', event => {
+                if (!isFileDragEvent(event)) return;
+                event.preventDefault();
+                if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+                setGlobalDropOverlayVisible(true);
+                elements.dropZone.classList.toggle('is-dragging', elements.dropZone.contains(event.target));
+            });
+            document.addEventListener('dragleave', event => {
+                if (!isFileDragEvent(event)) return;
+                event.preventDefault();
+                globalFileDragDepth = Math.max(0, globalFileDragDepth - 1);
+                if (globalFileDragDepth === 0 || !event.relatedTarget) {
+                    setGlobalDropOverlayVisible(false);
+                }
+            });
+            document.addEventListener('drop', event => {
+                if (!isFileDragEvent(event)) return;
+                event.preventDefault();
+                globalFileDragDepth = 0;
+                const droppedOnSplitZone = elements.dropZone.contains(event.target);
+                setGlobalDropOverlayVisible(false);
+                handleDroppedPdfFiles(event.dataTransfer?.files, droppedOnSplitZone);
+            });
+            window.addEventListener('blur', () => {
+                globalFileDragDepth = 0;
+                setGlobalDropOverlayVisible(false);
             });
 
             elements.pageSelection.addEventListener('input', () => validateSelection());
@@ -1699,6 +2965,10 @@
             });
             window.addEventListener('beforeunload', () => {
                 if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+                mergeFiles.forEach(entry => {
+                    if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+                    if (entry.documentHandle) entry.documentHandle.destroy();
+                });
                 revokeThumbnailUrls();
             });
         })();
