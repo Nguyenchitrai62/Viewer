@@ -641,7 +641,7 @@
                 <path
                     d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z" />
             </svg>
-            <div style="font-weight: 600; font-size: 18px; margin-bottom: 8px;">Drop JSON model here</div>
+            <div style="font-weight: 600; font-size: 18px; margin-bottom: 8px;">Drop JSON or gzip model here</div>
             <div style="font-size: 13px; color: var(--text-muted);">or click to browse</div>
         </div>
     </div>
@@ -672,13 +672,14 @@
     </div>
 
     <!-- Legacy / Hidden elements -->
-    <input type="file" id="file-input" accept=".json" style="display: none;">
+    <input type="file" id="file-input" accept=".json,.json.gz,.gz,.gzip,application/json,application/gzip,application/x-gzip" style="display: none;">
     <div class="tooltip" id="tooltip" style="display: none;"></div>
     <div id="legend-panel" style="display:none;"></div>
 
     <!-- Three.js Dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="./json_input.js?v=20260929-gzip-1"></script>
     <script>
         // ==================== GLOBAL STATE ====================
         const state = {
@@ -867,23 +868,18 @@
             if (e.target.files[0]) processFile(e.target.files[0]);
         }
 
-        function processFile(file) {
+        async function processFile(file) {
             showLoading('Loading Model...');
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const json = JSON.parse(e.target.result);
-                    setTimeout(() => { // Small delay to let UI render loading state
-                        loadRevitData(json);
-                        hideLoading();
-                    }, 100);
-                } catch (error) {
-                    hideLoading();
-                    alert('Error parsing JSON: ' + error.message);
-                }
-            };
-            reader.readAsText(file);
+            try {
+                const json = await JsonInput.readFile(file);
+                // Small delay to let UI render loading state.
+                await new Promise(resolve => setTimeout(resolve, 100));
+                loadRevitData(json);
+            } catch (error) {
+                alert('Error loading JSON/gzip: ' + error.message);
+            } finally {
+                hideLoading();
+            }
         }
 
         function loadRevitData(data) {

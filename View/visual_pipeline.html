@@ -420,7 +420,7 @@
                 <div id="imageCanvas" class="image-canvas">
                     <div class="no-data">
                         <span>📤</span>
-                        Please drag and drop a JSON data file to start
+                        Please drag and drop a JSON or gzip data file to start
                     </div>
                 </div>
             </div>
@@ -433,12 +433,12 @@
                         <h3>⚙️ Controls</h3>
                         <div class="controls">
                             <div class="control-group">
-                                <label for="jsonFileInput">Import JSON:</label>
+                                <label for="jsonFileInput">Import JSON / Gzip:</label>
                                 <input
                                     id="jsonFileInput"
                                     class="file-input"
                                     type="file"
-                                    accept=".json,application/json"
+                                    accept=".json,.json.gz,.gz,.gzip,application/json,application/gzip,application/x-gzip"
                                 >
                             </div>
                             <div class="control-group">
@@ -469,6 +469,7 @@
     <div class="loading" id="loading"></div>
     <div class="tooltip" id="tooltip"></div>
 
+    <script src="./json_input.js?v=20260929-gzip-1"></script>
     <script>
         class PipeVisualization {
             constructor() {
@@ -568,7 +569,7 @@
                     const noData = this.imageContainer.querySelector('.no-data');
                     if (noData) {
                         noData.classList.add('drag-over');
-                        noData.innerHTML = '<span>📂</span>Drop JSON file here';
+                        noData.innerHTML = '<span>📂</span>Drop JSON or gzip file here';
                     }
                 }
             }
@@ -582,7 +583,7 @@
                     const noData = this.imageContainer.querySelector('.no-data');
                     if (noData) {
                         noData.classList.remove('drag-over');
-                        noData.innerHTML = '<span>📤</span>Please drag and drop a JSON data file to start';
+                        noData.innerHTML = '<span>📤</span>Please drag and drop a JSON or gzip data file to start';
                     }
                 }
             }
@@ -600,10 +601,10 @@
                 const files = e.dataTransfer.files;
                 if (files.length > 0) {
                     const file = files[0];
-                    if (file.name.toLowerCase().endsWith('.json')) {
+                    if (JsonInput.isJsonFile(file)) {
                         this.processDroppedFile(file);
                     } else {
-                        alert('Please drop a JSON file (.json)');
+                        alert('Please drop a JSON or gzip file (.json, .json.gz, .gz, .gzip)');
                     }
                 }
             }
@@ -611,13 +612,12 @@
             async processDroppedFile(file) {
                 this._showLoading(true);
                 try {
-                    const text = await file.text();
-                    this.data = JSON.parse(text);
+                    this.data = await JsonInput.readFile(file);
                     this.bounds = this._calculateBounds(this.data);
                     this._updateFilters();
                     this.resetView();
                 } catch (error) {
-                    alert('Error reading JSON file: ' + error.message);
+                    alert('Error reading JSON/gzip file: ' + error.message);
                 } finally {
                     this._showLoading(false);
                 }
@@ -645,7 +645,10 @@
                 if (obj.layer) lines.push(`Layer: ${obj.layer}`);
                 lines.push(`Shape: ${obj.shape_name || 'N/A'}`);
                 lines.push(`Pipe ID: ${Array.isArray(obj.pipe_id) ? obj.pipe_id.join(', ') : obj.pipe_id}`);
-                if (obj.link && obj.link.length) lines.push(`Links: ${obj.link.join(', ')}`);
+                const connectors = Array.isArray(obj.connectors)
+                    ? obj.connectors
+                    : (Array.isArray(obj.link) ? obj.link : []);
+                if (connectors.length) lines.push(`Connectors: ${connectors.join(', ')}`);
                 if (obj.DN && obj.DN.length) lines.push(`DN: ${obj.DN.join(', ')}`);
                 if (obj.EI && obj.EI.length) lines.push(`EI: ${obj.EI.join(', ')}`);
 
@@ -691,19 +694,7 @@
             async handleJsonUpload(event) {
                 const file = event.target.files[0];
                 if (!file) return;
-
-                this._showLoading(true);
-                try {
-                    const text = await file.text();
-                    this.data = JSON.parse(text);
-                    this.bounds = this._calculateBounds(this.data);
-                    this._updateFilters();
-                    this.resetView();
-                } catch (error) {
-                    alert('Error reading JSON file: ' + error.message);
-                } finally {
-                    this._showLoading(false);
-                }
+                await this.processDroppedFile(file);
             }
 
             getFilteredData() {
@@ -715,7 +706,7 @@
             updateVisualization() {
                 const canvas = document.getElementById('imageCanvas');
                 if (!this.data || !this.bounds) {
-                    canvas.innerHTML = `<div class="no-data"><span>📤</span>Please drag and drop a JSON data file to start</div>`;
+                    canvas.innerHTML = `<div class="no-data"><span>📤</span>Please drag and drop a JSON or gzip data file to start</div>`;
                     return;
                 }
 

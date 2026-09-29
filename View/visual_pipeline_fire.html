@@ -648,7 +648,7 @@
             <div class="drag-overlay">
                 <div class="msg-box">
                     <span class="msg-icon">📂</span>
-                    <div class="msg-title">Drop JSON File Here</div>
+                    <div class="msg-title">Drop JSON or Gzip File Here</div>
                 </div>
             </div>
 
@@ -656,7 +656,7 @@
                 <div class="msg-box">
                     <span class="msg-icon">📥</span>
                     <div class="msg-title">No Data</div>
-                    <div class="msg-sub">Drag & Drop a JSON output file</div>
+                    <div class="msg-sub">Drag & Drop a JSON output file (.json, .json.gz, .gz, .gzip)</div>
                 </div>
             </div>
 
@@ -689,6 +689,7 @@
     <div class="tooltip-float" id="tooltip"></div>
 
     <script src="./env.js"></script>
+    <script src="./json_input.js?v=20260929-gzip-1"></script>
     <script>
         class PipeVisualization {
             constructor() {
@@ -865,11 +866,15 @@
                 this.viewport.classList.remove('drag-over');
 
                 const files = e.dataTransfer.files;
-                if (files.length && files[0].name.toLowerCase().endsWith('.json')) {
+                if (files.length && JsonInput.isJsonFile(files[0])) {
                     this.loadFile(files[0]);
                 } else {
-                    alert('Please drop a valid .json file.');
+                    alert('Please drop a JSON or gzip file (.json, .json.gz, .gz, .gzip).');
                 }
+            }
+
+            async readJsonFile(file) {
+                return JsonInput.readFile(file);
             }
 
             async loadFile(file) {
@@ -878,8 +883,7 @@
                 document.getElementById('fileInfo').textContent = file.name.toUpperCase();
 
                 try {
-                    const text = await file.text();
-                    this.data = JSON.parse(text);
+                    this.data = await this.readJsonFile(file);
                     this.bounds = this.calcBounds(this.data);
 
                     // Reset View
@@ -893,7 +897,7 @@
                     this.resetView(); // Auto fit
                 } catch (err) {
                     console.error(err);
-                    alert('Failed to parse JSON: ' + err.message);
+                    alert('Failed to load JSON/gzip: ' + err.message);
                 } finally {
                     loader.style.display = 'none';
                 }

@@ -305,8 +305,8 @@
         <div class="control-row">
             <div class="file-input-wrapper">
                 <label class="file-label">
-                    <span>📂 Load JSON</span>
-                    <input type="file" id="fileInput" accept=".json">
+                    <span>📂 Load JSON / Gzip</span>
+                    <input type="file" id="fileInput" accept=".json,.json.gz,.gz,.gzip,application/json,application/gzip,application/x-gzip">
                 </label>
             </div>
         </div>
@@ -322,7 +322,7 @@
         <!-- Tree will be injected here -->
         <div style="padding: 20px; text-align: center; color: var(--text-dim);">
             <p>No Data Loaded</p>
-            <p style="font-size: 11px;">Drop a .json file here</p>
+            <p style="font-size: 11px;">Drop a .json, .json.gz, .gz, or .gzip file here</p>
         </div>
     </div>
 </div>
@@ -335,6 +335,7 @@
     </div>
 </div>
 
+<script src="./json_input.js?v=20260929-gzip-1"></script>
 <script>
     // --- State ---
     let entities = [];
@@ -427,19 +428,15 @@
         if (files.length > 0) readFile(files[0]);
     }, false);
 
-    function readFile(file) {
+    async function readFile(file) {
         statusEl.textContent = "Loading...";
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            try {
-                const json = JSON.parse(event.target.result);
-                loadData(json);
-            } catch (err) {
-                alert('Error parsing JSON: ' + err);
-                statusEl.textContent = "Error parsing JSON";
-            }
-        };
-        reader.readAsText(file);
+        try {
+            const json = await JsonInput.readFile(file);
+            loadData(json);
+        } catch (err) {
+            alert('Error loading JSON/gzip: ' + err.message);
+            statusEl.textContent = "Error loading JSON/gzip";
+        }
     }
 
     // --- Data Processing & Optimization ---

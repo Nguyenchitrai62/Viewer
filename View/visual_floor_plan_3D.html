@@ -397,9 +397,9 @@
 
         <div id="drop-zone">
             <span class="icon">📂</span>
-            <h2>Upload JSON or Image</h2>
+            <h2>Upload JSON, Gzip or Image</h2>
             <p>Drag & drop a file here or click to choose</p>
-            <input type="file" id="file-input" accept=".json,image/*" style="display: none;">
+            <input type="file" id="file-input" accept=".json,.json.gz,.gz,.gzip,application/json,application/gzip,application/x-gzip,image/*" style="display: none;">
         </div>
 
         <div id="main-panel">
@@ -464,6 +464,7 @@
     </div>
 
     <script src="./env.js"></script>
+    <script src="./json_input.js?v=20260929-gzip-1"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         let scene, camera, renderer;
@@ -1634,36 +1635,36 @@
 
         function handleFile(file) {
             if (file.type.startsWith('image/')) uploadImage(file);
-            else if (file.name.endsWith('.json') || file.type === 'application/json') loadJSON(file);
-            else alert("Please select a JSON or image file");
+            else if (JsonInput.isJsonFile(file)) loadJSON(file);
+            else alert("Please select a JSON, gzip or image file");
         }
 
-        function loadJSON(file) {
+        async function loadJSON(file) {
             showLoading();
             processingTime = null;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    if (imageMesh) {
-                        rootGroup.remove(imageMesh);
-                        imageMesh.geometry.dispose();
-                        imageMesh.material.dispose();
-                        imageMesh = null;
-                    }
-                    jsonData = JSON.parse(e.target.result);
-                    document.getElementById('drop-zone').classList.add('hidden');
-                    document.getElementById('main-panel').style.display = 'flex';
-                    gridHelper.visible = true;
-                    document.getElementById('toggle-grid').classList.add('active');
-                    const imgBtn = document.getElementById('toggle-image');
-                    imgBtn.disabled = true;
-                    imgBtn.classList.remove('active');
-                    buildFloorPlan(jsonData);
-                    fitCameraToScene();
-                } catch (err) { alert("JSON error: " + err.message); }
+            try {
+                const parsed = await JsonInput.readFile(file);
+                if (imageMesh) {
+                    rootGroup.remove(imageMesh);
+                    imageMesh.geometry.dispose();
+                    imageMesh.material.dispose();
+                    imageMesh = null;
+                }
+                jsonData = parsed;
+                document.getElementById('drop-zone').classList.add('hidden');
+                document.getElementById('main-panel').style.display = 'flex';
+                gridHelper.visible = true;
+                document.getElementById('toggle-grid').classList.add('active');
+                const imgBtn = document.getElementById('toggle-image');
+                imgBtn.disabled = true;
+                imgBtn.classList.remove('active');
+                buildFloorPlan(jsonData);
+                fitCameraToScene();
+            } catch (err) {
+                alert("JSON/gzip error: " + err.message);
+            } finally {
                 hideLoading();
-            };
-            reader.readAsText(file);
+            }
         }
 
         function update3DOpacity(opacity) {
