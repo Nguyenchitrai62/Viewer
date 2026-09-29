@@ -464,7 +464,34 @@
     </div>
 
     <script src="./env.js"></script>
-    <script src="./json_input.js?v=20260929-gzip-1"></script>
+    <script src="./json_input.js?v=20260929-gzip-3"></script>
+    <script data-json-input-fallback>
+        if (typeof JsonInput === 'undefined') {
+            // Keep file imports working when the shared script is unavailable.
+            window.JsonInput = {
+                isJsonFile(file) {
+                    return Boolean(file) && (/\.(json|gz|gzip)$/i.test(file.name || '') || /^(application\/json|application\/gzip|application\/x-gzip)$/i.test(file.type || ''));
+                },
+                async openFile(file) {
+                    const header = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+                    const isGzip = header[0] === 0x1f && header[1] === 0x8b;
+                    let stream = typeof file.stream === 'function' ? file.stream() : new Response(file).body;
+                    if (isGzip) {
+                        if (typeof DecompressionStream === 'undefined') {
+                            throw new Error('Gzip decompression is unavailable. Please use a browser with DecompressionStream support or decompress the file to .json first.');
+                        }
+                        stream = stream.pipeThrough(new DecompressionStream('gzip'));
+                    }
+                    return { isGzip, stream };
+                },
+                async readFile(file) {
+                    const input = await this.openFile(file);
+                    const text = await new Response(input.stream).text();
+                    return JSON.parse(text.replace(/^\uFEFF/, ''));
+                }
+            };
+        }
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         let scene, camera, renderer;
@@ -1698,7 +1725,10 @@
             const dz = document.getElementById('drop-zone');
             const finput = document.getElementById('file-input');
             dz.onclick = () => { if (!isLoading) finput.click(); };
-            finput.onchange = (e) => { if (!isLoading && e.target.files[0]) handleFile(e.target.files[0]); };
+            finput.onchange = (e) => {
+                if (!isLoading && e.target.files[0]) handleFile(e.target.files[0]);
+                e.target.value = '';
+            };
 
             const refresh = () => { if (jsonData) buildFloorPlan(jsonData); };
             const debouncedRefresh = debounce(refresh, 50);

@@ -135,7 +135,7 @@ function sniffJsonImportKindFromText(text) {
     const firstChar = text[startIndex];
     const snippet = text.slice(startIndex, Math.min(text.length, startIndex + (128 * 1024))).toLowerCase();
     if (firstChar === '[') {
-        return snippet.includes('"vertices"') && snippet.includes('"shape_name"')
+        return snippet.includes('"vertices"') && (snippet.includes('"shape_name"') || snippet.includes('"pipe_id"'))
             ? 'visual_pipeline_fire'
             : 'unknown';
     }
@@ -938,6 +938,42 @@ async function loadJsonFileStreaming(file) {
     showLoadingPopup('Loading JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${formatBytes(file.size)}`);
 
     try {
+        const input = await JsonInput.openFile(file);
+        if (input.isGzip) {
+            updateLoadingPopup('Decompressing JSON...', file.name);
+            const detected = await JsonInput.peekStream(input.stream, 128 * 1024);
+            const importKind = sniffJsonImportKindFromText(new TextDecoder('utf-8').decode(detected.prefix));
+
+            if (importKind !== 'unknown') {
+                // Pipeline arrays require the same conversion as uncompressed imports.
+                const text = await new Response(detected.stream).text();
+                updateLoadingPopup('Parsing JSON...', `${file.name}${UI_TEXT.BULLET_SEPARATOR}${importKind}`);
+                await yieldToBrowser();
+                await loadParsedJsonDocument(JSON.parse(text.replace(/^\uFEFF/, '')), { sourceFile: file, pageNum: 1, buildRasterPreview: false });
+            } else {
+                // Compressed size cannot bound decoded size: keep layered JSON streaming.
+                const reader = detected.stream.getReader();
+                let documentData;
+                try {
+                    documentData = await parseJsonByteStreamToDocument(reader, {
+                        sourceLabel: file.name || 'JSON gzip',
+                        buildRasterPreview: false
+                    });
+                } catch (error) {
+                    await reader.cancel(error).catch(() => {});
+                    throw error;
+                } finally {
+                    reader.releaseLock();
+                }
+                updateLoadingPopup('Finalizing JSON...', `${documentData.shapes.length.toLocaleString()} shapes ready`);
+                await yieldToBrowser();
+                loadNormalizedDocument({ ...documentData, sourceFile: file, pageNum: 1 });
+            }
+
+            dropZone.classList.add('hidden');
+            return;
+        }
+
         const importPrefix = typeof file.slice === 'function' && typeof file.slice(0, 1).text === 'function'
             ? await file.slice(0, 128 * 1024).text()
             : '';
@@ -958,7 +994,7 @@ async function loadJsonFileStreaming(file) {
             await yieldToBrowser();
             await loadParsedJsonDocument(JSON.parse(text), { sourceFile: file, pageNum: 1, buildRasterPreview: false });
         } else if (typeof file.stream === 'function') {
-            const documentData = await parseJsonByteStreamToDocument(file.stream().getReader(), {
+            const documentData = await parseJsonByteStreamToDocument(input.stream.getReader(), {
                 totalBytes: file.size,
                 sourceLabel: file.name || 'JSON',
                 buildRasterPreview: false

@@ -588,6 +588,13 @@
             <span class="brand-tag">LIGHT</span>
         </div>
         <div class="header-controls">
+            <button class="btn-icon" id="btn-import-json" type="button" title="Import JSON or gzip file">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 16V4M7 9l5-5 5 5M4 16v4h16v-4" />
+                </svg>
+                <span>Import JSON / Gzip</span>
+            </button>
+            <input type="file" id="json-file-input" accept=".json,.json.gz,.gz,.gzip,application/json,application/gzip,application/x-gzip" hidden>
             <button class="btn-icon" id="btn-export-revit" title="Convert Revit">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"></path>
@@ -656,7 +663,7 @@
                 <div class="msg-box">
                     <span class="msg-icon">📥</span>
                     <div class="msg-title">No Data</div>
-                    <div class="msg-sub">Drag & Drop a JSON output file (.json, .json.gz, .gz, .gzip)</div>
+                    <div class="msg-sub">Drop a .json, .json.gz, .gz, or .gzip file anywhere, or click Import JSON / Gzip</div>
                 </div>
             </div>
 
@@ -689,7 +696,7 @@
     <div class="tooltip-float" id="tooltip"></div>
 
     <script src="./env.js"></script>
-    <script src="./json_input.js?v=20260929-gzip-1"></script>
+    <script src="./json_input.js?v=20260929-gzip-2"></script>
     <script>
         class PipeVisualization {
             constructor() {
@@ -739,18 +746,26 @@
 
                 // Drag & Drop
                 this.dragCounter = 0;
-                this.viewport.addEventListener('dragover', e => { e.preventDefault(); });
-                this.viewport.addEventListener('dragenter', e => {
+                document.addEventListener('dragover', e => { e.preventDefault(); });
+                document.addEventListener('dragenter', e => {
                     e.preventDefault();
                     this.dragCounter++;
                     if (this.dragCounter === 1) this.viewport.classList.add('drag-over');
                 });
-                this.viewport.addEventListener('dragleave', e => {
+                document.addEventListener('dragleave', e => {
                     e.preventDefault();
                     this.dragCounter--;
                     if (this.dragCounter === 0) this.viewport.classList.remove('drag-over');
                 });
-                this.viewport.addEventListener('drop', e => this.handleDrop(e));
+                document.addEventListener('drop', e => this.handleDrop(e));
+
+                const jsonFileInput = document.getElementById('json-file-input');
+                document.getElementById('btn-import-json').addEventListener('click', () => jsonFileInput.click());
+                jsonFileInput.addEventListener('change', e => {
+                    const file = e.target.files[0];
+                    if (file) void this.loadFile(file);
+                    e.target.value = '';
+                });
 
                 const btnExportRevit = document.getElementById('btn-export-revit');
                 if (btnExportRevit) {
@@ -866,7 +881,11 @@
                 this.viewport.classList.remove('drag-over');
 
                 const files = e.dataTransfer.files;
-                if (files.length && JsonInput.isJsonFile(files[0])) {
+                const file = files[0];
+                const isJsonFile = typeof JsonInput !== 'undefined'
+                    ? JsonInput.isJsonFile(file)
+                    : Boolean(file) && /\.(json|gz|gzip)$/i.test(file.name);
+                if (isJsonFile) {
                     this.loadFile(files[0]);
                 } else {
                     alert('Please drop a JSON or gzip file (.json, .json.gz, .gz, .gzip).');
@@ -874,7 +893,23 @@
             }
 
             async readJsonFile(file) {
-                return JsonInput.readFile(file);
+                if (typeof JsonInput !== 'undefined') {
+                    return JsonInput.readFile(file);
+                }
+
+                // Keep this standalone viewer usable if the shared script is unavailable.
+                const header = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+                let text;
+                if (header[0] === 0x1f && header[1] === 0x8b) {
+                    if (typeof DecompressionStream === 'undefined') {
+                        throw new Error('Gzip decompression is unavailable. Please use a browser with DecompressionStream support or decompress the file to .json first.');
+                    }
+                    const stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
+                    text = await new Response(stream).text();
+                } else {
+                    text = await file.text();
+                }
+                return JSON.parse(text.replace(/^\uFEFF/, ''));
             }
 
             async loadFile(file) {

@@ -679,7 +679,34 @@
     <!-- Three.js Dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="./json_input.js?v=20260929-gzip-1"></script>
+    <script src="./json_input.js?v=20260929-gzip-3"></script>
+    <script data-json-input-fallback>
+        if (typeof JsonInput === 'undefined') {
+            // Keep file imports working when the shared script is unavailable.
+            window.JsonInput = {
+                isJsonFile(file) {
+                    return Boolean(file) && (/\.(json|gz|gzip)$/i.test(file.name || '') || /^(application\/json|application\/gzip|application\/x-gzip)$/i.test(file.type || ''));
+                },
+                async openFile(file) {
+                    const header = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+                    const isGzip = header[0] === 0x1f && header[1] === 0x8b;
+                    let stream = typeof file.stream === 'function' ? file.stream() : new Response(file).body;
+                    if (isGzip) {
+                        if (typeof DecompressionStream === 'undefined') {
+                            throw new Error('Gzip decompression is unavailable. Please use a browser with DecompressionStream support or decompress the file to .json first.');
+                        }
+                        stream = stream.pipeThrough(new DecompressionStream('gzip'));
+                    }
+                    return { isGzip, stream };
+                },
+                async readFile(file) {
+                    const input = await this.openFile(file);
+                    const text = await new Response(input.stream).text();
+                    return JSON.parse(text.replace(/^\uFEFF/, ''));
+                }
+            };
+        }
+    </script>
     <script>
         // ==================== GLOBAL STATE ====================
         const state = {
@@ -846,16 +873,11 @@
                 document.getElementById('drop-overlay').classList.remove('active');
             });
 
-            document.getElementById('drop-overlay').addEventListener('drop', (e) => {
-                e.preventDefault();
-                document.getElementById('drop-overlay').classList.remove('active');
-                if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
-            });
-
-            // Fallback to prevent default browser file opening
+            // Handle file drops across the page, including the overlay.
             window.addEventListener('drop', (e) => {
                 e.preventDefault();
                 document.getElementById('drop-overlay').classList.remove('active');
+                if (e.dataTransfer.files[0]) void processFile(e.dataTransfer.files[0]);
             });
 
             // Three Interaction
@@ -866,6 +888,7 @@
         // ==================== FILE PROCESSING ====================
         function handleFileSelect(e) {
             if (e.target.files[0]) processFile(e.target.files[0]);
+            e.target.value = '';
         }
 
         async function processFile(file) {

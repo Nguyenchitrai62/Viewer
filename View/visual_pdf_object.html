@@ -17,6 +17,8 @@
         <div id="layer-controls" role="complementary" aria-label="Control panel">
             <h3>Control Panel</h3>
             <div id="control-panel-actions" class="control-panel-actions">
+                <button id="btn-import-file" type="button" title="Import PDF, JSON or gzip" aria-label="Import PDF, JSON or gzip">Import</button>
+                <input id="viewer-file-input" type="file" accept=".pdf,.json,.json.gz,.gz,.gzip,application/pdf,application/json,application/gzip,application/x-gzip" hidden>
                 <button id="btn-show-main-layer" type="button" title="Chỉ hiện layer shape màu đậm nhất" aria-label="Chỉ hiện layer shape màu đậm nhất">Main Layer</button>
             </div>
             <div id="layer-list">
@@ -402,7 +404,111 @@
         }
     </script>
     <script src="./env.js?v=20260507-hardening-1"></script>
-    <script src="./json_input.js?v=20260929-gzip-1"></script>
+    <script src="./json_input.js?v=20260929-gzip-3"></script>
+    <script data-json-input-fallback>
+        if (typeof JsonInput === 'undefined') {
+            // Include the streaming reader so a missing shared script does not force eager parsing.
+            window.JsonInput = (() => {
+                function isJsonFile(file) {
+                    return Boolean(file) && (
+                        /\.(json|gz|gzip)$/i.test(file.name || '') ||
+                        /^(application\/json|application\/gzip|application\/x-gzip)$/i.test(file.type || '')
+                    );
+                }
+
+                function hasGzipHeader(bytes) {
+                    return bytes[0] === 0x1f && bytes[1] === 0x8b;
+                }
+
+                function decompressStream(stream) {
+                    if (typeof DecompressionStream === 'undefined') {
+                        throw new Error('Gzip decompression is unavailable. Please use a browser with DecompressionStream support or decompress the file to .json first.');
+                    }
+                    return stream.pipeThrough(new DecompressionStream('gzip'));
+                }
+
+                // Buffer only a prefix, then replay it so format detection does not consume data.
+                async function peekStream(stream, maxBytes) {
+                    const reader = stream.getReader();
+                    const chunks = [];
+                    let byteLength = 0;
+                    let done = false;
+                    try {
+                        while (byteLength < maxBytes) {
+                            const result = await reader.read();
+                            done = result.done;
+                            if (done) break;
+                            chunks.push(result.value);
+                            byteLength += result.value.byteLength;
+                        }
+                    } catch (error) {
+                        await reader.cancel(error).catch(() => {});
+                        reader.releaseLock();
+                        throw error;
+                    }
+
+                    const prefix = new Uint8Array(Math.min(byteLength, maxBytes));
+                    let offset = 0;
+                    for (const chunk of chunks) {
+                        const count = Math.min(chunk.byteLength, prefix.byteLength - offset);
+                        prefix.set(chunk.subarray(0, count), offset);
+                        offset += count;
+                        if (offset === prefix.byteLength) break;
+                    }
+
+                    let chunkIndex = 0;
+                    const replayStream = new ReadableStream({
+                        async pull(controller) {
+                            if (chunkIndex < chunks.length) {
+                                controller.enqueue(chunks[chunkIndex]);
+                                chunks[chunkIndex++] = null;
+                                return;
+                            }
+                            try {
+                                if (!done) {
+                                    const result = await reader.read();
+                                    done = result.done;
+                                    if (!done) {
+                                        controller.enqueue(result.value);
+                                        return;
+                                    }
+                                }
+                                reader.releaseLock();
+                                controller.close();
+                            } catch (error) {
+                                await reader.cancel(error).catch(() => {});
+                                reader.releaseLock();
+                                controller.error(error);
+                            }
+                        },
+                        async cancel(reason) {
+                            try {
+                                await reader.cancel(reason);
+                            } finally {
+                                reader.releaseLock();
+                            }
+                        }
+                    });
+                    return { prefix, stream: replayStream };
+                }
+
+                async function openFile(file) {
+                    const header = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+                    const isGzip = hasGzipHeader(header);
+                    const stream = typeof file.stream === 'function' ? file.stream() : new Response(file).body;
+                    return { isGzip, stream: isGzip ? decompressStream(stream) : stream };
+                }
+
+                async function readFile(file) {
+                    const input = await openFile(file);
+                    const text = await new Response(input.stream).text();
+                    return JSON.parse(text.replace(/^\uFEFF/, ''));
+                }
+
+                return { isJsonFile, openFile, peekStream, readFile };
+            })();
+        }
+    </script>
     <script src="./visual_pdf_object/config.js?v=20260804-elbow-bbox-solidify-7"></script>
     <script src="./visual_pdf_object/quadtree.js?v=20260507-hardening-1"></script>
     <script src="./visual_pdf_object/state.js?v=20260804-elbow-bbox-solidify-1"></script>
@@ -426,7 +532,7 @@
     <script src="./visual_pdf_object/pipeline.js?v=20260729-remove-legacy-detect-1"></script>
     <script src="./visual_pdf_object/detection_extract.js?v=20260714-connect-span-bbox-1"></script>
     <script src="./visual_pdf_object/vlm.js?v=20260507-hardening-1"></script>
-    <script src="./visual_pdf_object/events.js?v=20260929-gzip-1"></script>
+    <script src="./visual_pdf_object/events.js?v=20260929-gzip-3"></script>
     <script src="./visual_pdf_object/patterns.js?v=20260507-hardening-1"></script>
 </body>
 

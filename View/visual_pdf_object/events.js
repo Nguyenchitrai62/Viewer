@@ -103,14 +103,10 @@ dropZone.addEventListener('dragleave', e => {
     e.stopPropagation();
     dropZone.classList.remove('drag-over');
 });
-dropZone.addEventListener('drop', async e => {
-    e.preventDefault();
-    e.stopPropagation();
+async function importViewerFile(file) {
     dragCounter = 0;
     dropZone.classList.add('hidden');
     dropZone.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-
     if (file && file.name.toLowerCase().endsWith('.pdf')) {
         if (typeof cancelCurrentBatchProcessing === 'function') {
             cancelCurrentBatchProcessing();
@@ -126,7 +122,7 @@ dropZone.addEventListener('drop', async e => {
             alert('Error loading PDF: ' + error.message);
             dropZone.classList.remove('hidden');
         }
-    } else if (file && file.name.toLowerCase().endsWith('.json')) {
+    } else if (JsonInput.isJsonFile(file)) {
         try {
             if (typeof cancelCurrentBatchProcessing === 'function') {
                 cancelCurrentBatchProcessing();
@@ -136,13 +132,29 @@ dropZone.addEventListener('drop', async e => {
             }
             await loadJsonFileStreaming(file);
         } catch (error) {
-            alert('Lỗi khi đọc tệp JSON.\n' + error.message);
+            alert('Lỗi khi đọc tệp JSON/gzip.\n' + error.message);
             dropZone.classList.remove('hidden');
         }
     } else {
-        alert('Please drop a PDF or JSON file.');
+        alert('Please drop a PDF, JSON or gzip file (.json, .json.gz, .gz, .gzip).');
         dropZone.classList.remove('hidden');
     }
+}
+
+async function handleViewerDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    await importViewerFile(e.dataTransfer.files[0]);
+}
+
+dropZone.addEventListener('drop', handleViewerDrop);
+document.addEventListener('drop', handleViewerDrop);
+const viewerFileInput = document.getElementById('viewer-file-input');
+document.getElementById('btn-import-file').addEventListener('click', () => viewerFileInput.click());
+viewerFileInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) void importViewerFile(file);
+    e.target.value = '';
 });
 
 // Auto-load example if `example` query parameter is provided
